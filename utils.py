@@ -13,13 +13,17 @@ def manhattan(pt1 : tuple[int, ...], pt2 : tuple[int, ...]) -> int:
 
 """
 Iterate over all coordinates in a rectangular sub-lattice diagonally.
-Starts from (x_beg, y_beg) [included] and proceeds over minor diagonals towards (x_end, y_end) [excluded].
+Starts from (x_beg, y_beg) [included] and proceeds over minor diagonals
+towards (x_end, y_end) [included/excluded depending on 'end_included'].
 
 Note: this coincides with an enumeration by increasing manhattan distance from (x_beg, y_beg).
 """
-def iter_major_diagonals(x_beg : int, y_beg : int, x_end : int, y_end : int) -> Generator[tuple[int, int], None, None]:
+def iter_major_diagonals(x_beg : int, y_beg : int, x_end : int, y_end : int, end_included : bool = False) -> Generator[tuple[int, int], None, None]:
     x_sign = 1 if x_beg < x_end else -1
     y_sign = 1 if y_beg < y_end else -1
+    if end_included:
+        x_end += x_sign
+        y_end += y_sign
     width = abs(x_end - x_beg)
     height = abs(y_beg - y_end)
     for i in range(height):

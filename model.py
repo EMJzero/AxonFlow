@@ -17,13 +17,13 @@ class HardwareModel:
     chips_per_system_y: int
     
     # COSTS:
-    # energy required for a core's router to route a spike [uJ]
+    # energy required for a core's router to route a spike [pJ]
     energy_per_routing : float
-    # energy requried for a spike to transit over a write between two cores [uJ]
+    # energy requried for a spike to transit over a write between two cores [pJ]
     energy_per_wire : float
-    # clock cycles required for a core's router to route a spike [cc]
+    # clock cycles required for a core's router to route a spike [cc or ns]
     latency_per_routing : float
-    # clock cycles requried for a spike to transit over a write between two cores [cc]
+    # clock cycles requried for a spike to transit over a write between two cores [cc or ns]
     latency_per_wire : float
     
     def __init__(self, neurons_per_core : int,
@@ -65,7 +65,7 @@ class HardwareModel:
                   It assigns to each node its partition.
     """
     def checkPartitionValidity(self, snn: HyperGraph, partitions : list[int]) -> bool:
-        if len(partitions) != len(snn.nodes):
+        if len(partitions) != snn.nodes:
             raise Exception("Each neuron must be assigned to a partition.")
         partitions_counter = Counter(partitions)
         partitions_count = len(partitions_counter)
@@ -95,14 +95,14 @@ class HardwareModel:
     The coordinates assigne the specific partition to a core in on the hardware.
     """
     def checkPlacementValidity(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> bool:
-        if len(placement) != len(part_snn.nodes):
+        if len(placement) != part_snn.nodes:
             raise Exception("Each partition must be assigned to a core.")
         seen_cores = set()
         for core in placement:
             if core[0] < 0 or core[0] >= self.coresAlongX() or core[1] < 0 or core[1] >= self.coresAlongY():
                 return False # a core's coordinates are out of the hardware's range
             if core not in seen_cores:
-                seen_cores.add(seen_cores)
+                seen_cores.add(core)
             else:
                 return False # a core is used more than once
         return True
@@ -145,7 +145,7 @@ class HardwareModel:
             src = he.source()
             for dst in he.destinations():
                 manhattan_distance = manhattan(placement[src], placement[dst])
-                result = max((manhattan_distance + 1)*self.latency_per_routing + manhattan_distance*self.latency_per_wire)
+                result = max((manhattan_distance + 1)*self.latency_per_routing + manhattan_distance*self.latency_per_wire, result)
         return result
     
     """
@@ -156,9 +156,10 @@ class HardwareModel:
         result = 0
         # Note: calculation refactored as the "average probability of spike transit".
         for he in part_snn.hyperedges:
-            src = he.source()
+            src_core = placement[he.source()]
             for dst in he.destinations():
-                result += he.spike_frequency*sum(map(sum, self.expectedSpikeTransitProbability(src[0], src[1], dst[0], dst[1])))
+                dst_core = placement[dst]
+                result += he.spike_frequency*sum(map(sum, self.expectedSpikeTransitProbability(src_core[0], src_core[1], dst_core[0], dst_core[1])))
         return result / self.coresCount()
     
     """
@@ -168,13 +169,14 @@ class HardwareModel:
     def placementMaximumCongestion(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> float:
         congestion_matrix = [[0 for _ in range(self.coresAlongY())] for _ in range(self.coresAlongX())]
         for he in part_snn.hyperedges:
-            src = he.source()
+            src_core = placement[he.source()]
             for dst in he.destinations():
-                transit_prob_matrix = self.expectedSpikeTransitProbability(src[0], src[1], dst[0], dst[1])
-                x_base = min(dst[0], src[0])
-                y_base = min(dst[1], src[1])
-                for x in range(abs(dst[0] - src[0])):
-                    for y in range(abs(dst[1] - src[1])):
+                dst_core = placement[dst]
+                transit_prob_matrix = self.expectedSpikeTransitProbability(src_core[0], src_core[1], dst_core[0], dst_core[1])
+                x_base = min(dst_core[0], src_core[0])
+                y_base = min(dst_core[1], src_core[1])
+                for x in range(abs(dst_core[0] - src_core[0])):
+                    for y in range(abs(dst_core[1] - src_core[1])):
                         congestion_matrix[x_base + x][y_base + y] += he.spike_frequency*transit_prob_matrix[x][y]
         # TODO: upgrade this to also return the average congestion, since we are at it...
         return max(map(max, congestion_matrix))
@@ -184,15 +186,38 @@ class HardwareModel:
     going from cores '(x_src, y_src)' to core '(x_dst, y_dst)'.
     The element '(x, y)' in the matrix matches to '(min(x_src, x_dst) + x, min(y_src, y_dst) + y)' on the original lattice.
     """
+    # TODO: precompute or cache those matrices by size (transpose+rotate and return to account for direction)...
     def expectedSpikeTransitProbability(self, x_src : int, y_src : int, x_dst : int, y_dst : int) -> list[list[float]]:
-        matrix = [[0 for _ in range(abs(y_dst - y_src))] for _ in range(abs(x_dst - x_src))]
+        matrix = [[0 for _ in range(abs(y_dst - y_src) + 1)] for _ in range(abs(x_dst - x_src) + 1)]
         matrix[0][0] = 1
-        for x, y in iter_major_diagonals(x_src, y_src, x_dst, y_dst):
-            if x == x_dst - 1 and y != y_dst - 1:
-                matrix[x][y + 1] += matrix[x][y]
-            elif x != x_dst - 1 and y == y_dst - 1:
-                matrix[x + 1][y] += matrix[x][y]
-            elif x != x_dst - 1 and y != y_dst - 1:
-                matrix[x + 1][y] += matrix[x][y]/2
-                matrix[x][y + 1] += matrix[x][y]/2
+        x_src, x_dst = x_src - (m := min(x_src, x_dst)), x_dst - m
+        y_src, y_dst = y_src - (m := min(y_src, y_dst)), y_dst - m
+        x_sign = 1 if x_src == 0 else -1
+        y_sign = 1 if y_src == 0 else -1
+        # TODO: could simplify 'iter_major_diagonals' to take signs (directions), width, and height directly
+        for x, y in iter_major_diagonals(x_src, y_src, x_dst, y_dst, end_included = True):
+            if x == x_dst and y != y_dst:
+                matrix[x][y + y_sign] += matrix[x][y]
+            elif x != x_dst and y == y_dst:
+                matrix[x + x_sign][y] += matrix[x][y]
+            elif x != x_dst and y != y_dst:
+                matrix[x + x_sign][y] += matrix[x][y]/2
+                matrix[x][y + y_sign] += matrix[x][y]/2
         return matrix
+
+
+# Library of existing neuromorphic systems:
+
+# Source: table 2 in "Loihi: A Neuromorphic Manycore Processor with On-Chip Learning", referring to data at 0.75V.
+loihi = HardwareModel(
+    neurons_per_core = -256,
+    synapses_per_core = min(2**14, 4096),
+    cores_per_chip_x = 16,
+    cores_per_chip_y = 8,
+    chips_per_system_x = 1,
+    chips_per_system_y = 1,
+    energy_per_routing = 1.7,
+    energy_per_wire = 3.5,
+    latency_per_routing = 2.1,
+    latency_per_wire = 5.3
+)
