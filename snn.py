@@ -1,6 +1,9 @@
-from collections.abc import Iterable, Iterator
-from typing import Any, Optional, Self
+from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
+from typing import Optional, Self, Union
+
+import networkx as nx
 import random
 
 class HyperEdge(Iterable):
@@ -23,7 +26,6 @@ class HyperEdge(Iterable):
     
     def __str__(self) -> str:
         return self.nodes.__str__()[:-1] + f", sf = {self.spike_frequency:.1e})"
-
     
     """
     Number connections in the hyperedge, that is (|nodes| - 1).
@@ -32,12 +34,17 @@ class HyperEdge(Iterable):
     def connections(self) -> int:
         return len(self.nodes) - 1
 
+"""
+Directed hypergraph to model a SNN.
+Each edge has one source neuron (node) and represents an axon going into many neurons (nodes) with a synapse for each.
+Edges are weighted by the frequency with which they are traversed by a spike.
+"""
 class HyperGraph:
     # each node is identified by an index in [0, nodes)
     nodes : int
     hyperedges : list[HyperEdge]
     
-    def __init__(self, nodes : int, hyperedges : list[Any], spike_frequencies : Optional[list[float]] = None):
+    def __init__(self, nodes : int, hyperedges : list[Union[HyperEdge, tuple[int, ...]]], spike_frequencies : Optional[list[float]] = None):
         self.nodes = nodes
         if len(hyperedges) == 0:
             self.hyperedges = []
@@ -83,6 +90,13 @@ class HyperGraph:
         return cls(n, hyperedges, spike_frequencies)
 
     """
+    Lower the HyperGraph into a directed Graph.
+    """
+    def toGraph(self) -> Graph:
+        edges = [Edge(he.source(), dst, he.spike_frequency) for he in self.hyperedges for dst in he.destinations()]
+        return Graph(self.nodes, edges)
+
+    """
     Returns the hypegraph that arises between partitions of the present hypergraph,
     in which nodes are the partitions and only hyperedges between partitions are kept.
     
@@ -120,23 +134,55 @@ class HyperGraph:
             result += he.__str__() + ', '
         return result[:-2] + ']'
 
+class Edge(HyperEdge):
+    def __init__(self, source : int, destination : int, spike_frequency : float):
+        self.nodes = (source, destination)
+        self.spike_frequency = spike_frequency
+    
+    @classmethod
+    def fromHyperEdge(cls, hyperedge : HyperEdge) -> Self:
+        if len(hyperedge.nodes) > 2:
+            raise Exception("Can't lower an HyperEdge with more than one destination to an Edge.")
+        hyperedge.__class__ = cls
+        return hyperedge
+    
+    def destination(self) -> int:
+        return self.nodes[1]
+
+"""
+Directed graph to model a SNN.
+Edges are weighted by the frequency with which they are traversed by a spike.
+"""
 class Graph(HyperGraph):
-    def __init__(self, nodes : int, edges : list[Any], spike_frequencies : Optional[list[float]] = None):
+    edges : list[Edge]
+    def __init__(self, nodes : int, edges : list[Union[Edge, HyperEdge, tuple[int, int]]], spike_frequencies : Optional[list[float]] = None):
         self.nodes = nodes
         if len(edges) == 0:
             self.hyperedges = []
-        elif all(isinstance(he, HyperEdge) and len(he.nodes) == 2 for he in edges):
+        elif all(isinstance(he, Edge) for he in edges):
             self.hyperedges = edges # Be wary, there's no copy here!
+        elif all(isinstance(he, HyperEdge) and len(he.nodes) == 2 for he in edges):
+            self.hyperedges = list(map(Edge.fromHyperEdge, edges)) # Be wary, there's no copy here!
         elif all(isinstance(he, tuple) and len(he) == 2 for he in edges) and spike_frequencies and len(spike_frequencies) == len(edges):
-            self.hyperedges = [HyperEdge(he[0], he[1:], spike_frequencies[i]) for i, he in enumerate(edges)]
+            self.hyperedges = [Edge(he[0], he[1:], spike_frequencies[i]) for i, he in enumerate(edges)]
         else:
-            raise Exception("""Failed to build hypergraph. Edges shall be provided either as an empty list, a list of HyperEdge instances, or a list of tuples of exactly two entries each.
+            raise Exception("""Failed to build graph. Edges shall be provided either as an empty list, a list of Edges, a list of HyperEdges, or a list of tuples of exactly two entries each.
                                In the latter case, spike_frequencies must also be a list of the same lenght, while the first entry in each tuple specifies the source node for that edge.""")
         if any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
             raise Exception("Invalid edges, all node indices must be in the range [0, nodes).")
-        used_sources = set()
-        for he in self.hyperedges:
-            if (src := he.source()) not in used_sources:
-                used_sources.add(src)
+        self.edges = self.hyperedges
+    
+    """
+    Convert the directed graph in NetworkX format.
+    Directionality can be disable with the 'directed' flag.
+    """
+    def toNxGraph(self, directed : bool = True) -> Union[nx.DiGraph, nx.Graph]:
+        g = nx.DiGraph() if directed else nx.Graph()
+        g.add_nodes_from(range(self.nodes))
+        for e in self.edges:
+            src, dst = e.source(), e.destination()
+            if g.has_edge(src, dst):
+                g[src][dst]['spike_frequency'] += e.spike_frequency
             else:
-                raise Exception("Each node can act a source for at most one edge.")
+                g.add_edge(src, dst, spike_frequency = e.spike_frequency)
+        return g

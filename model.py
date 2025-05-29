@@ -204,6 +204,15 @@ class HardwareModel:
                 matrix[x + x_sign][y] += matrix[x][y]/2
                 matrix[x][y + y_sign] += matrix[x][y]/2
         return matrix
+    
+    def getAllMetrics(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> dict[str, float]:
+        return {
+            'energy': self.placementEnergyConsumption(part_snn, placement),
+            'avg_latency': self.placementAverageLatency(part_snn, placement),
+            'max_latency': self.placementMaximumLatency(part_snn, placement),
+            'avg_congestion': self.placementAverageCongestion(part_snn, placement),
+            'max_congestion': self.placementMaximumCongestion(part_snn, placement)
+        }
 
 
 # Library of existing neuromorphic systems:

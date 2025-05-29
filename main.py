@@ -1,4 +1,4 @@
-from typing import TypeVar, Union
+from typing import TypeVar, Union, Any
 from types import FrameType
 
 import traceback
@@ -7,6 +7,8 @@ import code
 import time
 import sys
 
+from partitioner import *
+from placer import *
 from model import *
 from snn import *
 
@@ -94,9 +96,12 @@ if __name__ == "__main__":
         latency_per_routing = 1.0,
         latency_per_wire = 0.1
     )
-    snn = HyperGraph.generate_random(16, 6, 4, seed = 79)
+    snn = HyperGraph.generate_random(160, 6, 4, seed = 79)
     partitioning = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4]
     placement = [(x, y) for x in range(4) for y in range(4)]
+    spectral_placement = spectralPlacement(snn.toGraph().toNxGraph(), 32, 32)
+    hsc_placement = hilbertPlacement(snn.nodes, 32, 32)
+    topologycal_order = topologycalOrder(makeAcyclic(snn))
     print("This does nothing, use interactive mode for now...")
 
     if options["interactive"]:
