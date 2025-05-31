@@ -7,9 +7,11 @@ import code
 import time
 import sys
 
+from graph_utils import *
 from partitioner import *
 from placer import *
 from model import *
+from print import *
 from snn import *
 
 # CLI MANAGEMENT
@@ -83,7 +85,9 @@ if __name__ == "__main__":
         print("------------------------------")
         sys.exit(0)
 
+
     # MAIN CODE:
+    seed = 79
     hardware = HardwareModel(
         neurons_per_core = 256,
         synapses_per_core = 1024,
@@ -96,13 +100,36 @@ if __name__ == "__main__":
         latency_per_routing = 1.0,
         latency_per_wire = 0.1
     )
-    snn = HyperGraph.generate_random(160, 6, 4, seed = 79)
-    partitioning = [0, 0, 0, 0, 1, 1, 1, 1, 2, 2, 3, 3, 3, 4, 4, 4]
-    placement = [(x, y) for x in range(4) for y in range(4)]
-    spectral_placement = spectralPlacement(snn.toGraph().toNxGraph(), 32, 32)
-    hsc_placement = hilbertPlacement(snn.nodes, 32, 32)
-    topologycal_order = topologycalOrder(makeAcyclic(snn))
-    print("This does nothing, use interactive mode for now...")
+    snn = HyperGraph.generate_random(1024, 16, 4, seed = seed)
+    #acyclic_snn = makeAcyclic(snn)
+
+    try:
+        print("\n-------- partitioning --------")
+        partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed)
+        partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
+        partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
+        part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined)
+        part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy)
+        part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential)
+        print("Metrics multilevel multistart refined partitioning:")
+        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_multilevel_multistart_refined), 'tot_hyperedges_spike_frequency': part_snn_mmr.totalSpikeFrequency()}, 1)
+        print("Metrics greedy partitioning:")
+        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_greedy), 'tot_hyperedges_spike_frequency': part_snn_greedy.totalSpikeFrequency()}, 1)
+        print("Metrics sequential partitioning:")
+        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_sequential), 'tot_hyperedges_spike_frequency': part_snn_seq.totalSpikeFrequency()}, 1)
+
+        print("\n----------- layout -----------")
+        spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), 32, 32)
+        topologycal_order, _ = topologycalOrder(part_snn_seq, True) # this is the full approach from Ouwen Jin's paper.
+        hsc_placement = hilbertPlacement(topologycal_order.nodes, 32, 32)
+        metrics_spectral = hardware.getAllMetrics(part_snn_mmr, spectral_placement)
+        metrics_hsc = hardware.getAllMetrics(topologycal_order, hsc_placement)
+        print("Metrics spectral layout:")
+        prettyPrintDict(metrics_spectral, 1)
+        print("Metrics HSC layout:")
+        prettyPrintDict(metrics_hsc, 1)
+    except Exception:
+        print(traceback.format_exc())
 
     if options["interactive"]:
         print("\n------ interactive mode ------")

@@ -11,45 +11,11 @@ from scipy.spatial import KDTree
 # Another way to put this, is that we want to maximize the locality of connections.
 # 
 # Techniques:
-# - Start from a good initial layout.
+# - First get a topological ordering of the graph (making it acyclic if needed).
 # - Hilbert Space Filling Curve as a starting point. Issue: works only on power-of-two lattice dimensions.
 # - Spectal layout technique for a starting point.
-# - Refine the placement with a Force-Directed algorithm.
-# - Simulated Annealing, Particle Swarm, etc...
+# - Refine the placement with a Force-Directed algorithm (or Simulated Annealing, Particle Swarm, etc...).
 # - Co-optimize with the partitining while refining the placement.
-
-"""
-Prototype, did not generate a compact layout.
-
-def spectralPlacement(graph : nx.Graph, width : int, height : int) -> list[tuple[int, int]]:
-    nodes = graph.number_of_nodes()
-    assert width * height >= nodes, "Grid too small to hold all nodes."
-
-    pos = nx.spectral_layout(graph, weight = 'spike_frequency', dim = 2)
-
-    points = np.array([pos[i] for i in range(nodes)])
-    points -= points.min(axis=0)
-    points /= points.max(axis=0) + 1e-9  # avoid div by zero
-    points[:, 0] *= width - 1
-    points[:, 1] *= height - 1
-
-    grid_points = [(x, y) for x in range(width) for y in range(height)]
-    tree = KDTree(grid_points)
-    used = set()
-    embedding = [0 for _ in range(len(points))]
-
-    for i, pt in enumerate(points):
-        _, idx = tree.query(pt)
-        while grid_points[idx] in used:
-            # Resolve collision
-            grid_points.pop(idx)
-            tree = KDTree(grid_points)
-            _, idx = tree.query(pt)
-        embedding[i] = grid_points[idx]
-        used.add(grid_points[idx])
-
-    return embedding
-"""
 
 """
 Compute a compact, structure-aware layout of a graph onto a 2D integer lattice.

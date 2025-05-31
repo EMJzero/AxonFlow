@@ -1,6 +1,7 @@
-from typing import TypeVar, Generator
+from typing import TypeVar, Generator, Callable, Iterable, Any
 
 T = TypeVar('T')
+U = TypeVar('U')
 
 """
 Compute the manhattan distance betwenn two points 'pt1' and 'pt2' in an n-dimensional lattice.
@@ -34,36 +35,16 @@ def iter_major_diagonals(x_beg : int, y_beg : int, x_end : int, y_end : int, end
             yield (x_beg + x_sign*(j + i), y_end - y_sign*(1 + i))
 
 """
-Development versions:
+Performs a foldL of the provided 'iterable', starting from 'initial', and return
+every intermediate result, in order. Intermediate results include 'initial'.
 
-Iterate over all coordinates in a rectangular sub-lattice diagonally.
-Starts from (0, 0) and proceeds from the bottom left to the top right over minor diagonals.
-def iter_major_diagonals(width : int, height : int) -> Generator[tuple[int, int], None, None]:
-    for i in range(height):
-        #print("")
-        for j in range(min(i + 1, width)):
-            #print(f"(y : {i - j}, x : {j})")
-            yield (j, i - j)
-    #print("modechange")
-    for j in range(1, width):
-        #print("")
-        for i in range(min(width - j, height)):
-            #print(f"(y : {height - 1 - i}, x : {j + i})")
-            yield (j + i, height - 1 - i)
-
-Generic.
-def itersquare(x_beg, y_beg, x_end, y_end):
-    x_sign = 1 if x_beg < x_end else -1
-    y_sign = 1 if y_beg < y_end else -1
-    width = abs(x_end - x_beg)
-    height = abs(y_beg - y_end)
-    for i in range(height):
-        print("")
-        for j in range(min(i + 1, width)):
-            print(f"(y : {y_beg + y_sign*(i - j)}, x : {x_beg + x_sign*j}) dist: {manhattan((x_beg + x_sign*j, y_beg + y_sign*(i - j)), (x_beg, y_beg))}")
-    print("modechange")
-    for j in range(1, width):
-        print("")
-        for i in range(min(width - j, height)):
-            print(f"(y : {y_end - y_sign*(1 + i)}, x : {x_beg + x_sign*(j + i)}) dist: {manhattan((x_beg + x_sign*(j + i), y_end - y_sign*(1 + i)), (x_beg, y_beg))}")
+The provided folding function shall take two arguments, of which the first will
+be used for the accumulator.
 """
+def scan_left(func : Callable[[T, U], T], iterable : Iterable[U], initial : T) -> list[T]:
+    result = [initial]
+    acc = initial
+    for item in iterable:
+        acc = func(acc, item)
+        result.append(acc)
+    return result

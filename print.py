@@ -1,4 +1,26 @@
 """
+Returns a string with a pretty textual representation of the provided dictionary.
+"""
+def prettyFormatDict(dictionary : dict, indent_level : int = 0) -> str:
+    string = ""
+    for key, value in (dictionary.items() if isinstance(dictionary, dict) else zip(["" for i in dictionary], dictionary)):
+        string += '    '*indent_level + (f"{key}: " if key != "" else "- ")
+        if isinstance(value, dict):
+            string += "\n" + prettyFormatDict(value, indent_level + 1)
+        elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
+            string += "\n" + prettyFormatDict(value, indent_level + 1)
+        else:
+            string += str(value)
+        string += "\n"
+    return string.rstrip()
+
+"""
+Prints a nicely formatted textual representation of the provided dictionary.
+"""
+def prettyPrintDict(dictionary : dict, indent_level : int = 0) -> None:
+    print(prettyFormatDict(dictionary, indent_level))
+
+"""
 Failure in drawing graphs with braill on the CLI.
 
 import random

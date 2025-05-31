@@ -57,12 +57,6 @@ class HyperGraph:
                                In the latter case, spike_frequencies must also be a list of the same lenght, while the first entry in each tuple specifies the source node for that hyperedge.""")
         if any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
             raise Exception("Invalid hyperedges, all node indices must be in the range [0, nodes).")
-        #used_sources = set()
-        #for he in self.hyperedges:
-        #    if (src := he.source()) not in used_sources:
-        #        used_sources.add(src)
-        #    else:
-        #        raise Exception("Each node can act a source for at most one hyperedge.")
 
     """
     Generate a random hypergraph with 'n' nodes, where each node is the source
