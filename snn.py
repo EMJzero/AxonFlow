@@ -57,6 +57,10 @@ class HyperGraph:
                                In the latter case, spike_frequencies must also be a list of the same lenght, while the first entry in each tuple specifies the source node for that hyperedge.""")
         if any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
             raise Exception("Invalid hyperedges, all node indices must be in the range [0, nodes).")
+        
+        # TODO: hyperedges must be kept sorted w.r.t. their 'nodes' list, therefore they will be first sorted by their source.
+        #       This speeds up all methods that need to access the outbound hyperedges of a specific node.
+        #self.hyperedges.sort(key = lambda he : he.nodes)
 
     """
     Generate a random hypergraph with 'n' nodes, where each node is the source
@@ -85,10 +89,23 @@ class HyperGraph:
 
     """
     Lower the HyperGraph into a directed Graph.
+    If 'collaps_overlapping_edges' is True, resulting edges with the same source and destination will
+    be merged and their spike frequencies added together.
     """
-    def toGraph(self) -> Graph:
-        edges = [Edge(he.source(), dst, he.spike_frequency) for he in self.hyperedges for dst in he.destinations()]
-        return Graph(self.nodes, edges)
+    def toGraph(self, collapse_overlapping_edges : bool = False) -> Graph:
+        if not collapse_overlapping_edges:
+            return Graph(self.nodes, [Edge(he.source(), dst, he.spike_frequency) for he in self.hyperedges for dst in he.destinations()])
+        else:
+            edges : dict[tuple[int, int], Edge] = {}
+            for he in self.hyperedges:
+                for dst in he.destinations():
+                    src = he.source()
+                    key = (src, dst)
+                    if key in edges:
+                        edges[(src, dst)].spike_frequency += he.spike_frequency
+                    else:
+                        edges[(src, dst)] = Edge(src, dst, he.spike_frequency)
+            return Graph(self.nodes, edges.values())
 
     """
     Returns the hypegraph that arises between partitions of the present hypergraph,
@@ -97,8 +114,11 @@ class HyperGraph:
     Args:
     - partitions: list of partitions indices, one per node in the graph, in order.
                   It assigns to each node its partition.
+    - keep_self_cycles: if True, hyperedges entirely contained in a partition do not
+                        disappear, instead are kept as a self-edge from the partition
+                        to itself, preserving the total spike frequency.
     """
-    def getPartitionsHypergraph(self, partitions : list[int]) -> Self:
+    def getPartitionsHypergraph(self, partitions : list[int], keep_self_cycles : bool = False) -> Self:
         if len(partitions) != self.nodes:
             raise Exception("Each node must be assigned to a partition.")
         new_nodes = len(set(partitions))
@@ -106,11 +126,29 @@ class HyperGraph:
             raise Exception("Partitions must be incrementally indexed from 0 onward.")
         
         new_hyperedges = []
+        self_cycles = {}
         for he in self.hyperedges:
-            affected_partitions = tuple(dict.fromkeys([partitions[node] for node in he])) # deduplicate
+            affected_partitions = tuple(set([partitions[node] for node in he])) # deduplicate
             if len(affected_partitions) > 1:
                 new_hyperedges.append(HyperEdge(affected_partitions[0], affected_partitions[1:], he.spike_frequency))
+            elif keep_self_cycles:
+                if affected_partitions[0] not in self_cycles:
+                    self_cycles[affected_partitions[0]] = he.spike_frequency
+                else:
+                    self_cycles[affected_partitions[0]] += he.spike_frequency
+        for partition, spike_frequency in self_cycles.items():
+            new_hyperedges.append(HyperEdge(partition, (partition,), spike_frequency))
         return HyperGraph(new_nodes, new_hyperedges)
+    
+    """
+    Given a node's index, returns the list of hyperedges outbound from that node.
+    Throws an exception if the node's index is invalid.
+    """
+    # TODO: can be sped up if hyperedges are sorted by source!
+    def getOutboundHyperedges(self, node : int) -> list[HyperEdge]:
+        if node < 0 or node >= self.nodes:
+            raise Exception("Invalid node.")
+        return list(he for he in self.hyperedges if he.source() == node)
     
     """
     Returns the total spike frequency on the hypergraph's connections.

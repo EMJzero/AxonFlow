@@ -80,85 +80,190 @@ If 'break_cycles' is True, the input graph can have cycles, and the final output
 topological order, pending ignoring a set of connection (that is also returned). Otherwise having
 cycles will raise an exception.
 
+The cycles breaking strategy works by repeatedly:
+    1) finding any directed cycle (via DFS on the hypergraph lowered in a graph);
+    2) removing exactly the single arc of minimal spike frequency from that cycle;
+    3) repeating until no directed cycle remains.
+
 The function returns:
 - a new HyperGraph with topologically ordered nodes (or mostly ordered, if the input has cycles).
 - the set of masked edges (i.e., (src, dst) pairs that were ignored when computing the ordering,
   ignoring those in the returned hypergraph makes it topologically ordered and acyclic).
 """
-def topologycalOrder(hg: HyperGraph, break_cycles: bool = False) -> tuple[HyperGraph, set[tuple[int, int]]]:
+def topologicalOrder( hg: HyperGraph, break_cycles: bool = False) -> tuple[HyperGraph, list[tuple[int, int]]]:
+    n = hg.nodes
+    arc_src, arc_dst, arc_weight = [], [], []
+    outgoing_arcs = [[] for _ in range(n)]
+    active_arcs = set()
+
+    # Flatten hyperedges into individual arcs
+    for he in hg.hyperedges:
+        s = he.source()
+        for d in he.destinations():
+            i = len(arc_src)
+            arc_src.append(s)
+            arc_dst.append(d)
+            arc_weight.append(he.spike_frequency)
+            outgoing_arcs[s].append(i)
+            active_arcs.add(i)
+
+    # Helper: find one cycle via DFS, return list of arc indices
+    def find_cycle() -> Optional[list[int]]:
+        color = [0] * n
+        parent_arc = [-1] * n
+
+        def dfs(u: int) -> Optional[list[int]]:
+            color[u] = 1
+            for aid in outgoing_arcs[u]:
+                if aid not in active_arcs: continue
+                v = arc_dst[aid]
+                if color[v] == 0:
+                    parent_arc[v] = aid
+                    res = dfs(v)
+                    if res: return res
+                elif color[v] == 1:
+                    cycle = [aid]
+                    w = u
+                    while True:
+                        pa = parent_arc[w]
+                        cycle.append(pa)
+                        w = arc_src[pa]
+                        if w == v: break
+                    return cycle
+            color[u] = 2
+            return None
+
+        for i in range(n):
+            if color[i] == 0:
+                res = dfs(i)
+                if res: return res
+        return None
+
+    masked = []
+
+    if break_cycles:
+        while (cycle := find_cycle()):
+            worst = min(cycle, key=lambda i: arc_weight[i])
+            active_arcs.remove(worst)
+            masked.append((arc_src[worst], arc_dst[worst]))
+    else:
+        if find_cycle():
+            raise Exception("Cycle detected and break_cycles=False")
+
+    # Topological sort (Kahn's algorithm) on remaining active arcs
+    indeg = [0] * n
+    adj = [[] for _ in range(n)]
+    for i in active_arcs:
+        u, v = arc_src[i], arc_dst[i]
+        indeg[v] += 1
+        adj[u].append(v)
+
+    queue = deque(i for i in range(n) if indeg[i] == 0)
+    order, new_id = [], [0] * n
+
+    while queue:
+        u = queue.popleft()
+        new_id[u] = len(order)
+        order.append(u)
+        for v in adj[u]:
+            indeg[v] -= 1
+            if indeg[v] == 0:
+                queue.append(v)
+
+    if len(order) < n:
+        raise Exception("Topological sort failed (graph not acyclic)")
+
+    # Rebuild hypergraph with permuted node IDs
+    new_edges = [HyperEdge(new_id[he.source()], tuple(new_id[d] for d in he.destinations()), he.spike_frequency) for he in hg.hyperedges]
+    return HyperGraph(n, new_edges), masked
+
+"""
+Same functionality as 'topologicalOrder', but the logic to make the graph acyclic is weaker: it attempts to
+remove the minimum-sum of spike_frequency connections, one by one, in ascending order of their spike_frequency.
+"""
+def topologicalOrderWeak(hg: HyperGraph, break_cycles: bool = False) -> tuple[HyperGraph, list[tuple[int, int]]]:
     n = hg.nodes
     original_in_degree = [0] * n
     outgoing = [[] for _ in range(n)]
 
-    # Build initial graph structure
     for he in hg.hyperedges:
         src = he.source()
         for dst in he.destinations():
             original_in_degree[dst] += 1
             outgoing[src].append(dst)
 
-    # Try topological sort (Kahn’s algorithm) with optional edge masking
-    def try_topo_sort(masked_edges: set[tuple[int, int]]) -> Optional[list[int]]:
-        in_degree = original_in_degree.copy()
-        for _, dst in masked_edges:
-            in_degree[dst] -= 1
+    from collections import Counter
+
+    """
+    Attempt a Kahn's algorithm on the directed masked hypergraph.
+    If a topological order exists, it is returned.
+    """
+    def try_topo_sort(masked_counts: Counter) -> Optional[list[int]]:
+        in_degree = original_in_degree[:]  # make a fresh copy
+        for (_, dst), count in masked_counts.items():
+            in_degree[dst] -= count
 
         queue = deque(i for i in range(n) if in_degree[i] == 0)
         topo = []
+        rem_masks = masked_counts.copy()
         while queue:
-            node = queue.popleft()
-            topo.append(node)
-            for dst in outgoing[node]:
-                if (node, dst) in masked_edges:
-                    continue
-                in_degree[dst] -= 1
-                if in_degree[dst] == 0:
-                    queue.append(dst)
+            u = queue.popleft()
+            topo.append(u)
+            for v in outgoing[u]:
+                if rem_masks.get((u, v), 0) > 0:
+                    rem_masks[(u, v)] -= 1
+                else:
+                    in_degree[v] -= 1
+                    if in_degree[v] == 0:
+                        queue.append(v)
 
         return topo if len(topo) == n else None
 
-    # First attempt: no cycle breaking
-    masked_edges: set[tuple[int, int]] = set()
-    topo = try_topo_sort(masked_edges)
+    masked_counts = Counter() # how many copies of each (src, dst) have been masked so far
+    topo = try_topo_sort(masked_counts)
+
     if topo is None:
         if not break_cycles:
-            raise Exception("The hypergraph contains a cycle.")
+            raise Exception("The hypergraph contains a cycle and break_cycles=False.")
 
-        # Gather all connections with their spike frequencies
-        all_connections = []
+        all_connections : list[tuple[tuple[int, int], float]] = []
         for he in hg.hyperedges:
             src = he.source()
             for dst in he.destinations():
                 all_connections.append(((src, dst), he.spike_frequency))
 
-        # Sort connections by increasing spike frequency (low-cost to remove)
-        all_connections.sort(key = lambda x: x[1])
+        # Sort by ascending spike_frequency so that we remove the cheapest‐cost arcs first.
+        all_connections.sort(key=lambda pair: pair[1])
 
-        # Incrementally mask connections until a valid topological order is found
+        # mask them one by one until try_topo_sort succeeds.
         for (src, dst), _ in all_connections:
-            masked_edges.add((src, dst))
-            topo = try_topo_sort(masked_edges)
+            masked_counts[(src, dst)] += 1
+            topo = try_topo_sort(masked_counts)
             if topo is not None:
                 break
 
         if topo is None:
-            raise Exception("Failed to break cycles to obtain a topological order.")
+            raise Exception("Failed to break cycles to obtain a topological order. (This should never happen.)")
 
-    # Remap node indices based on topo sort
     new_index = [0] * n
     for new_id, old_id in enumerate(topo):
         new_index[old_id] = new_id
 
-    # Rebuild hyperedges with remapped node indices — ALL original connections are preserved
-    new_hyperedges = []
+    new_hyperedges: list[HyperEdge] = []
     for he in hg.hyperedges:
-        src_old = he.source()
-        dsts_old = he.destinations()
-        src_new = new_index[src_old]
-        dsts_new = tuple(new_index[dst] for dst in dsts_old)
-        new_hyperedges.append(HyperEdge(src_new, dsts_new, he.spike_frequency))
+        old_src = he.source()
+        old_dsts = he.destinations()
+        new_src = new_index[old_src]
+        new_dsts = tuple(new_index[dst] for dst in old_dsts)
+        new_hyperedges.append(HyperEdge(new_src, new_dsts, he.spike_frequency))
 
-    return HyperGraph(n, new_hyperedges), masked_edges
+    new_hg = HyperGraph(n, new_hyperedges)
+
+    masked_list: list[tuple[int, int]] = []
+    for (s, d), count in masked_counts.items():
+        masked_list.extend([(s, d)] * count)
+
+    return new_hg, masked_list
 
 """
 Forcibly makes a directed HyperGraphs acyclic by trying to heuristically

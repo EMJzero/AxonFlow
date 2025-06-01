@@ -36,6 +36,8 @@ class HardwareModel:
                  energy_per_wire : float,
                  latency_per_routing : float,
                  latency_per_wire : float):
+        assert neurons_per_core > 0 and synapses_per_core > 0 and cores_per_chip_x > 0 and cores_per_chip_y > 0 and chips_per_system_x > 0 and chips_per_system_y > 0, "All hardware specifications must be > 0."
+        assert energy_per_routing >= 0 and energy_per_wire >= 0 and latency_per_routing >= 0 and latency_per_wire >= 0, "All hardware costs must be >= 0."
         assert chips_per_system_x == 1 and chips_per_system_y == 1, "Functionality not yet implemented, ensure that 'chips_per_system_x' and 'chips_per_system_y' are 1."
         self.neurons_per_core = neurons_per_core
         self.synapses_per_core = synapses_per_core
@@ -133,7 +135,7 @@ class HardwareModel:
             for dst in he.destinations():
                 manhattan_distance = manhattan(placement[src], placement[dst])
                 result += he.spike_frequency*((manhattan_distance + 1)*self.latency_per_routing + manhattan_distance*self.latency_per_wire)
-        return result / tot_spike_frequency
+        return result / tot_spike_frequency if tot_spike_frequency > 0 else 0
     
     """
     Given a placement for a partitioned SNN, estimates its maximum latency.
@@ -219,7 +221,7 @@ class HardwareModel:
 
 # Source: table 2 in "Loihi: A Neuromorphic Manycore Processor with On-Chip Learning", referring to data at 0.75V.
 loihi = HardwareModel(
-    neurons_per_core = -256,
+    neurons_per_core = 1024,
     synapses_per_core = min(2**14, 4096),
     cores_per_chip_x = 16,
     cores_per_chip_y = 8,

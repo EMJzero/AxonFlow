@@ -108,9 +108,9 @@ if __name__ == "__main__":
         partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed)
         partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
         partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
-        part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined)
-        part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy)
-        part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential)
+        part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
+        part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy, keep_self_cycles = True)
+        part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential, keep_self_cycles = True)
         print("Metrics multilevel multistart refined partitioning:")
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_multilevel_multistart_refined), 'tot_hyperedges_spike_frequency': part_snn_mmr.totalSpikeFrequency()}, 1)
         print("Metrics greedy partitioning:")
@@ -119,15 +119,26 @@ if __name__ == "__main__":
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_sequential), 'tot_hyperedges_spike_frequency': part_snn_seq.totalSpikeFrequency()}, 1)
 
         print("\n----------- layout -----------")
-        spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), 32, 32)
-        topologycal_order, _ = topologycalOrder(part_snn_seq, True) # this is the full approach from Ouwen Jin's paper.
-        hsc_placement = hilbertPlacement(topologycal_order.nodes, 32, 32)
+        # These are complete approaches, novel or from previous works
+        spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
+        topological_order, _ = topologicalOrder(part_snn_seq, break_cycles = True) # this is the full approach from Ouwen Jin's paper.
+        hsc_placement = hilbertPlacement(topological_order.nodes, hardware.coresAlongX(), hardware.coresAlongY())
         metrics_spectral = hardware.getAllMetrics(part_snn_mmr, spectral_placement)
-        metrics_hsc = hardware.getAllMetrics(topologycal_order, hsc_placement)
-        print("Metrics spectral layout:")
+        metrics_hsc = hardware.getAllMetrics(topological_order, hsc_placement)
+        print("Metrics spectral layout (canon version - multilevel multistart refined partitioning):")
         prettyPrintDict(metrics_spectral, 1)
-        print("Metrics HSC layout:")
+        print("Metrics HSC layout (canon version - sequential partitioning):")
         prettyPrintDict(metrics_hsc, 1)
+        # These are crossbreeds obtained by mixing placement and partitioning algorithms
+        spectral_placement_variant = spectralPlacement(part_snn_seq.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
+        topological_order_variant, _ = topologicalOrder(part_snn_mmr, break_cycles = True)
+        hsc_placement_variant = hilbertPlacement(topological_order_variant.nodes, hardware.coresAlongX(), hardware.coresAlongY())
+        metrics_spectral_variant = hardware.getAllMetrics(part_snn_seq, spectral_placement_variant)
+        metrics_hsc_variant = hardware.getAllMetrics(topological_order_variant, hsc_placement_variant)
+        print("Metrics spectral layout (crossbreed - sequential partitioning):")
+        prettyPrintDict(metrics_spectral_variant, 1)
+        print("Metrics HSC layout (crossbreed - multilevel multistart refined partitioning):")
+        prettyPrintDict(metrics_hsc_variant, 1)
     except Exception:
         print(traceback.format_exc())
 
