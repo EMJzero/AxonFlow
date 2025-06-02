@@ -1,3 +1,5 @@
+from typing import Union
+
 from collections import Counter
 
 from utils import *
@@ -5,6 +7,10 @@ from snn import *
 
 # Partial credit to: "Mapping Very Large Scale Spiking Neuron Network to Neuromorphic Hardware" by Ouwen Jin et al, ASPLOS 2023
 
+"""
+Neuromorphic hardware model class.
+Given a placed SNN, checks the placement's validity and returns its performance metrics.
+"""
 class HardwareModel:
     # CONSTRAINTS:
     neurons_per_core : int
@@ -96,7 +102,7 @@ class HardwareModel:
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     The coordinates assigne the specific partition to a core in on the hardware.
     """
-    def checkPlacementValidity(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> bool:
+    def checkPlacementValidity(self, part_snn : HyperGraph, placement : list[Coord2D]) -> bool:
         if len(placement) != part_snn.nodes:
             raise Exception("Each partition must be assigned to a core.")
         seen_cores = set()
@@ -113,7 +119,7 @@ class HardwareModel:
     Given a placement for a partitioned SNN, estimates its energy consumption.
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
-    def placementEnergyConsumption(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> float:
+    def placementEnergyConsumption(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
         result = 0
         for he in part_snn.hyperedges:
             src = he.source()
@@ -126,7 +132,7 @@ class HardwareModel:
     Given a placement for a partitioned SNN, estimates its average latency.
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
-    def placementAverageLatency(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> float:
+    def placementAverageLatency(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
         result = 0
         tot_spike_frequency = 0
         for he in part_snn.hyperedges:
@@ -141,7 +147,7 @@ class HardwareModel:
     Given a placement for a partitioned SNN, estimates its maximum latency.
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
-    def placementMaximumLatency(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> float:
+    def placementMaximumLatency(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
         result = 0
         for he in part_snn.hyperedges:
             src = he.source()
@@ -154,7 +160,7 @@ class HardwareModel:
     Given a placement for a partitioned SNN, estimates its average congestion.
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
-    def placementAverageCongestion(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> float:
+    def placementAverageCongestion(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
         result = 0
         # Note: calculation refactored as the "average probability of spike transit".
         for he in part_snn.hyperedges:
@@ -168,7 +174,7 @@ class HardwareModel:
     Given a placement for a partitioned SNN, estimates its maximum congestion.
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
-    def placementMaximumCongestion(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> float:
+    def placementMaximumCongestion(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
         congestion_matrix = [[0 for _ in range(self.coresAlongY())] for _ in range(self.coresAlongX())]
         for he in part_snn.hyperedges:
             src_core = placement[he.source()]
@@ -207,7 +213,10 @@ class HardwareModel:
                 matrix[x][y + y_sign] += matrix[x][y]/2
         return matrix
     
-    def getAllMetrics(self, part_snn : HyperGraph, placement : list[tuple[int, int]]) -> dict[str, float]:
+    """
+    Summarizes all model metrics for a given placement.
+    """
+    def getAllMetrics(self, part_snn : HyperGraph, placement : list[Coord2D]) -> dict[str, float]:
         return {
             'energy': self.placementEnergyConsumption(part_snn, placement),
             'avg_latency': self.placementAverageLatency(part_snn, placement),
@@ -215,6 +224,26 @@ class HardwareModel:
             'avg_congestion': self.placementAverageCongestion(part_snn, placement),
             'max_congestion': self.placementMaximumCongestion(part_snn, placement)
         }
+    
+    """
+    Returns the "force", aka the reduction in the hardware's potential energy (defined as a proxy for the hardware's energy
+    and latency), that would derive from moving the 'placement' for the provided 'node' in any of 'directions'.
+    One force for each direction is returned, in order, in a tuple.
+    """
+    def getForces(self, part_snn : HyperGraph, placement : Union[list[Coord2D], dict[int, Coord2D]], node : int, directions : tuple[Coord2D, ...] = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1)), potential_func : Callable[[Coord2D], float] = lambda c : abs(c)) -> tuple[float, ...]:
+        if node < 0:
+            raise Exception("Negative node index.")
+        elif node >= part_snn.nodes:
+            return (0.0 for _ in directions)
+        base_potential = 0.0
+        alt_potentials = {d : 0.0 for d in directions}
+        node_placement = placement[node]
+        for he in part_snn.getInboundHyperedges(node):
+            src_placement = placement[he.source()]
+            base_potential += potential_func(node_placement - src_placement)*he.spike_frequency
+            for d in directions:
+                alt_potentials[d] += potential_func(node_placement + d - src_placement)*he.spike_frequency
+        return (base_potential - alt_potentials[d] for d in directions)
 
 
 # Library of existing neuromorphic systems:

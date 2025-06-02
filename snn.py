@@ -12,6 +12,7 @@ class HyperEdge(Iterable):
     spike_frequency : float
     
     def __init__(self, source : int, destinations : tuple[int, ...], spike_frequency : float):
+        # TODO: raise an exception if len(destionations) == 0
         self.nodes = (source,) + destinations
         self.spike_frequency = spike_frequency
     
@@ -21,8 +22,15 @@ class HyperEdge(Iterable):
     def destinations(self) -> tuple[int, ...]:
         return self.nodes[1:]
     
+    def sameNodes(self, other : Self) -> bool:
+        other_destinations = other.nodes[1:]
+        return self.nodes[0] == other.nodes[0] and len(self.nodes) == len(other.nodes) and all(node in other_destinations for node in self.nodes[1:])
+    
     def __iter__(self) -> Iterator[int]:
         return iter(self.nodes)
+    
+    def __eq__(self, other : Self) -> bool:
+        return self.nodes == other.nodes and self.spike_frequency == other.spike_frequency
     
     def __str__(self) -> str:
         return self.nodes.__str__()[:-1] + f", sf = {self.spike_frequency:.1e})"
@@ -39,10 +47,15 @@ Directed hypergraph to model a SNN.
 Each edge has one source neuron (node) and represents an axon going into many neurons (nodes) with a synapse for each.
 Edges are weighted by the frequency with which they are traversed by a spike.
 """
-class HyperGraph:
+class HyperGraph(Iterable):
     # each node is identified by an index in [0, nodes)
     nodes : int
     hyperedges : list[HyperEdge]
+    
+    # pointers to hyperedges leaving a node
+    _outbound : list[list[HyperEdge]]
+    # pointers to hyperedges entering a node
+    _inbound : list[list[HyperEdge]]
     
     def __init__(self, nodes : int, hyperedges : list[Union[HyperEdge, tuple[int, ...]]], spike_frequencies : Optional[list[float]] = None):
         self.nodes = nodes
@@ -58,9 +71,9 @@ class HyperGraph:
         if any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
             raise Exception("Invalid hyperedges, all node indices must be in the range [0, nodes).")
         
-        # TODO: hyperedges must be kept sorted w.r.t. their 'nodes' list, therefore they will be first sorted by their source.
-        #       This speeds up all methods that need to access the outbound hyperedges of a specific node.
-        #self.hyperedges.sort(key = lambda he : he.nodes)
+        # pay the overhead here to build faster access structures
+        self._outbound = [[he for he in self.hyperedges if he.source() == node] for node in range(self.nodes)]
+        self._inbound = [[he for he in self.hyperedges if node in he.destinations()] for node in range(self.nodes)]
 
     """
     Generate a random hypergraph with 'n' nodes, where each node is the source
@@ -144,11 +157,64 @@ class HyperGraph:
     Given a node's index, returns the list of hyperedges outbound from that node.
     Throws an exception if the node's index is invalid.
     """
-    # TODO: can be sped up if hyperedges are sorted by source!
     def getOutboundHyperedges(self, node : int) -> list[HyperEdge]:
         if node < 0 or node >= self.nodes:
             raise Exception("Invalid node.")
-        return list(he for he in self.hyperedges if he.source() == node)
+        return self._outbound[node]
+    
+    """
+    Given a node's index, returns the list of hyperedges inbound for that node.
+    Throws an exception if the node's index is invalid.
+    """
+    def getInboundHyperedges(self, node : int) -> list[HyperEdge]:
+        if node < 0 or node >= self.nodes:
+            raise Exception("Invalid node.")
+        return self._inbound[node]
+    
+    """
+    Given a node's index, returns the list of hyperedges touching that node.
+    Throws an exception if the node's index is invalid.
+    """
+    def getTouchingHyperedges(self, node : int) -> list[HyperEdge]:
+        if node < 0 or node >= self.nodes:
+            raise Exception("Invalid node.")
+        return self._outbound[node] + self._inbound[node]
+    
+    """
+    Adds an HyperEdge to the HyperGraph.
+    If the HyperEdge uses node indices that are not valid, an exception is thrown.
+    If 'add_missing_nodes' is True, using a node index beyond those existing in the
+    HyperGraph will result in all nodes up to, and including, that one, being created.
+    """
+    def addHyperedge(self, hyperedge : HyperEdge, add_missing_nodes : bool = False) -> None:
+        if any(node < 0 for node in hyperedge):
+            raise Exception("Negative node index in the provided hyperedge.")
+        if not add_missing_nodes and any(node >= self.nodes for node in hyperedge):
+            raise Exception("Out of bounds node index in the provided hyperedge.")
+        else:
+            self.nodes = max(self.nodes, max(hyperedge))
+        self.hyperedges.append(hyperedge)
+        self._outbound[hyperedge.source()].append(hyperedge)
+        for node in hyperedge.destinations():
+            self._inbound[node].append(hyperedge)
+    
+    """
+    Any pair of HyperEdges that share the same source and destinations are fused in
+    a single new HyperEdge having for spike frequency the sum of the originals'.
+    """
+    def squishHyperedges(self) -> None:
+        to_delete = {} # keys will be deleted because they are identical to their value
+        for he_idx1 in range(len(self.hyperedges)):
+            for he_idx2 in range(he_idx1):
+                if he_idx1 != he_idx2 and self.hyperedges[he_idx1].sameNodes(self.hyperedges[he_idx2]):
+                    # at this point, he_idx1 should never be in to_delete yet
+                    while he_idx2 in to_delete:
+                        he_idx2 = to_delete[he_idx2]
+                    to_delete[he_idx1] = he_idx2
+                    self.hyperedges[he_idx2].spike_frequency += self.hyperedges[he_idx1].spike_frequency
+                    break
+        for he_idx in list(to_delete.keys())[::-1]:
+            self.hyperedges.pop(he_idx)
     
     """
     Returns the total spike frequency on the hypergraph's connections.
@@ -159,6 +225,9 @@ class HyperGraph:
         for he in self.hyperedges:
             result += he.spike_frequency*he.connections()
         return result
+    
+    def __iter__(self) -> Iterator[HyperEdge]:
+        return iter(self.hyperedges)
     
     def __str__(self) -> str:
         result = '['

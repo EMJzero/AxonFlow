@@ -87,7 +87,13 @@ if __name__ == "__main__":
 
 
     # MAIN CODE:
+    print("\n------ generating graph ------")
     seed = 79
+    nodes_count = 1024
+    nodes_per_edge_mean, nodes_per_edge_variation = 16, 4
+    print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
+    snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
+    #acyclic_snn = makeAcyclic(snn)
     hardware = HardwareModel(
         neurons_per_core = 256,
         synapses_per_core = 1024,
@@ -100,8 +106,6 @@ if __name__ == "__main__":
         latency_per_routing = 1.0,
         latency_per_wire = 0.1
     )
-    snn = HyperGraph.generate_random(1024, 16, 4, seed = seed)
-    #acyclic_snn = makeAcyclic(snn)
 
     try:
         print("\n-------- partitioning --------")
@@ -111,6 +115,9 @@ if __name__ == "__main__":
         part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
         part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy, keep_self_cycles = True)
         part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential, keep_self_cycles = True)
+        part_snn_mmr.squishHyperedges()
+        part_snn_greedy.squishHyperedges()
+        part_snn_seq.squishHyperedges()
         print("Metrics multilevel multistart refined partitioning:")
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_multilevel_multistart_refined), 'tot_hyperedges_spike_frequency': part_snn_mmr.totalSpikeFrequency()}, 1)
         print("Metrics greedy partitioning:")
@@ -139,6 +146,15 @@ if __name__ == "__main__":
         prettyPrintDict(metrics_spectral_variant, 1)
         print("Metrics HSC layout (crossbreed - multilevel multistart refined partitioning):")
         prettyPrintDict(metrics_hsc_variant, 1)
+        # these are the complete approaches plus FD algorithm
+        spectral_placement_fd = forceDirectedRefinement(part_snn_mmr, spectral_placement, hardware)
+        hsc_placement_fd = forceDirectedRefinement(topological_order, hsc_placement, hardware)
+        metrics_spectral_fd = hardware.getAllMetrics(part_snn_mmr, spectral_placement_fd)
+        metrics_hsc_fd = hardware.getAllMetrics(topological_order, hsc_placement_fd)
+        print("Metrics spectral layout (canon version - refined with force-directed algorithm):")
+        prettyPrintDict(metrics_spectral_fd, 1)
+        print("Metrics HSC layout (canon version - refined with force-directed algorithm):")
+        prettyPrintDict(metrics_hsc_fd, 1)
     except Exception:
         print(traceback.format_exc())
 

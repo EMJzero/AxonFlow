@@ -12,7 +12,7 @@ def isAcyclic(hg : HyperGraph) -> bool:
     outgoing = [[] for _ in range(hg.nodes)]
 
     # Build adjacency list and in-degree count
-    for he in hg.hyperedges:
+    for he in hg:
         src = he.source()
         for dst in he.destinations():
             outgoing[src].append(dst)
@@ -42,7 +42,7 @@ def acyclicTopologycalOrder(hg : HyperGraph) -> HyperGraph:
     in_degree = [0] * n
     outgoing = [[] for _ in range(n)]
 
-    for he in hg.hyperedges:
+    for he in hg:
         src = he.source()
         for dst in he.destinations():
             in_degree[dst] += 1
@@ -68,7 +68,7 @@ def acyclicTopologycalOrder(hg : HyperGraph) -> HyperGraph:
         new_index[old_id] = new_id
 
     new_hyperedges = []
-    for he in hg.hyperedges:
+    for he in hg:
         new_hyperedges.append(HyperEdge(he.source(), tuple(new_index[dst] for dst in he.destinations()), he.spike_frequency))
 
     return HyperGraph(n, new_hyperedges)
@@ -97,7 +97,7 @@ def topologicalOrder( hg: HyperGraph, break_cycles: bool = False) -> tuple[Hyper
     active_arcs = set()
 
     # Flatten hyperedges into individual arcs
-    for he in hg.hyperedges:
+    for he in hg:
         s = he.source()
         for d in he.destinations():
             i = len(arc_src)
@@ -186,7 +186,7 @@ def topologicalOrderWeak(hg: HyperGraph, break_cycles: bool = False) -> tuple[Hy
     original_in_degree = [0] * n
     outgoing = [[] for _ in range(n)]
 
-    for he in hg.hyperedges:
+    for he in hg:
         src = he.source()
         for dst in he.destinations():
             original_in_degree[dst] += 1
@@ -227,7 +227,7 @@ def topologicalOrderWeak(hg: HyperGraph, break_cycles: bool = False) -> tuple[Hy
             raise Exception("The hypergraph contains a cycle and break_cycles=False.")
 
         all_connections : list[tuple[tuple[int, int], float]] = []
-        for he in hg.hyperedges:
+        for he in hg:
             src = he.source()
             for dst in he.destinations():
                 all_connections.append(((src, dst), he.spike_frequency))
@@ -250,7 +250,7 @@ def topologicalOrderWeak(hg: HyperGraph, break_cycles: bool = False) -> tuple[Hy
         new_index[old_id] = new_id
 
     new_hyperedges: list[HyperEdge] = []
-    for he in hg.hyperedges:
+    for he in hg:
         old_src = he.source()
         old_dsts = he.destinations()
         new_src = new_index[old_src]
