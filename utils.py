@@ -91,6 +91,9 @@ class BiMap(MutableMapping[T, U]):
     def __len__(self) -> int:
         return len(self._fwd)
 
+    def __str__(self) -> str:
+        return "{" + ", ".join(f"{k} <-> {v}" for k, v in self._fwd.items()) + "}"
+
     class InverseMap(MutableMapping[U, T]):
         def __init__(self, outer: 'BiMap[T, U]'):
             self._outer = outer

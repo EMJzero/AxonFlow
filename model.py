@@ -230,7 +230,9 @@ class HardwareModel:
     and latency), that would derive from moving the 'placement' for the provided 'node' in any of 'directions'.
     One force for each direction is returned, in order, in a tuple.
     """
-    def getForces(self, part_snn : HyperGraph, placement : Union[list[Coord2D], dict[int, Coord2D]], node : int, directions : tuple[Coord2D, ...] = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1)), potential_func : Callable[[Coord2D], float] = lambda c : abs(c)) -> tuple[float, ...]:
+    def getForces(self, part_snn : HyperGraph, placement : Union[list[Coord2D], dict[int, Coord2D]], node : int, directions : tuple[Coord2D, ...] = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1)), potential_func : Callable[[Coord2D], float] = lambda c : max(abs(c), 1)) -> dict[Coord2D, float]:
+        # ISSUE: the original version used as 'potential_func' just 'abs', but that meant that you ignored the potential energy
+        # caused by the node already occupying 'node_placement + d', and that is a problem if such a node is heavily connected! 
         if node < 0:
             raise Exception("Negative node index.")
         elif node >= part_snn.nodes:
@@ -243,7 +245,14 @@ class HardwareModel:
             base_potential += potential_func(node_placement - src_placement)*he.spike_frequency
             for d in directions:
                 alt_potentials[d] += potential_func(node_placement + d - src_placement)*he.spike_frequency
-        return (base_potential - alt_potentials[d] for d in directions)
+        # ISSUE: the original version depended only on inbound, not outbound connections (forces were not symmetric)
+        for he in part_snn.getOutboundHyperedges(node):
+            for dst in he.destinations():
+                dst_placement = placement[dst]
+                base_potential += potential_func(node_placement - dst_placement)*he.spike_frequency
+                for d in directions:
+                    alt_potentials[d] += potential_func(node_placement + d - dst_placement)*he.spike_frequency
+        return {d : base_potential - alt_potentials[d] for d in directions}
 
 
 # Library of existing neuromorphic systems:

@@ -161,42 +161,38 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
         raise Exception("The provided placement does not have an entry for each HyperGraph node.")
     min_x, max_x, min_y, max_y = reduce(lambda m, c : (c.x if c.x < m[0] else m[0], c.x if c.x > m[1] else m[1], c.y if c.y < m[2] else m[2], c.y if c.y > m[3] else m[3]), placement, (placement[0].x, placement[0].x, placement[0].y, placement[0].y))
     directions = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1))
-    forces = defaultdict(lambda : 0.0, {coords : model.getForces(hg, placement, node, directions) for node, coords in enumerate(placement)})
-    #new_placement = defaultdict(lambda : -1, {coords : node for node, coords in enumerate(placement)})
+    forces : dict[Coord2D, dict[Coord2D, float]] = defaultdict(lambda : {d : 0.0 for d in directions}, {coords : model.getForces(hg, placement, node, directions) for node, coords in enumerate(placement)})
     new_placement = BiMap({coords : node for node, coords in enumerate(placement)}, default_factory = lambda : -1)
 
-    #candidates = [forces[coords][d_pos] + forces[coords + d_pos][d_neg] for coords in iter_major_diagonals(0, 0, width, height) for d_pos, d_neg in zip(directions[:2], directions[2:]) if coords in forces or coords + d_pos in forces]
-    #heapq.heapify(candidates)
-    #-
     candidates = []
-    for coords in iter_major_diagonals(min_x, max_x, min_y, max_y):
+    for coords in iter_major_diagonals(min_x, max_x, min_y, max_y, end_included = True):
         for d_pos, d_neg in zip(directions[:2], directions[2:]):
-            if coords in forces or coords + d_pos in forces:
-                other_coords = coords + d_pos
+            other_coords = coords + d_pos
+            if coords in forces or other_coords in forces:
                 tension = forces[coords][d_pos] + forces[other_coords][d_neg]
                 if tension > 0:
                     heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
     
     while len(candidates) > 0:
         moves = 0
-        affected : set[Coord2D] = []
+        affected : set[Coord2D] = set()
         while moves < batch and len(candidates) > 0:
             _, coords, other_coords = heapq.heappop(candidates)
             tension = forces[coords][other_coords - coords] + forces[other_coords][coords - other_coords]
             if tension > 0:
                 moves += 1
                 new_placement[coords], new_placement[other_coords] = new_placement[other_coords], new_placement[coords]
-                forces[coords] = model.getForces(hg, new_placement, new_placement[coords], directions)
-                forces[other_coords] = model.getForces(hg, new_placement, new_placement[other_coords], directions)
+                forces[coords] = model.getForces(hg, new_placement.inv, new_placement[coords], directions)
+                forces[other_coords] = model.getForces(hg, new_placement.inv, new_placement[other_coords], directions)
                 for node in [new_placement[coords], new_placement[other_coords]]:
                     if node > 0:
                         for he in hg.getTouchingHyperedges(node):
                             for other_node in he.nodes:
                                 if other_node != node:
                                     affected.add(new_placement.inv[other_node])
-        # ISSUES: in the original version forces are never rebuilt for all nodes, only swapped ones (the following for was missing)
+        # ISSUES: in the original version forces are never rebuilt for all nodes, only swapped ones (the following 'for' was missing)
         for coords in affected:
-            forces[coords] = model.getForces(hg, new_placement, new_placement[coords], directions)
+            forces[coords] = model.getForces(hg, new_placement.inv, new_placement[coords], directions)
 
         deduplicate = set()
         for i in range(0, len(candidates), -1):
@@ -206,25 +202,20 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                 candidates.pop(i)
             else:
                 candidates[i] = (-tension, coords, other_coords)
-            deduplicate.add(coords + other_coords)
-            deduplicate.add(other_coords + coords)
+            deduplicate.add((coords.x, coords.y, other_coords.x, other_coords.y))
+            deduplicate.add((other_coords.x, other_coords.y, coords.x, coords.y))
         for coords in affected:
             for d_pos in directions:
                 d_neg = - d_pos
                 other_coords = coords + d_pos
-                if coords + other_coords not in deduplicate and other_coords + coords not in deduplicate:
+                if (coords.x, coords.y, other_coords.x, other_coords.y) not in deduplicate and (other_coords.x, other_coords.y, coords.x, coords.y) not in deduplicate:
                     tension = forces[coords][d_pos] + forces[other_coords][d_neg]
                     if tension > 0:
                         candidates.append((-tension, coords, other_coords))
-                    deduplicate.add(coords + other_coords)
-                    deduplicate.add(other_coords + coords)
+                    deduplicate.add((coords.x, coords.y, other_coords.x, other_coords.y))
+                    deduplicate.add((other_coords.x, other_coords.y, coords.x, coords.y))
         heapq.heapify(candidates)
     
-    #final_placement = [None for _ in range(hg.nodes)]
-    #for coords, node in new_placement.items():
-    #    assert final_placement[node] == None, "Two placements produced for the same node, something broke."
-    #    final_placement[node] = coords
-    #return final_placement
     return [new_placement.inv[node] for node in range(hg.nodes)]
 
 """
