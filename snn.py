@@ -6,6 +6,11 @@ from typing import Optional, Self, Union
 import networkx as nx
 import random
 
+"""
+Directed hyperedge connecting nodes inside an hypergraph.
+It has a single source node and one or more destinations.
+It is associated with a 'spike_frequency', that is, a weight.
+"""
 class HyperEdge(Iterable):
     # the first node is the source for the hyperedge
     nodes : tuple[int, ...]
@@ -179,6 +184,16 @@ class HyperGraph(Iterable):
         if node < 0 or node >= self.nodes:
             raise Exception("Invalid node.")
         return self._outbound[node] + self._inbound[node]
+    
+    """
+    Add an extra nodes to the graph.
+    """
+    def addNodes(self, amount : int = 1) -> None:
+        if amount < 0:
+            raise Exception("The amount of nodes to add must be positive.")
+        self.nodes += amount
+    
+    
     
     """
     Adds an HyperEdge to the HyperGraph.

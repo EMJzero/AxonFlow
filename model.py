@@ -229,13 +229,12 @@ class HardwareModel:
     Returns the "force", aka the reduction in the hardware's potential energy (defined as a proxy for the hardware's energy
     and latency), that would derive from moving the 'placement' for the provided 'node' in any of 'directions'.
     One force for each direction is returned, in order, in a tuple.
+    An invalid node index silently results in zero force in all directions.
     """
     def getForces(self, part_snn : HyperGraph, placement : Union[list[Coord2D], dict[int, Coord2D]], node : int, directions : tuple[Coord2D, ...] = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1)), potential_func : Callable[[Coord2D], float] = lambda c : max(abs(c), 1)) -> dict[Coord2D, float]:
         # ISSUE: the original version used as 'potential_func' just 'abs', but that meant that you ignored the potential energy
         # caused by the node already occupying 'node_placement + d', and that is a problem if such a node is heavily connected! 
-        if node < 0:
-            raise Exception("Negative node index.")
-        elif node >= part_snn.nodes:
+        if node < 0 or node >= part_snn.nodes:
             return (0.0 for _ in directions)
         base_potential = 0.0
         alt_potentials = {d : 0.0 for d in directions}

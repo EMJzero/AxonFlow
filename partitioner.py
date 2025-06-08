@@ -1,10 +1,9 @@
 from typing import Optional
 
 from collections import defaultdict, Counter
-#import kahypar
 import random
 import heapq
-import os
+import math
 
 from utils import *
 from snn import *
@@ -93,10 +92,10 @@ def partitionGreedy(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
     return node_to_partition
 
 """
-Merges original nodes by heavy-edge matching until coarse node count ≤ max_coarse_nodes.
-Returns (coarse_graph, coarse_groups), where coarse_groups[i] lists original nodes merged into coarse node i.
+Merges original nodes by heavy-edge matching until coarse node count <= max_coarse_nodes.
+Returns (coarse_graph, coarse_groups), where 'coarse_groups[i]' lists original nodes merged into coarse node 'i'.
 """
-def coarsen_hypergraph(hypergraph: HyperGraph, max_coarse_nodes: int) -> tuple[HyperGraph, list[list[int]]]:
+def coarsen_hypergraph(hypergraph: HyperGraph, max_coarse_nodes: int, max_inbound_edges: int) -> tuple[HyperGraph, list[list[int]]]:
     parent = list(range(hypergraph.nodes))
     groups = {i: [i] for i in range(hypergraph.nodes)}
 
@@ -118,6 +117,17 @@ def coarsen_hypergraph(hypergraph: HyperGraph, max_coarse_nodes: int) -> tuple[H
     for (u, v), _ in sorted(pair_weights.items(), key=lambda x: -x[1]):
         ru, rv = find(u), find(v)
         if ru != rv and len(groups[ru]) + len(groups[rv]) <= max_coarse_nodes:
+            # check original‐graph inbound‐edges of the would‐be merged group
+            merged = groups[ru] + groups[rv]
+            in_eids = {
+                eid
+                for eid, edge in enumerate(hypergraph.hyperedges)
+                # only count edges whose source is outside 'merged' and where at least one destination lies inside 'merged'
+                if edge.source() not in merged
+                   and any(d in merged for d in edge.destinations())
+            }
+            if len(in_eids) > max_inbound_edges:
+                continue
             parent[rv] = ru
             groups[ru].extend(groups[rv])
             del groups[rv]
@@ -155,8 +165,8 @@ def coarsen_hypergraph(hypergraph: HyperGraph, max_coarse_nodes: int) -> tuple[H
     return coarse_graph, coarse_groups
 
 """
-FM-style refinement on the full hypergraph.
-Starts from coarse_assignment & coarse_groups, returns refined list of length hypergraph.nodes.
+FM-style (Fiduccia-Mattheyses) refinement on the full hypergraph.
+Starts from 'coarse_assignment' and 'coarse_groups', returns a refined list of length 'hypergraph.nodes'.
 """
 def refine_partition_FM(hypergraph: HyperGraph, coarse_assignment: list[int], coarse_groups: list[list[int]], max_nodes: int, max_inbound_edges: int) -> list[int]:
     # 1) Initialize original-node → partition
@@ -170,14 +180,17 @@ def refine_partition_FM(hypergraph: HyperGraph, coarse_assignment: list[int], co
             node_to_partition[u] = pid
             partitions[pid].add(u)
 
-    # 2) Build node→edges & inbound_edges
+    # 2) Build node -> edges
     node_to_edges = defaultdict(list)
     for eid, edge in enumerate(hypergraph.hyperedges):
         for u in edge:
             node_to_edges[u].append(eid)
-        pids = {node_to_partition[u] for u in edge if node_to_partition[u] >= 0}
-        for pid in pids:
-            inbound_edges[pid].add(eid)
+    # 2.5) Build true inbound_edges: only edges whose source is outside and at least one destination is inside the partition
+    for eid, edge in enumerate(hypergraph.hyperedges):
+        src = edge.source()
+        for pid in { node_to_partition[d] for d in edge.destinations() }:
+            if pid >= 0 and node_to_partition[src] != pid:
+                inbound_edges[pid].add(eid)
 
     # 3) Compute initial gains
     heap: list[tuple[float, int, int]] = []
@@ -217,10 +230,12 @@ def refine_partition_FM(hypergraph: HyperGraph, coarse_assignment: list[int], co
             continue
 
         # Enforce inbound-edges
-        new_in = inbound_edges[tgt_pid] | {
+        extra = {
             eid for eid in node_to_edges[u]
             if u in hypergraph.hyperedges[eid].destinations()
+               and hypergraph.hyperedges[eid].source() != tgt_pid
         }
+        new_in = inbound_edges[tgt_pid] | extra
         if len(new_in) > max_inbound_edges:
             continue
 
@@ -233,9 +248,24 @@ def refine_partition_FM(hypergraph: HyperGraph, coarse_assignment: list[int], co
 
     return node_to_partition
 
-def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+"""
+Hypergraph partitioning algorithm made of three steps:
+1) coarseneing, merges together nodes that have the heaviest connections between them.
+2) greedy λ - 1 partitioning of coarsened graph.
+3) partitioning refinement through the Fiduccia-Mattheyses algorithm.
+
+Arguments:
+- hg: hypergraph to partition.
+- max_nodes: maximum number of nodes that each partition can be assigned.
+- max_inbound_edges: maximum number of hyperedges that can be inbound to any partition.
+- max_partitions: maximum number of allowed partitions.
+
+Returns:
+A list with an entry per hypergraph node, that is the node's assigned partition's index.
+"""
+def partitionGreedyMultilevelRefined(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
     # Step 1: Coarsen
-    coarse_hg, groupings = coarsen_hypergraph(hg, max_nodes=min(max_partitions * max_nodes // 2, hg.nodes // 10))
+    coarse_hg, groupings = coarsen_hypergraph(hg, min(max_partitions * max_nodes // 2, hg.nodes // 10), max_inbound_edges)
     # Step 2: Initial Partitioning
     coarse_partition = partitionGreedy(coarse_hg, max_nodes, max_inbound_edges, max_partitions)
     # Step 3: Refinement
@@ -243,6 +273,9 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
 
     return final_partition
 
+"""
+Multistart version of the 'partitionGreedyMultilevelRefined' partitioning algorithm.
+"""
 def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int, multistarts: int = 3, seed : Optional[int] = None) -> list[int]:
     rng = random.Random(seed)
     best_assign = []
@@ -250,7 +283,7 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
 
     for _ in range(multistarts):
         # 1) Coarsen
-        coarse_graph, coarse_groups = coarsen_hypergraph(hg, max_nodes)
+        coarse_graph, coarse_groups = coarsen_hypergraph(hg, max_nodes, max_inbound_edges)
 
         # 2) Compute coarse-node weights = group sizes
         coarse_weights = [len(g) for g in coarse_groups]
@@ -262,7 +295,7 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
         part_weight = []
         part_inbound = []
 
-        # Precompute coarse node → edge list
+        # Precompute coarse node -> edge list
         coarse_node_to_edges = defaultdict(list)
         for eid, edge in enumerate(coarse_graph.hyperedges):
             for u in edge:
@@ -319,6 +352,12 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
 
     return best_assign
 
+"""
+Simple sequential partitioning algorithm, assigns nodes to the same partition until a constraint
+would be violated, then creates and starts filling the next partition.
+
+Used by the Ouwen Jin paper.
+"""
 def partitionSequential(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
     partitioning = []
     inbound_edges = 0
@@ -337,31 +376,70 @@ def partitionSequential(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
     return partitioning
 
 """
-def partitionKaHyPar(hg : HyperGraph, partitions_count : int) -> list[int]:
-    # TODO: this is just an example taken from KaHyPar
+Swaps-based partitioning algorithm, start from a random partitioning and swaps
 
-    hyperedge_indices = scan_left(lambda acc, he : acc + len(he), hg.hyperedges, 0)
-    hyperedges = [node for he in hg.hyperedges for node in he]
-    edge_weights = [he.spike_frequency for he in hg.hyperedges]
+Implementation of the Kernighan-Lin heuristic.
+Used by DFSynthesizer.
 
-    # plain (undirected) hypergraph
-    hypergraph = kahypar.Hypergraph(
-        num_nodes = hg.nodes,
-        num_edges = len(hg.hyperedges),
-        # place the indices of all nodes connected by all hyperedges in one long contigous array,
-        # then, this list contains the index in the array at which each hyperedge starts.
-        index_vector = hyperedge_indices,
-        edge_vector = hyperedges,
-        k = partitions_count,
-        edge_weights = edge_weights,
-        node_weights = []
-    )
-
-    context = kahypar.Context()
-    context.loadINIconfiguration("<path/to/config>/km1_kKaHyPar_sea20.ini")
-
-    context.setK(partitions_count)
-    context.setEpsilon(0.03)
-
-    kahypar.partition(hypergraph, context)
+Arguments:
+- hg, N, M, K as in 'partitionGreedy'.
+- min_delta: minimum improvement on the total cost that justifies a move and another round.
+- 
 """
+def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 0.1, multistarts : int = 1) -> list[int]:
+    best_partitioning = None
+    best_cost = math.inf
+    
+    for _ in range(multistarts):
+        partitioning = [0 for _ in range(hg.nodes)]
+        inbound_edges = [0]
+        assigned_nodes = [0]
+        current_partition = 0
+        nodes = list(range(hg.nodes))
+        random.shuffle(nodes)
+        # same logic as 'partitionSequential', but the order of nodes is randomized
+        for node in nodes:
+            assigned_nodes[-1] += 1
+            inbound_edges[-1] += sum(1 for he in hg.hyperedges if node in he.destinations())
+            if assigned_nodes[-1] > N or inbound_edges[-1] > M:
+                assigned_nodes.append(0)
+                inbound_edges.append(0)
+                current_partition += 1
+                if current_partition >= K:
+                    raise Exception("Exceeded maximum number of partitions K.")
+            partitioning[node] = current_partition
+        
+        def cost(hg : HyperGraph, partitions : list[int]) -> float:
+            result = 0
+            for he in hg:
+                connections = set()
+                for n in he.destinations():
+                    connections.add(partitions[n])
+                result += he.spike_frequency*len(connections)
+            return result
+        
+        delta = math.inf
+        current_cost = cost(hg, partitioning)
+        while delta > min_delta:
+            delta = 0
+            for n in range(hg.nodes):
+                for m in range(hg.nodes): # here goes the quadratic complexity...
+                    part_n, part_m = partitioning[n], partitioning[m]
+                    edges_n, edges_m = sum(1 for he in hg.hyperedges if n in he.destinations()), sum(1 for he in hg.hyperedges if m in he.destinations())
+                    if part_n != part_m:
+                        # it's a swap, assigned nodes will always be fine
+                        if inbound_edges[part_n] - edges_n + edges_m <= M and inbound_edges[part_m] - edges_m + edges_n <= M:
+                            partitioning[n], partitioning[m] = partitioning[m], partitioning[n]
+                            new_cost = cost(hg, partitioning)
+                            if new_cost >= current_cost:
+                                partitioning[n], partitioning[m] = partitioning[m], partitioning[n]
+                            else:
+                                delta = current_cost - new_cost
+                                current_cost = new_cost
+        
+        if current_cost < best_cost:
+            best_partitioning = partitioning
+            best_cost = current_cost
+    if best_partitioning == None:
+        raise Exception("No partitioning found, something broke.")
+    return best_partitioning
