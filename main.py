@@ -103,8 +103,10 @@ if __name__ == "__main__":
         chips_per_system_y = 1,
         energy_per_routing = 1.0,
         energy_per_wire = 0.1,
+        energy_per_boundary = 2.0,
         latency_per_routing = 1.0,
-        latency_per_wire = 0.1
+        latency_per_wire = 0.1,
+        latency_per_boundary = 2.0
     )
 
     try:

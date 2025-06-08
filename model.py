@@ -25,13 +25,17 @@ class HardwareModel:
     # COSTS:
     # energy required for a core's router to route a spike [pJ]
     energy_per_routing : float
-    # energy requried for a spike to transit over a write between two cores [pJ]
+    # energy requried for a spike to transit over a wire between two cores [pJ]
     energy_per_wire : float
+    # energy requried for a spike to transit over the boundary between two chips [pJ]
+    energy_per_boundary : float
     # clock cycles required for a core's router to route a spike [cc or ns]
     latency_per_routing : float
-    # clock cycles requried for a spike to transit over a write between two cores [cc or ns]
+    # clock cycles requried for a spike to transit over a wire between two cores [cc or ns]
     latency_per_wire : float
-    
+    # clock cycles requried for a spike to transit over the boundary between two chips [cc or ns]
+    latency_per_boundary : float
+
     def __init__(self, neurons_per_core : int,
                  synapses_per_core : int,
                  cores_per_chip_x : int,
@@ -40,11 +44,13 @@ class HardwareModel:
                  chips_per_system_y : int,
                  energy_per_routing : float,
                  energy_per_wire : float,
+                 energy_per_boundary : float,
                  latency_per_routing : float,
-                 latency_per_wire : float):
+                 latency_per_wire : float,
+                 latency_per_boundary : float):
         assert neurons_per_core > 0 and synapses_per_core > 0 and cores_per_chip_x > 0 and cores_per_chip_y > 0 and chips_per_system_x > 0 and chips_per_system_y > 0, "All hardware specifications must be > 0."
-        assert energy_per_routing >= 0 and energy_per_wire >= 0 and latency_per_routing >= 0 and latency_per_wire >= 0, "All hardware costs must be >= 0."
-        assert chips_per_system_x == 1 and chips_per_system_y == 1, "Functionality not yet implemented, ensure that 'chips_per_system_x' and 'chips_per_system_y' are 1."
+        assert energy_per_routing >= 0 and energy_per_wire >= 0 and energy_per_boundary >= 0 and latency_per_routing >= 0 and latency_per_wire >= 0 and latency_per_boundary >= 0, "All hardware costs must be >= 0."
+        #assert chips_per_system_x == 1 and chips_per_system_y == 1, "Functionality not yet implemented, ensure that 'chips_per_system_x' and 'chips_per_system_y' are 1."
         self.neurons_per_core = neurons_per_core
         self.synapses_per_core = synapses_per_core
         self.cores_per_chip_x = cores_per_chip_x
@@ -53,8 +59,10 @@ class HardwareModel:
         self.chips_per_system_y = chips_per_system_y
         self.energy_per_routing = energy_per_routing
         self.energy_per_wire = energy_per_wire
+        self.energy_per_boundary = energy_per_boundary
         self.latency_per_routing = latency_per_routing
         self.latency_per_wire = latency_per_wire
+        self.latency_per_boundary = latency_per_boundary
     
     def coresCount(self) -> int:
         return (self.cores_per_chip_x*self.cores_per_chip_y)*self.chips_per_system_x*self.chips_per_system_y
@@ -124,8 +132,8 @@ class HardwareModel:
         for he in part_snn.hyperedges:
             src = he.source()
             for dst in he.destinations():
-                manhattan_distance = manhattan(placement[src], placement[dst])
-                result += he.spike_frequency*((manhattan_distance + 1)*self.energy_per_routing + manhattan_distance*self.energy_per_wire)
+                links, boundaries, total = self.coresDistance(placement[src], placement[dst])
+                result += he.spike_frequency*((total + 1)*self.energy_per_routing + links*self.energy_per_wire + boundaries*self.energy_per_boundary)
         return result
     
     """
@@ -139,8 +147,8 @@ class HardwareModel:
             src = he.source()
             tot_spike_frequency += he.spike_frequency*he.connections()
             for dst in he.destinations():
-                manhattan_distance = manhattan(placement[src], placement[dst])
-                result += he.spike_frequency*((manhattan_distance + 1)*self.latency_per_routing + manhattan_distance*self.latency_per_wire)
+                links, boundaries, total = self.coresDistance(placement[src], placement[dst])
+                result += he.spike_frequency*((total + 1)*self.latency_per_routing + links*self.latency_per_wire + boundaries*self.latency_per_boundary)
         return result / tot_spike_frequency if tot_spike_frequency > 0 else 0
     
     """
@@ -152,14 +160,15 @@ class HardwareModel:
         for he in part_snn.hyperedges:
             src = he.source()
             for dst in he.destinations():
-                manhattan_distance = manhattan(placement[src], placement[dst])
-                result = max((manhattan_distance + 1)*self.latency_per_routing + manhattan_distance*self.latency_per_wire, result)
+                links, boundaries, total = self.coresDistance(placement[src], placement[dst])
+                result = max((total + 1)*self.latency_per_routing + links*self.latency_per_wire + boundaries*self.latency_per_boundary, result)
         return result
     
     """
     Given a placement for a partitioned SNN, estimates its average congestion.
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
+    # HP: we ignore boundaries here because we assume that leaving a chip along a certain column/row enters the next chip along the same column/row (true for TrueNorth).
     def placementAverageCongestion(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
         result = 0
         # Note: calculation refactored as the "average probability of spike transit".
@@ -170,6 +179,8 @@ class HardwareModel:
                 result += he.spike_frequency*sum(map(sum, self.expectedSpikeTransitProbability(src_core[0], src_core[1], dst_core[0], dst_core[1])))
         return result / self.coresCount()
     
+    # TODO: COMPUTE TOGETHER WITH THE ABOVE THE AVERAGE BOUNDARY CONGESTION...
+
     """
     Given a placement for a partitioned SNN, estimates its maximum congestion.
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
@@ -214,6 +225,15 @@ class HardwareModel:
         return matrix
     
     """
+    Computes the number of on-chip (first return value) and off-chip (second return value) links, as well as the total
+    number of links (third return value) that need to be traversed to go from 'core1' to 'core2'.
+    """
+    def coresDistance(self, core1 : Coord2D, core2 : Coord2D) -> tuple[int, int]:
+        boundaries = abs(core1.x // self.cores_per_chip_x - core2.x // self.cores_per_chip_x) + abs(core1.y // self.cores_per_chip_y - core2.y // self.cores_per_chip_y)
+        total = manhattan(core1, core2)
+        return total - boundaries, boundaries, total
+    
+    """
     Summarizes all model metrics for a given placement.
     """
     def getAllMetrics(self, part_snn : HyperGraph, placement : list[Coord2D]) -> dict[str, float]:
@@ -231,6 +251,7 @@ class HardwareModel:
     One force for each direction is returned, in order, in a tuple.
     An invalid node index silently results in zero force in all directions.
     """
+    # TODO: include "HyperGraphLink" in the math!
     def getForces(self, part_snn : HyperGraph, placement : Union[list[Coord2D], dict[int, Coord2D]], node : int, directions : tuple[Coord2D, ...] = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1)), potential_func : Callable[[Coord2D], float] = lambda c : max(abs(c), 1)) -> dict[Coord2D, float]:
         # ISSUE: the original version used as 'potential_func' just 'abs', but that meant that you ignored the potential energy
         # caused by the node already occupying 'node_placement + d', and that is a problem if such a node is heavily connected! 
@@ -266,6 +287,8 @@ loihi = HardwareModel(
     chips_per_system_y = 1,
     energy_per_routing = 1.7,
     energy_per_wire = 3.5,
+    energy_per_boundary = 3.5*640, # the 640 is borrowed from TrueNorth...
     latency_per_routing = 2.1,
-    latency_per_wire = 5.3
+    latency_per_wire = 5.3,
+    latency_per_boundary = 5.3*640
 )

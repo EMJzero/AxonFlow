@@ -48,21 +48,49 @@ class HyperEdge(Iterable):
         return len(self.nodes) - 1
 
 """
+Link between two hypergraphs.
+The owning hypergraph's nodes listed in 'nodes' are linked to the another 'target_hypergraph'.
+Usually, links are born from torn hyperedges during partitioning.
+
+Attributes:
+- target_hypergraph: the other hypergraph to which the nodes are linked.
+- linked_nodes: dictionary, keys are node indices, values are the weight of each node's link,
+                represented by a spike frequency.
+"""
+class HyperGraphLink(Iterable):
+    target_hypergraph : HyperGraph
+    linked_nodes : dict[int, float]
+    
+    def __init__(self, target_hypergraph : HyperGraph, linked_nodes : dict[int, float]):
+        self.target_hypergraph = target_hypergraph
+        self.linked_nodes = linked_nodes
+    
+    def __iter__(self) -> Iterator[int]:
+        return iter(self.linked_nodes)
+
+"""
 Directed hypergraph to model a SNN.
 Each edge has one source neuron (node) and represents an axon going into many neurons (nodes) with a synapse for each.
 Edges are weighted by the frequency with which they are traversed by a spike.
+
+Attributes:
+- nodes: number of verticies in the hypergraph, node indices must be in [0, nodes).
+- hyperedges: list of hyperedges between node of the hypergraph.
+- interhypergraph_links: extends the hypergraph by linking some of its nodes with other hypergraphs.
 """
 class HyperGraph(Iterable):
     # each node is identified by an index in [0, nodes)
     nodes : int
     hyperedges : list[HyperEdge]
     
+    interhypergraph_links : list[HyperGraphLink]
+    
     # pointers to hyperedges leaving a node
     _outbound : list[list[HyperEdge]]
     # pointers to hyperedges entering a node
     _inbound : list[list[HyperEdge]]
     
-    def __init__(self, nodes : int, hyperedges : list[Union[HyperEdge, tuple[int, ...]]], spike_frequencies : Optional[list[float]] = None):
+    def __init__(self, nodes : int, hyperedges : list[Union[HyperEdge, tuple[int, ...]]], spike_frequencies : Optional[list[float]] = None, interhypergraph_links : list[HyperGraphLink] = None):
         self.nodes = nodes
         if len(hyperedges) == 0:
             self.hyperedges = []
@@ -75,6 +103,8 @@ class HyperGraph(Iterable):
                                In the latter case, spike_frequencies must also be a list of the same lenght, while the first entry in each tuple specifies the source node for that hyperedge.""")
         if any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
             raise Exception("Invalid hyperedges, all node indices must be in the range [0, nodes).")
+        
+        self.interhypergraph_links = [] if interhypergraph_links is None else interhypergraph_links
         
         # pay the overhead here to build faster access structures
         self._outbound = [[he for he in self.hyperedges if he.source() == node] for node in range(self.nodes)]
@@ -157,6 +187,53 @@ class HyperGraph(Iterable):
         for partition, spike_frequency in self_cycles.items():
             new_hyperedges.append(HyperEdge(partition, (partition,), spike_frequency))
         return HyperGraph(new_nodes, new_hyperedges)
+    
+    """
+    Returns an hypergraph for each partition of the present hypergraph.
+    Each returned hypergraph presents a interhypergraph link to all other partitions,
+    as to allow edges between partitions to be preserved and accounted for.
+    
+    NOTE: while 'getPartitionsHypergraph' returns an hypergraph where each node is a
+          partition of the original, where we return one by one the hypergraphs born
+          inside each partition.
+    
+    Args:
+    Same as 'getPartitionsHypergraph'.
+    """
+    def getPartitionedHypergraphs(self, partitions : list[int]) -> list[Self]:
+        if len(partitions) != self.nodes:
+            raise Exception("Each node must be assigned to a partition.")
+        part_idxs = set(partitions)
+        if any(i not in partitions for i in range(0, len(part_idxs))):
+            raise Exception("Partitions must be incrementally indexed from 0 onward.")
+        
+        hypergraphs : list[HyperGraph] = []
+        nodes_map = [0 for _ in partitions] # map from old hypergraph node index (list idx) to new hypergraph node index (list content)
+        for part_idx in part_idxs:
+            node_idx_counter = 0
+            for old_node, part in enumerate(partitions):
+                if part == part_idx:
+                    nodes_map[old_node] = node_idx_counter
+                    node_idx_counter += 1
+            hyperedges = [HyperEdge(nodes_map[he.source()], [nodes_map[d] for d in he.destinations() if partitions[d] == part_idx], he.spike_frequency) for he in self.hyperedges if partitions[he.source()] == part_idx and any(partitions[d] == part_idx for d in he.destinations())]
+            hypergraphs.append(HyperGraph(len(nodes_map), hyperedges))
+        
+        for part_idx in part_idxs:
+            for other_part_idx in part_idx:
+                if part_idx != other_part_idx:
+                    linked_nodes = {}
+                    for he in self.hyperedges:
+                        if any(partitions[n] == other_part_idx for n in he):
+                            for n in he:
+                                if partitions[n] == part_idx:
+                                    if n in linked_nodes:
+                                        linked_nodes[n] += he.spike_frequency
+                                    else:
+                                        linked_nodes[n] = he.spike_frequency
+                    link = HyperGraphLink(hypergraphs[other_part_idx], link)
+                    hypergraphs[part_idx].interhypergraph_links.append(link)
+        
+        return hypergraphs
     
     """
     Given a node's index, returns the list of hyperedges outbound from that node.
