@@ -4,7 +4,7 @@ from collections.abc import Iterable, Iterator
 from typing import Optional, Self, Union
 
 import networkx as nx
-import random
+import numpy as np
 
 """
 Directed hyperedge connecting nodes inside an hypergraph.
@@ -39,6 +39,9 @@ class HyperEdge(Iterable):
     
     def __str__(self) -> str:
         return self.nodes.__str__()[:-1] + f", sf = {self.spike_frequency:.1e})"
+    
+    def __hash__(self):
+        return hash(self.nodes + (self.spike_frequency,))
     
     """
     Number connections in the hyperedge, that is (|nodes| - 1).
@@ -94,15 +97,17 @@ class HyperGraph(Iterable):
         hyperedges = []
         spike_frequencies = []
 
-        random.seed(seed)
+        rng = np.random.default_rng(seed)
+        all_nodes = np.arange(n)
+        num_dests = np.clip(rng.normal(loc = c, scale = d, size = n).astype(int), 0, n - 1)
         for source in range(n):
-            num_dest = max(0, min(n - 1, int(random.normalvariate(mu = c, sigma = d))))
-            if num_dest > 0:
-                candidates = [i for i in range(n) if i != source]
-                destinations = tuple(random.sample(candidates, num_dest)) if num_dest > 0 else tuple()
-                spike_freq = random.uniform(*spike_frequency_range)
-                hyperedges.append((source,) + destinations)
-                spike_frequencies.append(spike_freq)
+            nd = num_dests[source]
+            if nd == 0:
+                continue
+            candidates = np.delete(all_nodes, source)
+            destinations = rng.choice(candidates, size = nd, replace = False)
+            hyperedges.append((source, *destinations))
+            spike_frequencies.append(rng.uniform(*spike_frequency_range))
         return cls(n, hyperedges, spike_frequencies)
 
     """

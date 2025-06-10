@@ -1,6 +1,7 @@
 from typing import Optional
 
 from collections import defaultdict, Counter
+from itertools import combinations
 import random
 import heapq
 import math
@@ -95,9 +96,9 @@ def partitionGreedy(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
 Merges original nodes by heavy-edge matching until coarse node count <= max_coarse_nodes.
 Returns (coarse_graph, coarse_groups), where 'coarse_groups[i]' lists original nodes merged into coarse node 'i'.
 """
-def coarsen_hypergraph(hypergraph: HyperGraph, max_coarse_nodes: int, max_inbound_edges: int) -> tuple[HyperGraph, list[list[int]]]:
-    parent = list(range(hypergraph.nodes))
-    groups = {i: [i] for i in range(hypergraph.nodes)}
+def coarsen_hypergraph(hg: HyperGraph, max_coarse_nodes: int, max_inbound_edges: int) -> tuple[HyperGraph, list[list[int]]]:
+    parent = list(range(hg.nodes))
+    groups = {i: [i] for i in range(hg.nodes)}
 
     def find(u: int) -> int:
         while parent[u] != u:
@@ -105,53 +106,55 @@ def coarsen_hypergraph(hypergraph: HyperGraph, max_coarse_nodes: int, max_inboun
             u = parent[u]
         return u
 
-    # Count shared weight between node pairs
-    pair_weights: Counter = Counter()
-    for edge in hypergraph.hyperedges:
-        for i in range(1, len(edge.nodes)):
-            for j in range(i+1, len(edge.nodes)):
-                pair = tuple(sorted((edge.nodes[i], edge.nodes[j])))
-                pair_weights[pair] += edge.spike_frequency
+    # Compute heavy‐edge weights between destination pairs
+    pair_weights = Counter()
+    for e in hg.hyperedges:
+        for u, v in combinations(e.nodes[1:], 2):
+            a, b = (u, v) if u < v else (v, u)
+            pair_weights[(a, b)] += e.spike_frequency
 
     # Merge strongest pairs
     for (u, v), _ in sorted(pair_weights.items(), key=lambda x: -x[1]):
         ru, rv = find(u), find(v)
-        if ru != rv and len(groups[ru]) + len(groups[rv]) <= max_coarse_nodes:
-            # check original‐graph inbound‐edges of the would‐be merged group
-            merged = groups[ru] + groups[rv]
-            in_eids = {
-                eid
-                for eid, edge in enumerate(hypergraph.hyperedges)
-                # only count edges whose source is outside 'merged' and where at least one destination lies inside 'merged'
-                if edge.source() not in merged
-                   and any(d in merged for d in edge.destinations())
-            }
-            if len(in_eids) > max_inbound_edges:
-                continue
-            parent[rv] = ru
-            groups[ru].extend(groups[rv])
-            del groups[rv]
+        if ru == rv:
+            continue
+
+        merged = groups[ru] + groups[rv]
+        if len(merged) > max_coarse_nodes:
+            continue
+
+        merged_set = set(merged)
+        # Gather all hyperedges that have any destination in merged_set
+        candidate = sum((hg.getInboundHyperedges(n) for n in merged_set), start = [])
+        hyperedges = {
+            he
+            for he in candidate
+            if any(d in merged_set for d in he.destinations())
+        }
+
+        if len(hyperedges) > max_inbound_edges:
+            continue
+
+        # Commit merge
+        parent[rv] = ru
+        groups[ru].extend(groups[rv])
+        del groups[rv]
+
         if len(groups) <= max_coarse_nodes:
             break
 
-    # Build coarse-node → original-node mapping
+    # Build coarse groups and edges
     coarse_groups = list(groups.values())
-    node_to_coarse = [0] * hypergraph.nodes
-    for coarse_idx, orig_list in enumerate(coarse_groups):
-        for orig in orig_list:
-            node_to_coarse[orig] = coarse_idx
+    node_to_coarse = [0] * hg.nodes
+    for ci, grp in enumerate(coarse_groups):
+        for n in grp:
+            node_to_coarse[n] = ci
 
-    # Build coarse hyperedges
     seen = set()
-    coarse_hes: list[tuple[int, ...]] = []
-    coarse_freqs: list[float] = []
-    for edge in hypergraph.hyperedges:
-        src = node_to_coarse[edge.source()]
-        dsts = tuple({
-            node_to_coarse[d]
-            for d in edge.destinations()
-            if node_to_coarse[d] != src
-        })
+    coarse_hes, coarse_freqs = [], []
+    for e in hg.hyperedges:
+        src = node_to_coarse[e.source()]
+        dsts = tuple({ node_to_coarse[d] for d in e.destinations() if node_to_coarse[d] != src })
         if not dsts:
             continue
         key = (src,) + dsts
@@ -159,94 +162,94 @@ def coarsen_hypergraph(hypergraph: HyperGraph, max_coarse_nodes: int, max_inboun
             continue
         seen.add(key)
         coarse_hes.append(key)
-        coarse_freqs.append(edge.spike_frequency)
+        coarse_freqs.append(e.spike_frequency)
 
-    coarse_graph = HyperGraph(len(coarse_groups), coarse_hes, coarse_freqs)
-    return coarse_graph, coarse_groups
+    return HyperGraph(len(coarse_groups), coarse_hes, coarse_freqs), coarse_groups
 
 """
 FM-style (Fiduccia-Mattheyses) refinement on the full hypergraph.
 Starts from 'coarse_assignment' and 'coarse_groups', returns a refined list of length 'hypergraph.nodes'.
 """
-def refine_partition_FM(hypergraph: HyperGraph, coarse_assignment: list[int], coarse_groups: list[list[int]], max_nodes: int, max_inbound_edges: int) -> list[int]:
-    # 1) Initialize original-node → partition
-    node_to_partition = [-1] * hypergraph.nodes
-    partitions = defaultdict(set)
-    inbound_edges = defaultdict(set)
+def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_groups: list[list[int]], max_nodes: int, max_inbound_edges: int) -> list[int]:
+    node_to_part = [-1] * hg.nodes
+    parts = defaultdict(set)
+    in_edges = defaultdict(set)
 
-    for c_idx, orig_nodes in enumerate(coarse_groups):
-        pid = coarse_assignment[c_idx]
-        for u in orig_nodes:
-            node_to_partition[u] = pid
-            partitions[pid].add(u)
+    # Initialize from coarse assignment
+    for ci, grp in enumerate(coarse_groups):
+        pid = coarse_assignment[ci]
+        for u in grp:
+            node_to_part[u] = pid
+            parts[pid].add(u)
 
-    # 2) Build node -> edges
+    # Build node → incident hyperedges map
     node_to_edges = defaultdict(list)
-    for eid, edge in enumerate(hypergraph.hyperedges):
-        for u in edge:
+    for eid, e in enumerate(hg.hyperedges):
+        for u in e:
             node_to_edges[u].append(eid)
-    # 2.5) Build true inbound_edges: only edges whose source is outside and at least one destination is inside the partition
-    for eid, edge in enumerate(hypergraph.hyperedges):
-        src = edge.source()
-        for pid in { node_to_partition[d] for d in edge.destinations() }:
-            if pid >= 0 and node_to_partition[src] != pid:
-                inbound_edges[pid].add(eid)
 
-    # 3) Compute initial gains
-    heap: list[tuple[float, int, int]] = []
-    moved = set()
-    for u in range(hypergraph.nodes):
-        cur_pid = node_to_partition[u]
-        # neighbors’ partitions
-        neighbor_pids = {
-            node_to_partition[v]
+    # Initial inbound-edge sets: any hyperedge with at least one destination in the partition
+    for eid, e in enumerate(hg.hyperedges):
+        for d in e.destinations():
+            pid = node_to_part[d]
+            if pid >= 0:
+                in_edges[pid].add(eid)
+
+    # Build FM gain heap
+    heap, moved = [], set()
+    for u in range(hg.nodes):
+        cur = node_to_part[u]
+        neighbor_parts = {
+            node_to_part[v]
             for eid in node_to_edges[u]
-            for v in hypergraph.hyperedges[eid]
-            if node_to_partition[v] != cur_pid
+            for v in hg.hyperedges[eid]
+            if node_to_part[v] != cur
         }
-        for tgt_pid in neighbor_pids:
+        for tgt in neighbor_parts:
             gain = 0.0
             for eid in node_to_edges[u]:
-                edge = hypergraph.hyperedges[eid]
-                before = {node_to_partition[v] for v in edge}
-                cut_before = len(before) > 1
-                after = (before - {cur_pid}) | {tgt_pid}
-                cut_after = len(after) > 1
-                gain += edge.spike_frequency * (cut_before - cut_after)
+                e = hg.hyperedges[eid]
+                before = {node_to_part[v] for v in e}
+                after = (before - {cur}) | {tgt}
+                gain += e.spike_frequency * ((len(before) > 1) - (len(after) > 1))
             if gain > 0:
-                heapq.heappush(heap, (-gain, u, tgt_pid))
+                heapq.heappush(heap, (-gain, u, tgt))
 
-    # 4) Apply highest-gain moves
+    # FM refinement moves
     while heap:
-        _, u, tgt_pid = heapq.heappop(heap)
+        _, u, tgt = heapq.heappop(heap)
         if u in moved:
             continue
-        cur_pid = node_to_partition[u]
-        if tgt_pid == cur_pid:
+        cur = node_to_part[u]
+        if cur == tgt or len(parts[tgt]) + 1 > max_nodes:
             continue
 
-        # Enforce max_nodes AT EXECUTION time
-        if len(partitions[tgt_pid]) + 1 > max_nodes:
-            continue
-
-        # Enforce inbound-edges
-        extra = {
-            eid for eid in node_to_edges[u]
-            if u in hypergraph.hyperedges[eid].destinations()
-               and hypergraph.hyperedges[eid].source() != tgt_pid
-        }
-        new_in = inbound_edges[tgt_pid] | extra
+        # Simulate new inbound edges for target
+        new_in = set(in_edges[tgt])
+        for eid in node_to_edges[u]:
+            e = hg.hyperedges[eid]
+            if any(d in parts[tgt] or d == u for d in e.destinations()):
+                new_in.add(eid)
         if len(new_in) > max_inbound_edges:
             continue
 
-        # Do the move
-        partitions[cur_pid].remove(u)
-        partitions[tgt_pid].add(u)
-        inbound_edges[tgt_pid] = new_in
-        node_to_partition[u] = tgt_pid
+        # Commit move
+        parts[cur].remove(u)
+        parts[tgt].add(u)
+        node_to_part[u] = tgt
         moved.add(u)
 
-    return node_to_partition
+        # Recompute inbound edges for both affected partitions
+        for pid in (cur, tgt):
+            updated = set()
+            for n in parts[pid]:
+                for eid in node_to_edges[n]:
+                    e = hg.hyperedges[eid]
+                    if any(d in parts[pid] for d in e.destinations()):
+                        updated.add(eid)
+            in_edges[pid] = updated
+
+    return node_to_part
 
 """
 Hypergraph partitioning algorithm made of three steps:
@@ -278,51 +281,38 @@ Multistart version of the 'partitionGreedyMultilevelRefined' partitioning algori
 """
 def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int, multistarts: int = 3, seed : Optional[int] = None) -> list[int]:
     rng = random.Random(seed)
-    best_assign = []
-    best_cut = float('inf')
+    best_assign, best_cut = [], float('inf')
 
     for _ in range(multistarts):
         # 1) Coarsen
-        coarse_graph, coarse_groups = coarsen_hypergraph(hg, max_nodes, max_inbound_edges)
+        coarse_hg, coarse_groups = coarsen_hypergraph(hg, max_nodes, max_inbound_edges)
 
-        # 2) Compute coarse-node weights = group sizes
-        coarse_weights = [len(g) for g in coarse_groups]
-
-        # 3) Greedy initial on coarse graph
-        indices = list(range(coarse_graph.nodes))
+        # 2) Greedy assign on coarse graph
+        indices = list(range(coarse_hg.nodes))
         rng.shuffle(indices)
-        coarse_assignment = [-1] * coarse_graph.nodes
-        part_weight = []
-        part_inbound = []
+        coarse_assignment = [-1] * coarse_hg.nodes
+        part_weight, part_inbound = [], []
 
-        # Precompute coarse node -> edge list
-        coarse_node_to_edges = defaultdict(list)
-        for eid, edge in enumerate(coarse_graph.hyperedges):
-            for u in edge:
-                coarse_node_to_edges[u].append(eid)
+        # Precompute coarse node → edges
+        cnode_to_edges = defaultdict(list)
+        for eid, e in enumerate(coarse_hg.hyperedges):
+            for u in e:
+                cnode_to_edges[u].append(eid)
 
         for u in indices:
-            w_u = coarse_weights[u]
+            w = len(coarse_groups[u])
             best_pid, best_cost = -1, float('inf')
-
-            for pid, w_sum in enumerate(part_weight):
-                if w_sum + w_u > max_nodes:
+            for pid, total_w in enumerate(part_weight):
+                if total_w + w > max_nodes:
                     continue
-                in_u = {eid for eid in coarse_node_to_edges[u]
-                        if u in coarse_graph.hyperedges[eid].destinations()}
+                in_u = {eid for eid in cnode_to_edges[u]
+                        if u in coarse_hg.hyperedges[eid].destinations()}
                 if len(part_inbound[pid] | in_u) > max_inbound_edges:
                     continue
 
-                cut = 0.0
-                for eid in coarse_node_to_edges[u]:
-                    edge = coarse_graph.hyperedges[eid]
-                    assigned = {
-                        coarse_assignment[v]
-                        for v in edge
-                        if coarse_assignment[v] != -1
-                    }
-                    if assigned and pid not in assigned:
-                        cut += edge.spike_frequency
+                cut = sum(coarse_hg.hyperedges[eid].spike_frequency
+                          for eid in cnode_to_edges[u]
+                          if pid not in {coarse_assignment[v] for v in coarse_hg.hyperedges[eid] if coarse_assignment[v] != -1})
                 if cut < best_cost:
                     best_cost, best_pid = cut, pid
 
@@ -333,22 +323,23 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
                 part_weight.append(0)
                 part_inbound.append(set())
 
-            # Assign u
-            part_weight[best_pid] += w_u
-            in_u = {eid for eid in coarse_node_to_edges[u]
-                    if u in coarse_graph.hyperedges[eid].destinations()}
+            part_weight[best_pid] += w
+            in_u = {eid for eid in cnode_to_edges[u]
+                    if u in coarse_hg.hyperedges[eid].destinations()}
             part_inbound[best_pid].update(in_u)
             coarse_assignment[u] = best_pid
 
-        # 4) FM refinement on the full graph
-        final_assignment = refine_partition_FM(hg, coarse_assignment, coarse_groups, max_nodes, max_inbound_edges)
+        # 3) FM refinement on full graph
+        final_assign = refine_partition_FM(
+            hg, coarse_assignment, coarse_groups, max_nodes, max_inbound_edges)
 
-        # 5) Evaluate cut quality
-        cut_value = sum(edge.spike_frequency for edge in hg.hyperedges if len({final_assignment[v] for v in edge}) > 1)
+        # 4) Evaluate cut
+        cut_value = sum(e.spike_frequency
+                        for e in hg.hyperedges
+                        if len({final_assign[v] for v in e}) > 1)
 
         if cut_value < best_cut:
-            best_cut = cut_value
-            best_assign = final_assignment
+            best_cut, best_assign = cut_value, final_assign
 
     return best_assign
 
