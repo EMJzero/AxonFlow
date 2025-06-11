@@ -1,3 +1,5 @@
+from typing import Optional
+
 from collections import defaultdict
 from functools import reduce
 from scipy.spatial import KDTree
@@ -7,6 +9,7 @@ import numpy as np
 import heapq
 import math
 
+from prints import *
 from model import *
 from utils import *
 
@@ -35,6 +38,7 @@ The algorithm uses a spectral embedding (via eigenvectors of the graph Laplacian
 into 2D Euclidean space. The layout is then scaled to fit within a compact bounding box inside the given lattice,
 and coordinates are discretized to the nearest available lattice points, resolving collisions.
 """
+@core
 def spectralPlacement(graph: nx.Graph, width: int, height: int) -> list[Coord2D]:
     nodes = graph.number_of_nodes()
     if width * height < nodes:
@@ -78,6 +82,7 @@ Compute a layout of a graph of 'nodes' nodes onto a 2D integer lattice via a 2D 
 space-filling curve that visits every point in a 'width' by 'height' rectangle exactly once.
 It is highly recommended for 'width' and 'height' to be powers of two.
 """
+@core
 def hilbertPlacement(nodes : int, width : int, height : int) -> list[Coord2D]:
     if width % 2 != 0 or height % 2 != 0:
         print("WARNING: building an HSC with odd 'width' or 'height', results quality may vary.")
@@ -156,6 +161,7 @@ Using a potential function of the placement that considers a potential for each
 connection among the partitioned SNN's nodes weighted by the distance between
 the placements for the connected nodes. This is an heuristic to minimize such potential.
 """
+@core
 def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : HardwareModel, batch : int = 16) -> list[Coord2D]:
     if hg.nodes != len(placement):
         raise Exception("The provided placement does not have an entry for each HyperGraph node.")
@@ -174,6 +180,7 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                     heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
     
     while len(candidates) > 0:
+        print("FD remaining candidates", len(candidates))
         moves = 0
         affected : set[Coord2D] = set()
         while moves < batch and len(candidates) > 0:
@@ -217,6 +224,87 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
         heapq.heapify(candidates)
     
     return [new_placement.inv[node] for node in range(hg.nodes)]
+
+@core
+def particleSwarmPlacement(hg: HyperGraph, model : HardwareModel, num_particles: int = 30, num_iterations: int = 200, w: float = 0.72, c1: float = 1.49, c2: float = 1.49, initial_layout: Optional[list[Coord2D]] = None) -> list[Coord2D]:
+    n_nodes = hg.nodes
+    # Initialize particle positions and velocities
+    particles_pos = []  # List of numpy arrays shape (n_nodes,2)
+    particles_vel = []  # Same shape
+    pbest_pos = []
+    pbest_cost = []
+
+    lattice_width = model.coresAlongX()
+    lattice_height = model.coresAlongY()
+
+    gbest_pos = None
+    gbest_cost = float('inf')
+
+    for i in range(num_particles):
+        if initial_layout is not None and i == 0:
+            # Use provided layout for the first particle
+            pos = np.array([(pt.x, pt.y) for pt in initial_layout], dtype=float)
+        else:
+            # Random integer positions in lattice
+            xs = np.random.randint(0, lattice_width, size=n_nodes)
+            ys = np.random.randint(0, lattice_height, size=n_nodes)
+            pos = np.column_stack((xs, ys)).astype(float)
+        vel = np.zeros((n_nodes, 2), dtype=float)
+
+        particles_pos.append(pos)
+        particles_vel.append(vel)
+
+        # Evaluate initial cost
+        rounded = [Coord2D(int(round(x)), int(round(y))) for x, y in pos]
+        c = model.getCompoundMetric(hg, rounded)
+        pbest_pos.append(pos.copy())
+        pbest_cost.append(c)
+
+        if c < gbest_cost:
+            gbest_cost = c
+            gbest_pos = pos.copy()
+
+    # Main PSO loop
+    for it in range(num_iterations):
+        print("PSO iteration:", it, "best cost:", gbest_cost)
+        for i in range(num_particles):
+            # Random coefficients per node and dimension
+            r1 = np.random.rand(n_nodes, 2)
+            r2 = np.random.rand(n_nodes, 2)
+
+            # Velocity update
+            particles_vel[i] = (
+                w * particles_vel[i]
+                + c1 * r1 * (pbest_pos[i] - particles_pos[i])
+                + c2 * r2 * (gbest_pos - particles_pos[i])
+            )
+
+            # Position update
+            particles_pos[i] += particles_vel[i]
+            # Enforce lattice bounds
+            particles_pos[i][:, 0] = np.clip(particles_pos[i][:, 0], 0, lattice_width - 1)
+            particles_pos[i][:, 1] = np.clip(particles_pos[i][:, 1], 0, lattice_height - 1)
+
+            # Evaluate
+            rounded = [Coord2D(int(round(x)), int(round(y))) for x, y in particles_pos[i]]
+            c = model.getCompoundMetric(hg, rounded)
+
+            # Update personal best
+            if c < pbest_cost[i]:
+                pbest_cost[i] = c
+                pbest_pos[i] = particles_pos[i].copy()
+
+                # Update global best
+                if c < gbest_cost:
+                    gbest_cost = c
+                    gbest_pos = particles_pos[i].copy()
+
+        # Optional: progress log
+        # print(f"Iter {it+1}/{num_iterations} best cost={gbest_cost}")
+
+    # Convert continuous global best to integer lattice coordinates
+    best_placement = [Coord2D(int(round(x)), int(round(y))) for x, y in gbest_pos]
+    return best_placement
 
 """
 Print method that shows a matrix of 0s and 1s, a digit per hardware core,

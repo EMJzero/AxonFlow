@@ -9,9 +9,10 @@ import sys
 
 from graph_utils import *
 from partitioner import *
+from settings import *
 from placer import *
+from prints import *
 from model import *
-from print import *
 from snn import *
 
 # CLI MANAGEMENT
@@ -65,6 +66,7 @@ def parse_options() -> dict[str, Any]:
     options = {
         "help": args_match_and_remove("-h") or args_match_and_remove("--help"),
         "interactive": args_match_and_remove("-i") or args_match_and_remove("--interactive"),
+        "quiet": args_match_and_remove("-q") or args_match_and_remove("--quiet"),
     }
     return options
 
@@ -72,6 +74,7 @@ def help_options() -> None:
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
     print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
+    print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
 if __name__ == "__main__":
@@ -85,6 +88,8 @@ if __name__ == "__main__":
         print("------------------------------")
         sys.exit(0)
 
+    if options["quiet"]:
+        Settings.VERBOSE = False
 
     # MAIN CODE:
     print("\n------ generating graph ------")
@@ -109,33 +114,47 @@ if __name__ == "__main__":
 
     try:
         print("\n-------- partitioning --------")
-        partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed)
-        partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
-        partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
+        partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefined(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())#, seed = seed) # NEW IDEA!
+        partitioning_setlist = partitionSetlistMiniHashWeighted(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
+        partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
+        partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
+        partitioning_swap = swapPartitioner(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
         part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
+        part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist, keep_self_cycles = True)
         part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy, keep_self_cycles = True)
         part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential, keep_self_cycles = True)
+        part_snn_swap = snn.getPartitionsHypergraph(partitioning_swap, keep_self_cycles = True)
         part_snn_mmr.squishHyperedges()
+        part_snn_setlist.squishHyperedges()
         part_snn_greedy.squishHyperedges()
         part_snn_seq.squishHyperedges()
+        part_snn_swap.squishHyperedges()
         print("Metrics multilevel multistart refined partitioning:")
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_multilevel_multistart_refined), 'tot_hyperedges_spike_frequency': part_snn_mmr.totalSpikeFrequency()}, 1)
+        print("Metrics setlist minihash partitioning:")
+        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_setlist), 'tot_hyperedges_spike_frequency': part_snn_setlist.totalSpikeFrequency()}, 1)
         print("Metrics greedy partitioning:")
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_greedy), 'tot_hyperedges_spike_frequency': part_snn_greedy.totalSpikeFrequency()}, 1)
         print("Metrics sequential partitioning:")
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_sequential), 'tot_hyperedges_spike_frequency': part_snn_seq.totalSpikeFrequency()}, 1)
+        print("Metrics swap partitioning:")
+        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_swap), 'tot_hyperedges_spike_frequency': part_snn_swap.totalSpikeFrequency()}, 1)
 
         print("\n----------- layout -----------")
         # These are complete approaches, novel or from previous works
-        spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
-        topological_order, _ = topologicalOrder(part_snn_seq, break_cycles = True) # this is the full approach from Ouwen Jin's paper.
-        hsc_placement = hilbertPlacement(topological_order.nodes, hardware.coresAlongX(), hardware.coresAlongY())
+        spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY()) # NEW IDEA!
+        topological_order, _ = topologicalOrder(part_snn_seq, break_cycles = True) # Setup Locality as in Ouwen Jin's paper.
+        hsc_placement = hilbertPlacement(topological_order.nodes, hardware.coresAlongX(), hardware.coresAlongY()) # Ouwen Jin's paper.
+        pso_placement = particleSwarmPlacement(part_snn_swap, hardware, num_iterations = 20) # This is the full approach from DFSynthesizer's paper.
         metrics_spectral = hardware.getAllMetrics(part_snn_mmr, spectral_placement)
         metrics_hsc = hardware.getAllMetrics(topological_order, hsc_placement)
+        metrics_pso = hardware.getAllMetrics(part_snn_swap, pso_placement)
         print("Metrics spectral layout (canon version - multilevel multistart refined partitioning):")
         prettyPrintDict(metrics_spectral, 1)
         print("Metrics HSC layout (canon version - sequential partitioning):")
         prettyPrintDict(metrics_hsc, 1)
+        print("Metrics PSO layout (canon version - swap partitioning):")
+        prettyPrintDict(metrics_pso, 1)
         # These are crossbreeds obtained by mixing placement and partitioning algorithms
         spectral_placement_variant = spectralPlacement(part_snn_seq.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
         topological_order_variant, _ = topologicalOrder(part_snn_mmr, break_cycles = True)
@@ -147,8 +166,8 @@ if __name__ == "__main__":
         print("Metrics HSC layout (crossbreed - multilevel multistart refined partitioning):")
         prettyPrintDict(metrics_hsc_variant, 1)
         # these are the complete approaches plus FD algorithm
-        spectral_placement_fd = forceDirectedRefinement(part_snn_mmr, spectral_placement, hardware)
-        hsc_placement_fd = forceDirectedRefinement(topological_order, hsc_placement, hardware)
+        spectral_placement_fd = forceDirectedRefinement(part_snn_mmr, spectral_placement, hardware) # 1/2 NEW IDEA!
+        hsc_placement_fd = forceDirectedRefinement(topological_order, hsc_placement, hardware) # This is the full approach from Ouwen Jin's paper.
         metrics_spectral_fd = hardware.getAllMetrics(part_snn_mmr, spectral_placement_fd)
         metrics_hsc_fd = hardware.getAllMetrics(topological_order, hsc_placement_fd)
         print("Metrics spectral layout (canon version - refined with force-directed algorithm):")

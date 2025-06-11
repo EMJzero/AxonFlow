@@ -1,3 +1,46 @@
+from contextlib import contextmanager
+import functools
+import builtins
+import sys
+
+from settings import *
+
+"""
+Custom print to be used inside 'core' functions.
+"""
+@contextmanager
+def hijack_print(prefix):
+    original_print = builtins.print
+    def custom_print(*args, **kwargs):
+        if Settings.VERBOSE:
+            original_print(f"[{prefix}]", *args, **kwargs)
+    builtins.print = custom_print
+    try:
+        yield
+    finally:
+        builtins.print = original_print
+
+"""
+Custom tag to be used like:
+```
+@core
+def function():
+    print("test")
+```
+This will result in the function's name being logged upon call and in every
+print inside the function being preceded by the function's name.
+"""
+def core(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if Settings.VERBOSE:
+            #print(f"Calling function: {func.__name__}")
+            print(f"[function call: {func.__name__}]")
+        with hijack_print(func.__name__):
+            return func(*args, **kwargs)
+    return wrapper
+
+
 """
 Returns a string with a pretty textual representation of the provided dictionary.
 """

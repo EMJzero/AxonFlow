@@ -218,12 +218,33 @@ class HardwareModel:
     """
     def getAllMetrics(self, part_snn : HyperGraph, placement : list[Coord2D]) -> dict[str, float]:
         return {
+            'valid': self.checkPlacementValidity(part_snn, placement),
             'energy': self.placementEnergyConsumption(part_snn, placement),
             'avg_latency': self.placementAverageLatency(part_snn, placement),
             'max_latency': self.placementMaximumLatency(part_snn, placement),
             'avg_congestion': self.placementAverageCongestion(part_snn, placement),
             'max_congestion': self.placementMaximumCongestion(part_snn, placement)
         }
+    
+    """
+    Returns a compound cost metric that is the product of energy, latency, and congestion, all of which shall be minimized.
+    """
+    def getCompoundMetric(self, part_snn : HyperGraph, placement : list[Coord2D], include_congestion : bool = False) -> float:
+        energy = 0
+        latency = 0
+        tot_spike_frequency = 0
+        congestion = 0
+        for he in part_snn.hyperedges:
+            tot_spike_frequency += he.spike_frequency*he.connections()
+            src_core = placement[he.source()]
+            for dst in he.destinations():
+                dst_core = placement[dst]
+                manhattan_distance = manhattan(src_core, dst_core)
+                energy += he.spike_frequency*((manhattan_distance + 1)*self.energy_per_routing + manhattan_distance*self.energy_per_wire)
+                latency += he.spike_frequency*((manhattan_distance + 1)*self.latency_per_routing + manhattan_distance*self.latency_per_wire)
+                if include_congestion:
+                    congestion += he.spike_frequency*sum(map(sum, self.expectedSpikeTransitProbability(src_core[0], src_core[1], dst_core[0], dst_core[1])))
+        return energy * (latency / tot_spike_frequency if tot_spike_frequency > 0 else 0) * (congestion / self.coresCount() if include_congestion else 1)
     
     """
     Returns the "force", aka the reduction in the hardware's potential energy (defined as a proxy for the hardware's energy
