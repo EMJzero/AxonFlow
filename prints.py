@@ -1,7 +1,8 @@
 from contextlib import contextmanager
+from termcolor import colored
 import functools
 import builtins
-import sys
+import time
 
 from settings import *
 
@@ -13,7 +14,7 @@ def hijack_print(prefix):
     original_print = builtins.print
     def custom_print(*args, **kwargs):
         if Settings.VERBOSE:
-            original_print(f"[{prefix}]", *args, **kwargs)
+            original_print(colored(f"[{prefix}]", Settings.VERBOSE_COLOR), *args, **kwargs)
     builtins.print = custom_print
     try:
         yield
@@ -35,11 +36,17 @@ def core(func):
     def wrapper(*args, **kwargs):
         if Settings.VERBOSE:
             #print(f"Calling function: {func.__name__}")
-            print(f"[function call: {func.__name__}]")
+            print(colored(f"[function call: {func.__name__}]", Settings.VERBOSE_COLOR))
+            if Settings.TIMING:
+                start = time.perf_counter()
         with hijack_print(func.__name__):
-            return func(*args, **kwargs)
+            result = func(*args, **kwargs)
+        if Settings.VERBOSE and Settings.TIMING:
+            end = time.perf_counter()
+            elapsed = end - start
+            print(colored(f"[{func.__name__}]", Settings.VERBOSE_COLOR), f"finished in {elapsed:.6f} seconds")
+        return result
     return wrapper
-
 
 """
 Returns a string with a pretty textual representation of the provided dictionary.

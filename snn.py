@@ -5,6 +5,9 @@ from typing import Optional, Self, Union
 
 import networkx as nx
 import numpy as np
+import random
+
+from prints import *
 
 """
 Directed hyperedge connecting nodes inside an hypergraph.
@@ -15,11 +18,13 @@ class HyperEdge(Iterable):
     # the first node is the source for the hyperedge
     nodes : tuple[int, ...]
     spike_frequency : float
+    _id : int
     
     def __init__(self, source : int, destinations : tuple[int, ...], spike_frequency : float):
         # TODO: raise an exception if len(destionations) == 0
         self.nodes = (source,) + destinations
         self.spike_frequency = spike_frequency
+        self._id = hash(self.nodes + (self.spike_frequency, random.random()))
     
     def source(self) -> int:
         return self.nodes[0]
@@ -41,7 +46,7 @@ class HyperEdge(Iterable):
         return self.nodes.__str__()[:-1] + f", sf = {self.spike_frequency:.1e})"
     
     def __hash__(self):
-        return hash(self.nodes + (self.spike_frequency,))
+        return self._id
     
     """
     Number connections in the hyperedge, that is (|nodes| - 1).
@@ -93,6 +98,7 @@ class HyperGraph(Iterable):
     Spike frequencies are sampled uniformly from 'spike_frequency_range'.
     """
     @classmethod
+    @core
     def generate_random(cls, n: int, c: float, d: float, spike_frequency_range: tuple[float, float] = (0.1, 1.0), seed : Optional[int] = None) -> Self:
         hyperedges = []
         spike_frequencies = []
@@ -222,6 +228,7 @@ class HyperGraph(Iterable):
     Any pair of HyperEdges that share the same source and destinations are fused in
     a single new HyperEdge having for spike frequency the sum of the originals'.
     """
+    @core
     def squishHyperedges(self) -> None:
         to_delete = {} # keys will be deleted because they are identical to their value
         for he_idx1 in range(len(self.hyperedges)):
@@ -259,6 +266,7 @@ class Edge(HyperEdge):
     def __init__(self, source : int, destination : int, spike_frequency : float):
         self.nodes = (source, destination)
         self.spike_frequency = spike_frequency
+        self._id = hash(self.nodes + (self.spike_frequency, random.random()))
     
     @classmethod
     def fromHyperEdge(cls, hyperedge : HyperEdge) -> Self:

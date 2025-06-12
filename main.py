@@ -113,9 +113,14 @@ if __name__ == "__main__":
     )
 
     try:
+        print("\n---- checking feasibility ----")
+        if not hardware.checkSnnFit(snn):
+            print("WARNING: the generated SNN may not fit on the given HW, change either's configuration or the seed.")
+        else:
+            print("Passed!")
         print("\n-------- partitioning --------")
-        partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefined(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())#, seed = seed) # NEW IDEA!
-        partitioning_setlist = partitionSetlistMiniHashWeighted(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
+        partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
+        partitioning_setlist = partitionSetlistMiniHashWeightsTEMP(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
         partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
         partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
         partitioning_swap = swapPartitioner(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.

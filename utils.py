@@ -1,5 +1,8 @@
-from typing import TypeVar, Generator, Callable, Iterable, Any, Self, Iterator, Optional
+from typing import TypeVar, Generator, Callable, Iterable, Self, Iterator, Optional
 from collections.abc import MutableMapping
+
+import random
+import heapq
 
 T = TypeVar('T')
 U = TypeVar('U')
@@ -165,3 +168,159 @@ def scan_left(func : Callable[[T, U], T], iterable : Iterable[U], initial : T) -
         acc = func(acc, item)
         result.append(acc)
     return result
+
+"""
+Given N buckets all of size M and a set 'num' of positive integers, this algorithm
+checks if there exists a way to distribute the elements of the set among buckets
+such that the sum of the integers in each bucket is <=M.
+"""
+def can_distribute(nums : list[int], N : int, M : int) -> bool:
+    if sum(nums) > N * M:
+        return False  # Quick fail: total sum exceeds total capacity
+
+    nums.sort(reverse=True)  # Start with biggest numbers to prune faster
+    buckets = [0] * N
+
+    def backtrack(index):
+        if index == len(nums):
+            return True
+        num = nums[index]
+        for i in range(N):
+            if buckets[i] + num <= M:
+                buckets[i] += num
+                if backtrack(index + 1):
+                    return True
+                buckets[i] -= num
+            # Optimization: If a number doesn't fit in an empty bucket, don't try placing it in other empty buckets (to avoid symmetry)
+            if buckets[i] == 0:
+                break
+        return False
+
+    return backtrack(0)
+
+"""
+Given N buckets all of size M and a list of sets of integers 'sets_list', this algorithm
+checks if there exists a way to distribute the sets of the list among buckets such that
+the count [or sum] of integers in each bucket is <=M and the number of sets added to a
+bucket does not exceed K. However, each bucket is itself a set, as such, duplicate
+elements do not count towards M.
+
+NOTE: stupidly slow.
+
+Args:
+- sets_list: list of sets to distribute among buckets
+- N: number of buckets
+- if sum_not_count == False:
+    - M: maximum number of distinct elements per bucket
+  else:
+    - M: maximum sum of distinct elements per bucket
+- K: maximum number of sets per bucket
+"""
+def can_distribute_sets(sets_list : list[set[int]], N : int, M : int, K : int, sum_not_count : bool = False) -> bool:
+    # Convert each set into a bitmask
+    def set_to_bitmask(s):
+        mask = 0
+        for x in s:
+            mask |= 1 << x
+        return mask
+
+    def bitcount(x):
+        return bin(x).count('1')
+    
+    def bitvalue(x):
+        value = 0
+        for i, b in enumerate(bin(x)[:1:-1]):
+            if b == 1:
+                value += i
+        return value
+
+    bitsets = sorted([set_to_bitmask(s) for s in sets_list], key=bitcount, reverse=True)
+
+    # Quick fail: total unique elements must fit
+    total_union = 0
+    for b in bitsets:
+        total_union |= b
+    if bitcount(total_union) > N * M or len(bitsets) > N * K:
+        return False
+
+    # Each bucket: (bitmask of elements, count of sets)
+    initial_state = [(0, 0) for _ in range(N)]
+    stack = [(0, initial_state)]
+
+    while stack:
+        index, buckets = stack.pop()
+        if index == len(bitsets):
+            return True  # All sets placed
+
+        current = bitsets[index]
+
+        for i in range(N):
+            bits, count = buckets[i]
+            if count >= K:
+                continue
+            merged = bits | current
+            if (not sum_not_count and bitcount(merged) <= M) or (sum_not_count and bitvalue(merged) <= M):
+                new_buckets = list(buckets)
+                new_buckets[i] = (merged, count + 1)
+                stack.append((index + 1, new_buckets))
+            if count == 0:
+                break  # symmetry breaking
+
+    return False
+
+"""
+Given N buckets all of size M and a list of sets of integers 'sets_list', this algorithm
+heuristically checks if there exists a way to distribute the sets of the list among buckets
+such that the count of integers in each bucket is <=M and the number of sets added to a
+bucket does not exceed K. However, each bucket is itself a set, as such, duplicate
+elements do not count towards M.
+
+False positives are impossible.
+False negatives are admitted.
+
+Args:
+- sets_list: list of sets to distribute among buckets
+- N: number of buckets
+- M: maximum number of distinct elements per bucket
+- K: maximum number of sets per bucket
+- max_int: maximum integer value present in the sets
+"""
+def can_distribute_sets_heuristic(sets_list: list[set[int]], N: int, M: int, K: int) -> bool:
+    # trivial necessary checks
+    if len(sets_list) > N * K:
+        # more sets than total slots
+        return False
+
+    # no set can exceed M by itself:
+    for s in sets_list:
+        if len(s) > M:
+            return False
+
+    # sort in descending order of size (helps greedy)
+    sorted_sets = sorted(sets_list, key=lambda s: -len(s))
+
+    # each bucket track: its current set of elems, and count of sets placed
+    buckets = [(set(), 0) for _ in range(N)]
+
+    for s in sorted_sets:
+        placed = False
+        for i in range(N):
+            elems, cnt = buckets[i]
+            if cnt >= K:
+                continue  # bucket full by count
+            # compute how many *new* elems this set would add
+            # (we need the *exact* distinct count to stay ≤M)
+            # since buckets[i][0] is a set, this union is in C and quite fast
+            new_count = len(elems) + sum(1 for x in s if x not in elems)
+            if new_count <= M:
+                # we can place it here
+                elems |= s
+                buckets[i] = (elems, cnt + 1)
+                placed = True
+                break
+        if not placed:
+            # greedy failed → give up
+            return False
+
+    # all sets placed
+    return True

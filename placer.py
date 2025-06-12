@@ -188,6 +188,7 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
             tension = forces[coords][other_coords - coords] + forces[other_coords][coords - other_coords]
             if tension > 0:
                 moves += 1
+                print("FD moving:", new_placement[other_coords], "<->", new_placement[coords])
                 new_placement[coords], new_placement[other_coords] = new_placement[other_coords], new_placement[coords]
                 forces[coords] = model.getForces(hg, new_placement.inv, new_placement[coords], directions)
                 forces[other_coords] = model.getForces(hg, new_placement.inv, new_placement[other_coords], directions)

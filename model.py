@@ -2,6 +2,7 @@ from typing import Union
 
 from collections import Counter
 
+from partitioner import partitionSequential
 from utils import *
 from snn import *
 
@@ -66,7 +67,30 @@ class HardwareModel:
         return self.cores_per_chip_y*self.chips_per_system_y
     
     """
-    verifies that the SNN's hypergraph partition is valid w.r.t. hardware constraints.
+    Empirically verifies if a given SNN could theoretically fit on the hardware w.r.t.
+    two constraints: the space available for nodes, and that for edges.
+    
+    Can give false negatives. Never gives false positives.
+    """
+    def checkSnnFit(self, snn : HyperGraph) -> bool:
+        if snn.nodes > self.coresCount()*self.neurons_per_core:
+            print("more neurons than the HW can house")
+            return False # more neurons than the HW can house
+        if any(len(snn.getInboundHyperedges(n)) > self.synapses_per_core for n in range(snn.nodes)):
+            print("more inbound synapses on a single neuron than the HW can handle")
+            return False # more inbound synapses on a single neuron than the HW can handle
+        #if not can_distribute_sets_heuristic([{he.source() for he in snn.getInboundHyperedges(n)} for n in range(snn.nodes)], self.coresCount(), self.synapses_per_core, self.neurons_per_core):
+        #    print("no valid way to split neurons (and their synapses) among cores")
+        #    return False # no valid way to split neurons (and their synapses) among cores
+        try:
+            partitionSequential(snn, self.neurons_per_core, self.synapses_per_core, self.coresCount())
+        except:
+            print("no valid way to split neurons (and their synapses) among cores")
+            return False # no valid way to split neurons (and their synapses) among cores
+        return True
+    
+    """
+    Verifies that the SNN's hypergraph partition is valid w.r.t. hardware constraints.
     
     Args:
     - partitions: list of partitions indices, one per neuron, in order.

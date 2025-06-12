@@ -11,5 +11,9 @@ class MetaSettings(type):
         super().__setattr__(name, value)
 
 class Settings(metaclass = MetaSettings):
-    # Enable detailed logging of heuristics
+    # Enable detailed logging of "@core" heuristics
     VERBOSE = True
+    # Enable timing of "@core" heuristics (requires 'VERBOSE = True')
+    TIMING = True
+    # Color for the information printed by 'VERBOSE' and 'TIMING'
+    VERBOSE_COLOR = "yellow"
