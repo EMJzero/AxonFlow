@@ -626,14 +626,14 @@ The implementation is extremely inefficient, but its purpose is to show if using
 Variant: here we don't start with zero clusters, but with each node initially being its own cluster.
 """
 @core
-def partitionSetlistMiniHashWeightsTEMPVAR(hg: HyperGraph, N: int, M: int, K: int, num_perm : int = 256, threshold : float = 2.0) -> list[int]:
+def partitionSetlistMiniHashWeightsTEMPVAR(hg: HyperGraph, N: int, M: int, K: int, threshold : float = 0.0) -> list[int]:
     class Cluster:
         def __init__(self, nodes_set : dict[int, float]):
             self.nodes_set = nodes_set
             self.count = 1
             #self.minhash = ...
     
-    sets : dict[Cluster] = dict()
+    sets : dict[int, Cluster] = dict() # node
     for n in range(hg.nodes):
         d = dict()
         inbound = hg.getInboundHyperedges(n)
@@ -659,11 +659,14 @@ def partitionSetlistMiniHashWeightsTEMPVAR(hg: HyperGraph, N: int, M: int, K: in
 
     # EXPERIMENTAL VERSION WITH A SLOW DISTANCE CALCULATION
     def distance(set1 : dict[int, float], set2 : dict[int, float]) -> float:
-        return sum(v + set2[k] for k, v in set1.items() if k in set2)
+        set1_only = sum(v for k, v in set1.items() if k not in set2)
+        set2_only = sum(v for k, v in set2.items() if k not in set1)
+        intersection = sum(v + set2[k] for k, v in set1.items() if k in set2)
+        union = set1_only + set2_only + intersection
+        return intersection / union if union > 0 else 0.0
     
     queue = list(sets.keys())
-    assignments = [-1 for _ in range(hg.nodes)] # will hold cid for each input set
-    next_cid = 0
+    assignments = DisjointSet(i for i in range(hg.nodes))
     merged = True
 
     while merged:
@@ -680,24 +683,22 @@ def partitionSetlistMiniHashWeightsTEMPVAR(hg: HyperGraph, N: int, M: int, K: in
             best_cid, best_jacc = None, 0.0
             for cid in cand_ids:
                 cl = sets[cid]
-                if cl.count >= N:
+                if cl.count + cluster.count > N:
                     continue
 
                 # estimate weighted Jaccard distance
-                j = distance(cluster.nodes_set, cl.nodes_set) # use cl['minhash'] eventually here!
-                if j <= best_jacc:
+                # IDEA: to avoid putting together only the best nodes, punish merges between already large clusters!
+                d = distance(cluster.nodes_set, cl.nodes_set) / max(cluster.count, cl.count)
+                if d <= best_jacc:
                     continue
 
                 # Exact union‐size check via intersection count
                 if len(set(cl.nodes_set.keys()) | set(cluster.nodes_set.keys())) <= M:
-                    best_cid, best_jacc = cid, j
+                    best_cid, best_jacc = cid, d
 
             # merge into the chosen cluster
-            if best_cid == None and best_jacc >= threshold * (len(sets) / hg.nodes)**2:
-                if assignments[best_cid] == -1:
-                    assignments[best_cid] = next_cid
-                    next_cid += 1
-                assignments[i] = assignments[best_cid]
+            if best_cid is not None and best_jacc >= threshold * (len(sets) / hg.nodes)**2:
+                assignments.union(i, best_cid)
                 cl = sets[best_cid]
                 cl.nodes_set |= cluster.nodes_set
                 cl.count += cluster.count
@@ -711,16 +712,16 @@ def partitionSetlistMiniHashWeightsTEMPVAR(hg: HyperGraph, N: int, M: int, K: in
                 merged = True
         queue = list(sets.keys())
 
-    for i in range(len(assignments)):
-        if assignments[i] == -1:
-            assignments[i] = next_cid
-            next_cid += 1
+    result = [-1 for _ in range(hg.nodes)]
+    for i, part in enumerate(assignments):
+        for node in part:
+            result[node] = i
 
-    # enforce the <= K clusters requirement
-    if next_cid > K:
-        raise Exception(f"Partitioning could only form {next_cid} > {K} clusters under the provided N and M constraints.")
+        # enforce the <= K clusters requirement
+        if i >= K:
+            raise Exception(f"Partitioning could only form {i + 1} > {K} clusters under the provided N and M constraints.")
 
-    return assignments
+    return result
 
 """
 Experimental version of 'partitionSetlistMiniHashTEMPVAR'.
@@ -729,7 +730,7 @@ The implementation is stupidly inefficient, but its purpose is to show if pickin
 Variant: here we simply iterate over all pairs instead of just all nodes (n -> n^2 complexity).
 """
 @core
-def partitionSetlistMiniHashWeightsTEMPEXH(hg: HyperGraph, N: int, M: int, K: int, num_perm : int = 256, threshold : float = 0.0) -> list[int]:
+def partitionSetlistMiniHashWeightsTEMPEXH(hg: HyperGraph, N: int, M: int, K: int, threshold : float = 0.0) -> list[int]:
     class Cluster:
         def __init__(self, nodes_set : dict[int, float]):
             self.nodes_set = nodes_set
@@ -794,8 +795,6 @@ def partitionSetlistMiniHashWeightsTEMPEXH(hg: HyperGraph, N: int, M: int, K: in
                 #        This occurs because
 
                 # estimate weighted Jaccard distance
-                #d = distance(cluster1.nodes_set, cluster2.nodes_set) # use cl['minhash'] eventually here!
-                #d = distance(cluster1.nodes_set, cluster2.nodes_set) / min(cluster1.count, cluster2.count)
                 # IDEA: to avoid putting together only the best nodes, punish merges between already large clusters!
                 d = distance(cluster1.nodes_set, cluster2.nodes_set) / max(cluster1.count, cluster2.count)
                 if d <= best_jacc:
@@ -807,7 +806,7 @@ def partitionSetlistMiniHashWeightsTEMPEXH(hg: HyperGraph, N: int, M: int, K: in
                 else:
                     Mskips += 1
 
-        print(best_cid1, best_jacc, Nskips, Mskips, len(sets))
+        print("best cide:", best_cid1, "best distance:", best_jacc, "skipped due to N:", Nskips, "skipped due to M:", Mskips, "remaining sets:", len(sets))
         # merge into the chosen cluster
         if best_cid1 != None and best_jacc >= threshold * (len(sets) / hg.nodes)**2:
             assignments.union(best_cid1, best_cid2)
@@ -831,150 +830,6 @@ def partitionSetlistMiniHashWeightsTEMPEXH(hg: HyperGraph, N: int, M: int, K: in
             raise Exception(f"Partitioning could only form {i + 1} > {K} clusters under the provided N and M constraints.")
 
     return result
-
-"""
-Same as 'partitionSetlistMiniHash', but each inbound hyperedge is weighted by its spike frequency.
-As a result, sets became dictionaries, and we use the weighted Jaccard distance for similarity.
-
-Extra args:
-- s: sketch size (# samples)
-- b: number of LSH bands (sketch rows per band = r = s//b)
-"""
-@core
-def partitionSetlistMiniHashWeighted(hg: HyperGraph, N: int, M: int, K: int, s: int = 128, b: int = 16) -> list[int]:
-    # build the inbound edges's sources sets list
-    dicts : list[dict[int, float]] = []
-    #largest_dict_size = 0
-    for n in range(hg.nodes):
-        d = {}
-        inbound = hg.getInboundHyperedges(n)
-        average_sf = 0
-        for he in inbound:
-            src = he.source()
-            average_sf += he.spike_frequency
-            if src not in d:
-                d[he.source()] = he.spike_frequency
-            else:
-                d[he.source()] += he.spike_frequency
-        if inbound:
-            d[n] = average_sf / len(inbound)
-        else:
-            d[n] = 0.0
-        #largest_dict_size = max(largest_dict_size, len(s))
-        dicts.append(d)
-
-    if s % b != 0:
-        raise ValueError("Sketch size s must be divisible by band count b")
-    r = s // b
-    def _rand_uniform(key: int, seed: int) -> float:
-        h = hashlib.md5(f"{key}-{seed}".encode()).digest()
-        v = int.from_bytes(h[:8], 'big')
-        return (v + 1) / (2**64 + 1)
-    def cws_sketch(d: dict[int, float]) -> list[int]:
-        sketch = [None] * s
-        mins = [math.inf] * s
-        for key, w in d.items():
-            if w <= 0: continue
-            for j in range(s):
-                u = _rand_uniform(key, j)
-                y = -math.log(u) / w
-                if y < mins[j]:
-                    mins[j] = y
-                    sketch[j] = key
-        return sketch
-
-    # LSH buckets
-    band_buckets = [defaultdict(set) for _ in range(b)]
-    clusters = {}  # cid -> meta
-    assignments = [-1] * len(dicts)
-    next_cid = 0
-
-    # --- streaming insertion ---
-    for i, d in enumerate(dicts):
-        d_total = sum(d.values())
-        sk = cws_sketch(d)
-        # LSH query
-        cands = set()
-        for band in range(b):
-            sig = tuple(sk[band*r:(band+1)*r])
-            cands |= band_buckets[band].get(sig, set())
-        # pick best
-        best_cid, best_score = None, 0.0
-        for cid in cands:
-            c = clusters[cid]
-            if c['count'] + 1 > N: continue
-            if len(c['weights'] | d.keys()) > M: continue
-            # exact weighted Jaccard
-            inter = sum(min(c['weights'].get(k,0.0), w) for k,w in d.items())
-            union = c['total_weight'] + d_total - inter
-            score = inter/union if union>0 else 0.0
-            if score > best_score:
-                best_score, best_cid = score, cid
-        if best_cid is not None:
-            # merge
-            c = clusters[best_cid]
-            for k,w in d.items(): c['weights'][k] = c['weights'].get(k,0.0)+w
-            c['total_weight'] += d_total; c['count']+=1; c['elems']=len(c['weights'])
-            # update LSH
-            old_sk = c['sketch']
-            for band in range(b): band_buckets[band][tuple(old_sk[band*r:(band+1)*r])].remove(best_cid)
-            new_sk = cws_sketch(c['weights']); c['sketch']=new_sk
-            for band in range(b): band_buckets[band][tuple(new_sk[band*r:(band+1)*r])].add(best_cid)
-            assignments[i] = best_cid
-        else:
-            # new cluster
-            if next_cid >= K:
-                # no room: break to refinement
-                break
-            cid = next_cid; next_cid+=1
-            clusters[cid] = {
-                'weights': dict(d), 'total_weight': d_total,
-                'count':1, 'elems':len(d), 'sketch':sk
-            }
-            for band in range(b): band_buckets[band][tuple(sk[band*r:(band+1)*r])].add(cid)
-            assignments[i] = cid
-
-    # --- hierarchical refinement to reach ≤K clusters ---
-    # build list of current clusters
-    cids = list(clusters.keys())
-    # greedy merge best pair until len(cids) <= K
-    while len(cids) > K:
-        best_pair, best_score = None, -1.0
-        # find best merge candidate among current clusters
-        for i in range(len(cids)):
-            for j in range(i+1, len(cids)):
-                a, b_cid = cids[i], cids[j]
-                A, B = clusters[a], clusters[b_cid]
-                # capacity checks
-                if A['count']+B['count']>N or len(A['weights']|B['weights'])>M: continue
-                # exact weighted Jaccard of centroids
-                inter = sum(min(A['weights'][k], B['weights'][k]) for k in A['weights'] if k in B['weights'])
-                union = A['total_weight']+B['total_weight']-inter
-                score = inter/union if union>0 else 0.0
-                if score>best_score:
-                    best_score, best_pair = score, (a, b_cid)
-        if best_pair is None:
-            break  # no valid merges
-        # perform merge
-        a, b_cid = best_pair
-        A, B = clusters[a], clusters[b_cid]
-        for k,w in B['weights'].items(): A['weights'][k] = A['weights'].get(k,0.0)+w
-        A['total_weight'] += B['total_weight']; A['count']+=B['count']; A['elems']=len(A['weights'])
-        # remove cluster b_cid
-        del clusters[b_cid]
-        cids.remove(b_cid)
-    # remap assignments
-    cid_map = {old:new for new,old in enumerate(cids)}
-    final = []
-    for idx in assignments:
-        if idx in cid_map:
-            final.append(cid_map[idx])
-        else:
-            # unassigned (in break), assign to nearest
-            # simple fallback: 0
-            final.append(0)
-    return final
-
 
 """
 Simple sequential partitioning algorithm, assigns nodes to the same partition until a constraint
