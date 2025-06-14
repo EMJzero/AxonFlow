@@ -565,7 +565,7 @@ def partitionSetlistMiniHashWeightsTEMP(hg: HyperGraph, N: int, M: int, K: int, 
     assignments = [] # will hold cid for each input set
     next_cid = 0
 
-    for s in sets:
+    for i, s in enumerate(sets):
         # TODO: prepare weighted MinHash
         # TODO: pull candidates from the query infrastructure
         cand_ids = [cid for cid in clusters.keys()]
@@ -587,7 +587,7 @@ def partitionSetlistMiniHashWeightsTEMP(hg: HyperGraph, N: int, M: int, K: int, 
                 best_cid, best_jacc = cid, j
 
         # no existing cluster fits, start a new one
-        if best_cid is None or best_jacc < threshold:
+        if best_cid is None or best_jacc < threshold / i:
             cid = next_cid
             next_cid += 1
             clusters[cid] = {'union_set': s.copy(), 'count': 1, 'minhash': None}
@@ -596,7 +596,7 @@ def partitionSetlistMiniHashWeightsTEMP(hg: HyperGraph, N: int, M: int, K: int, 
         else:
             # merge into the chosen cluster
             cid = best_cid
-            cl  = clusters[cid]
+            cl = clusters[cid]
             cl['union_set'] |= s
             cl['count'] += 1
             # TODO: update cluster’s MinHash: pointwise min of hashvalues
@@ -609,15 +609,228 @@ def partitionSetlistMiniHashWeightsTEMP(hg: HyperGraph, N: int, M: int, K: int, 
         # record which cluster this set went into
         assignments.append(cid)
 
-    # 3) Enforce the ≤ K clusters requirement
+    # enforce the <= K clusters requirement
     unique_cids = sorted(clusters.keys())
     if len(unique_cids) > K:
         raise Exception(f"Partitioning could only form {len(unique_cids)} > {K} clusters under the provided N and M constraints.")
 
-    # 4) Remap arbitrary cid values into 0..C–1
+    # remap arbitrary cid values into 0..C–1
     cid_map = {old: new for new, old in enumerate(unique_cids)}
     labels  = [cid_map[c] for c in assignments]
     return labels
+
+"""
+Experimental version of 'partitionSetlistMiniHashTEMP' with weights.
+The implementation is extremely inefficient, but its purpose is to show if using weights can improve the result.
+
+Variant: here we don't start with zero clusters, but with each node initially being its own cluster.
+"""
+@core
+def partitionSetlistMiniHashWeightsTEMPVAR(hg: HyperGraph, N: int, M: int, K: int, num_perm : int = 256, threshold : float = 2.0) -> list[int]:
+    class Cluster:
+        def __init__(self, nodes_set : dict[int, float]):
+            self.nodes_set = nodes_set
+            self.count = 1
+            #self.minhash = ...
+    
+    sets : dict[Cluster] = dict()
+    for n in range(hg.nodes):
+        d = dict()
+        inbound = hg.getInboundHyperedges(n)
+        #average_sf = 0
+        for he in inbound:
+            src = he.source()
+            #average_sf += he.spike_frequency
+            if src not in d:
+                d[he.source()] = he.spike_frequency
+            else:
+                d[he.source()] += he.spike_frequency
+        # NOTE: having oneself in the sources should push towards two nodes connected by an edge being together,
+        #       but this worsens performance since it consumes an inbound edge slow for a weakly shared hyperedge!
+        #if inbound:
+        #    d[n] = average_sf / len(inbound)
+        #else:
+        #    d[n] = 0.0
+        sets[n] = Cluster(d)
+
+    # TODO: setup fast query infrastructure
+    # TODO: prefill it with all elements of 'sets'
+    # lhs = ...
+
+    # EXPERIMENTAL VERSION WITH A SLOW DISTANCE CALCULATION
+    def distance(set1 : dict[int, float], set2 : dict[int, float]) -> float:
+        return sum(v + set2[k] for k, v in set1.items() if k in set2)
+    
+    queue = list(sets.keys())
+    assignments = [-1 for _ in range(hg.nodes)] # will hold cid for each input set
+    next_cid = 0
+    merged = True
+
+    while merged:
+        merged = False
+        while queue:
+            i = queue.pop(0)
+            cluster = sets[i]
+
+            # TODO: prepare weighted MinHash
+            # TODO: pull candidates from the query infrastructure
+            cand_ids = [cid for cid in sets.keys() if cid != i]
+            
+            # pick the best mergeable cluster
+            best_cid, best_jacc = None, 0.0
+            for cid in cand_ids:
+                cl = sets[cid]
+                if cl.count >= N:
+                    continue
+
+                # estimate weighted Jaccard distance
+                j = distance(cluster.nodes_set, cl.nodes_set) # use cl['minhash'] eventually here!
+                if j <= best_jacc:
+                    continue
+
+                # Exact union‐size check via intersection count
+                if len(set(cl.nodes_set.keys()) | set(cluster.nodes_set.keys())) <= M:
+                    best_cid, best_jacc = cid, j
+
+            # merge into the chosen cluster
+            if best_cid == None and best_jacc >= threshold * (len(sets) / hg.nodes)**2:
+                if assignments[best_cid] == -1:
+                    assignments[best_cid] = next_cid
+                    next_cid += 1
+                assignments[i] = assignments[best_cid]
+                cl = sets[best_cid]
+                cl.nodes_set |= cluster.nodes_set
+                cl.count += cluster.count
+                sets.pop(i)
+                try:
+                    queue.remove(best_cid)
+                except:
+                    pass
+                # TODO: update cluster’s MinHash: pointwise min of hashvalues
+                # TODO: re‐index query infrastruture so its buckets reflect the updated sketch
+                merged = True
+        queue = list(sets.keys())
+
+    for i in range(len(assignments)):
+        if assignments[i] == -1:
+            assignments[i] = next_cid
+            next_cid += 1
+
+    # enforce the <= K clusters requirement
+    if next_cid > K:
+        raise Exception(f"Partitioning could only form {next_cid} > {K} clusters under the provided N and M constraints.")
+
+    return assignments
+
+"""
+Experimental version of 'partitionSetlistMiniHashTEMPVAR'.
+The implementation is stupidly inefficient, but its purpose is to show if picking always the best pair yields good results.
+
+Variant: here we simply iterate over all pairs instead of just all nodes (n -> n^2 complexity).
+"""
+@core
+def partitionSetlistMiniHashWeightsTEMPEXH(hg: HyperGraph, N: int, M: int, K: int, num_perm : int = 256, threshold : float = 0.0) -> list[int]:
+    class Cluster:
+        def __init__(self, nodes_set : dict[int, float]):
+            self.nodes_set = nodes_set
+            self.count = 1
+            #self.minhash = ...
+    
+    sets : dict[int, Cluster] = dict()
+    for n in range(hg.nodes):
+        d = dict()
+        inbound = hg.getInboundHyperedges(n)
+        #average_sf = 0
+        for he in inbound:
+            src = he.source()
+            #average_sf += he.spike_frequency
+            if src not in d:
+                d[he.source()] = he.spike_frequency
+            else:
+                d[he.source()] += he.spike_frequency
+        # NOTE: having oneself in the sources should push towards two nodes connected by an edge being together,
+        #       but this worsens performance since it consumes an inbound edge slow for a weakly shared hyperedge!
+        #if inbound:
+        #    d[n] = average_sf / len(inbound)
+        #else:
+        #    d[n] = 0.0
+        sets[n] = Cluster(d)
+
+    # TODO: setup fast query infrastructure
+    # TODO: prefill it with all elements of 'sets'
+    # lhs = ...
+
+    # EXPERIMENTAL VERSION WITH A SLOW DISTANCE CALCULATION
+    def distance(set1 : dict[int, float], set2 : dict[int, float]) -> float:
+        set1_only = sum(v for k, v in set1.items() if k not in set2)
+        set2_only = sum(v for k, v in set2.items() if k not in set1)
+        intersection = sum(v + set2[k] for k, v in set1.items() if k in set2)
+        union = set1_only + set2_only + intersection
+        return intersection / union if union > 0 else 0.0
+    
+    assignments = DisjointSet(i for i in range(hg.nodes))
+    merged = True
+
+    while merged:
+        merged = False
+        best_cid1, best_cid2, best_jacc = None, None, 0.0
+        keys = list(sets.keys())
+        Nskips, Mskips = 0, 0
+        for _i in range(len(keys)):
+            i = keys[_i]
+            cluster1 = sets[i]
+            if cluster1.count >= N:
+                    Nskips += _i + 1
+                    continue
+            
+            for _j in range(_i):
+                j = keys[_j]
+                cluster2 = sets[j]
+                if cluster2.count + cluster1.count > N:
+                    Nskips += 1
+                    continue
+
+                # ISSUE: too many nodes remain unclustered!
+                #        This occurs because
+
+                # estimate weighted Jaccard distance
+                #d = distance(cluster1.nodes_set, cluster2.nodes_set) # use cl['minhash'] eventually here!
+                #d = distance(cluster1.nodes_set, cluster2.nodes_set) / min(cluster1.count, cluster2.count)
+                # IDEA: to avoid putting together only the best nodes, punish merges between already large clusters!
+                d = distance(cluster1.nodes_set, cluster2.nodes_set) / max(cluster1.count, cluster2.count)
+                if d <= best_jacc:
+                    continue
+
+                # Exact union‐size check via intersection count
+                if len(set(cluster1.nodes_set.keys()) | set(cluster2.nodes_set.keys())) <= M:
+                    best_cid1, best_cid2, best_jacc = i, j, d
+                else:
+                    Mskips += 1
+
+        print(best_cid1, best_jacc, Nskips, Mskips, len(sets))
+        # merge into the chosen cluster
+        if best_cid1 != None and best_jacc >= threshold * (len(sets) / hg.nodes)**2:
+            assignments.union(best_cid1, best_cid2)
+            cluster1 = sets[best_cid1]
+            cluster2 = sets[best_cid2]
+            #cluster1.nodes_set |= cluster2.nodes_set
+            cluster1.nodes_set = dict_sum(cluster1.nodes_set, cluster2.nodes_set)
+            cluster1.count += cluster2.count
+            sets.pop(best_cid2)
+            # TODO: update cluster’s MinHash: pointwise min of hashvalues
+            # TODO: re‐index query infrastruture so its buckets reflect the updated sketch
+            merged = True
+
+    result = [-1 for _ in range(hg.nodes)]
+    for i, part in enumerate(assignments):
+        for node in part:
+            result[node] = i
+
+        # enforce the <= K clusters requirement
+        if i >= K:
+            raise Exception(f"Partitioning could only form {i + 1} > {K} clusters under the provided N and M constraints.")
+
+    return result
 
 """
 Same as 'partitionSetlistMiniHash', but each inbound hyperedge is weighted by its spike frequency.

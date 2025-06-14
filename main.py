@@ -9,6 +9,7 @@ import sys
 
 from graph_utils import *
 from partitioner import *
+from load_store import *
 from settings import *
 from placer import *
 from prints import *
@@ -98,6 +99,7 @@ if __name__ == "__main__":
     nodes_per_edge_mean, nodes_per_edge_variation = 16, 4
     print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
     snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
+    #snn = loadSNN("./snn_models/snn_graph.graphml")
     #acyclic_snn = makeAcyclic(snn)
     hardware = HardwareModel(
         neurons_per_core = 256,

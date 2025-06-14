@@ -1,8 +1,6 @@
-from typing import TypeVar, Generator, Callable, Iterable, Self, Iterator, Optional
+from typing import Generic, TypeVar, Generator, Callable, Iterable, Self, Iterator, Optional
 from collections.abc import MutableMapping
-
-import random
-import heapq
+from collections import defaultdict
 
 T = TypeVar('T')
 U = TypeVar('U')
@@ -124,6 +122,94 @@ class BiMap(MutableMapping[T, U]):
             return len(self._outer._rev)
 
 """
+Disjoint set (Union-Find) implementation, credit to: Ivan Lazarevic (https://github.com/ivanbgd/Disjoint-Sets-Data-Structure/)
+Each element is part of a set represented by a unique root element.
+
+When both union by rank heuristic and path compression heuristic are used, the average running time of each operation is nearly constant.
+Uses Trees, Union by Rank Heuristic, and Path Compression Heuristic.
+Uses 1-based indexing of arrays.
+Storage style: structure of arrays.
+
+Arguments:
+- elements: optional iterable of initial elements, each forming its own singleton set.
+"""
+class DisjointSet(Generic[T]):
+    def __init__(self, elements: Optional[Iterable[T]] = None):
+        self.parent: dict[T, T] = {}
+        self.rank: dict[T, int] = {}
+        if elements:
+            for elem in elements:
+                self.makeSet(elem)
+
+    """
+    Adds a new element as a singleton set.
+    If the element already exists in the structure, this does nothing.
+
+    Arguments:
+    - x: the element to be added as its own set.
+    """
+    def makeSet(self, x: T) -> None:
+        if x not in self.parent:
+            self.parent[x] = x
+            self.rank[x] = 0
+
+    """
+    Finds the representative (root) of the set containing x.
+    Applies path compression to flatten the tree structure, optimizing future queries.
+
+    Arguments:
+    - x: The element whose set representative is to be found.
+
+    Returns: the representative element of the set containing x.
+    """
+    def find(self, x: T) -> T:
+        if self.parent[x] != x:
+            self.parent[x] = self.find(self.parent[x])
+        return self.parent[x]
+
+    """
+    Merges the sets containing x and y.
+    Uses the union by rank heuristic to keep trees shallow for performance.
+
+    Arguments:
+    - x: an element in the first set.
+    - y: an element in the second set.
+    """
+    def union(self, x: T, y: T) -> None:
+        x_root = self.find(x)
+        y_root = self.find(y)
+
+        if x_root == y_root:
+            return  # Already in the same set
+
+        if self.rank[x_root] < self.rank[y_root]:
+            self.parent[x_root] = y_root
+        else:
+            self.parent[y_root] = x_root
+            if self.rank[x_root] == self.rank[y_root]:
+                self.rank[x_root] += 1
+    
+    """
+    Yields each disjoint set as a generator of its elements.
+
+    Returns: a generator of generators, where each inner generator yields elements of a single set.
+    """
+    def __iter__(self) -> Iterable[Iterable[T]]:
+        sets: defaultdict[T, list[T]] = defaultdict(list)
+        for x in self.parent:
+            root = self.find(x)
+            sets[root].append(x)
+
+        for group in sets.values():
+            yield (elem for elem in group)
+    
+    """
+    Enable the use of "in" to check if an elements belongs to any disjont set.
+    """
+    def __contains__(self, x: T) -> bool:
+        return x in self.parent
+
+"""
 Compute the manhattan distance betwenn two points 'pt1' and 'pt2' in an n-dimensional lattice.
 """
 def manhattan(pt1 : tuple[int, ...], pt2 : tuple[int, ...]) -> int:
@@ -168,6 +254,19 @@ def scan_left(func : Callable[[T, U], T], iterable : Iterable[U], initial : T) -
         acc = func(acc, item)
         result.append(acc)
     return result
+
+"""
+Given multiple dictionaries potentially sharing the same key and having values
+for which the '+' operation is defined, this returns the dictionary having all
+keys of the originals and for values the sum of the values with the same key
+among the original dictionaries.
+"""
+def dict_sum(*dicts : tuple[dict[T, U], ...]) -> dict[T, U]:
+    ret = defaultdict(int)
+    for d in dicts:
+        for k, v in d.items():
+            ret[k] += v
+    return dict(ret)
 
 """
 Given N buckets all of size M and a set 'num' of positive integers, this algorithm
@@ -267,60 +366,3 @@ def can_distribute_sets(sets_list : list[set[int]], N : int, M : int, K : int, s
                 break  # symmetry breaking
 
     return False
-
-"""
-Given N buckets all of size M and a list of sets of integers 'sets_list', this algorithm
-heuristically checks if there exists a way to distribute the sets of the list among buckets
-such that the count of integers in each bucket is <=M and the number of sets added to a
-bucket does not exceed K. However, each bucket is itself a set, as such, duplicate
-elements do not count towards M.
-
-False positives are impossible.
-False negatives are admitted.
-
-Args:
-- sets_list: list of sets to distribute among buckets
-- N: number of buckets
-- M: maximum number of distinct elements per bucket
-- K: maximum number of sets per bucket
-- max_int: maximum integer value present in the sets
-"""
-def can_distribute_sets_heuristic(sets_list: list[set[int]], N: int, M: int, K: int) -> bool:
-    # trivial necessary checks
-    if len(sets_list) > N * K:
-        # more sets than total slots
-        return False
-
-    # no set can exceed M by itself:
-    for s in sets_list:
-        if len(s) > M:
-            return False
-
-    # sort in descending order of size (helps greedy)
-    sorted_sets = sorted(sets_list, key=lambda s: -len(s))
-
-    # each bucket track: its current set of elems, and count of sets placed
-    buckets = [(set(), 0) for _ in range(N)]
-
-    for s in sorted_sets:
-        placed = False
-        for i in range(N):
-            elems, cnt = buckets[i]
-            if cnt >= K:
-                continue  # bucket full by count
-            # compute how many *new* elems this set would add
-            # (we need the *exact* distinct count to stay ≤M)
-            # since buckets[i][0] is a set, this union is in C and quite fast
-            new_count = len(elems) + sum(1 for x in s if x not in elems)
-            if new_count <= M:
-                # we can place it here
-                elems |= s
-                buckets[i] = (elems, cnt + 1)
-                placed = True
-                break
-        if not placed:
-            # greedy failed → give up
-            return False
-
-    # all sets placed
-    return True

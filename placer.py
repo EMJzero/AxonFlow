@@ -81,6 +81,8 @@ def spectralPlacement(graph: nx.Graph, width: int, height: int) -> list[Coord2D]
 Compute a layout of a graph of 'nodes' nodes onto a 2D integer lattice via a 2D generalized Hilbert-like
 space-filling curve that visits every point in a 'width' by 'height' rectangle exactly once.
 It is highly recommended for 'width' and 'height' to be powers of two.
+
+NOTE: requires nodes to be topologically ordered!
 """
 @core
 def hilbertPlacement(nodes : int, width : int, height : int) -> list[Coord2D]:
@@ -226,6 +228,19 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
     
     return [new_placement.inv[node] for node in range(hg.nodes)]
 
+"""
+Compute a layout of a graph of 'nodes' nodes onto a 2D integer lattice via particle swarm optimization.
+
+Arguments:
+- hg: hypergraph to layout.
+- model: source of lattice constraints and layout cost estimator.
+- num_particles: number of particles (candidate solutions) in the PSO swarm.
+- num_iterations: number of optimization iterations to run.
+- w: inertia weight, balances exploration vs exploitation.
+- c1: cognitive coefficient, how much particles are influenced by their own best position.
+- c2: social coefficient, how much particles are influenced by the global best.
+- initial_layout): optional seed layout used to initialize the first particle.
+"""
 @core
 def particleSwarmPlacement(hg: HyperGraph, model : HardwareModel, num_particles: int = 30, num_iterations: int = 200, w: float = 0.72, c1: float = 1.49, c2: float = 1.49, initial_layout: Optional[list[Coord2D]] = None) -> list[Coord2D]:
     n_nodes = hg.nodes
