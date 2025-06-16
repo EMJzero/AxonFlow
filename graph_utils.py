@@ -1,6 +1,7 @@
 from collections import deque
 from copy import deepcopy
 
+from prints import *
 from snn import *
 
 """
@@ -90,7 +91,11 @@ The function returns:
 - the set of masked edges (i.e., (src, dst) pairs that were ignored when computing the ordering,
   ignoring those in the returned hypergraph makes it topologically ordered and acyclic).
 """
-def topologicalOrder( hg: HyperGraph, break_cycles: bool = False) -> tuple[HyperGraph, list[tuple[int, int]]]:
+from collections import deque
+from typing import Optional
+
+@core
+def topologicalOrder(hg: HyperGraph, break_cycles: bool = False) -> tuple[HyperGraph, list[tuple[int, int]]]:
     n = hg.nodes
     arc_src, arc_dst, arc_weight = [], [], []
     outgoing_arcs = [[] for _ in range(n)]
@@ -107,42 +112,48 @@ def topologicalOrder( hg: HyperGraph, break_cycles: bool = False) -> tuple[Hyper
             outgoing_arcs[s].append(i)
             active_arcs.add(i)
 
-    # Helper: find one cycle via DFS, return list of arc indices
+    masked = []
+
+    # Efficient DFS-based cycle finder, returns one real cycle as list of arc indices
     def find_cycle() -> Optional[list[int]]:
-        color = [0] * n
+        color = [0] * n  # 0 = unvisited, 1 = visiting, 2 = visited
         parent_arc = [-1] * n
 
-        def dfs(u: int) -> Optional[list[int]]:
-            color[u] = 1
-            for aid in outgoing_arcs[u]:
-                if aid not in active_arcs: continue
-                v = arc_dst[aid]
-                if color[v] == 0:
-                    parent_arc[v] = aid
-                    res = dfs(v)
-                    if res: return res
-                elif color[v] == 1:
-                    cycle = [aid]
-                    w = u
-                    while True:
-                        pa = parent_arc[w]
-                        cycle.append(pa)
-                        w = arc_src[pa]
-                        if w == v: break
-                    return cycle
-            color[u] = 2
-            return None
+        for start in range(n):
+            if color[start] != 0:
+                continue
 
-        for i in range(n):
-            if color[i] == 0:
-                res = dfs(i)
-                if res: return res
+            stack = [(start, iter(outgoing_arcs[start]))]
+            color[start] = 1
+
+            while stack:
+                u, children = stack[-1]
+                try:
+                    aid = next(children)
+                    if aid not in active_arcs:
+                        continue
+                    v = arc_dst[aid]
+                    if color[v] == 0:
+                        parent_arc[v] = aid
+                        color[v] = 1
+                        stack.append((v, iter(outgoing_arcs[v])))
+                    elif color[v] == 1:
+                        # Cycle found
+                        cycle = [aid]
+                        w = u
+                        while w != v:
+                            pa = parent_arc[w]
+                            cycle.append(pa)
+                            w = arc_src[pa]
+                        return cycle
+                except StopIteration:
+                    color[u] = 2
+                    stack.pop()
         return None
-
-    masked = []
 
     if break_cycles:
         while (cycle := find_cycle()):
+            # Remove the weakest arc from the cycle
             worst = min(cycle, key=lambda i: arc_weight[i])
             active_arcs.remove(worst)
             masked.append((arc_src[worst], arc_dst[worst]))
@@ -175,7 +186,9 @@ def topologicalOrder( hg: HyperGraph, break_cycles: bool = False) -> tuple[Hyper
 
     # Rebuild hypergraph with permuted node IDs
     new_edges = [HyperEdge(new_id[he.source()], tuple(new_id[d] for d in he.destinations()), he.spike_frequency) for he in hg.hyperedges]
+
     return HyperGraph(n, new_edges), masked
+
 
 """
 Same functionality as 'topologicalOrder', but the logic to make the graph acyclic is weaker: it attempts to

@@ -646,7 +646,7 @@ def partitionSetlistMiniHashWeightsTEMPVAR(hg: HyperGraph, N: int, M: int, K: in
             else:
                 d[he.source()] += he.spike_frequency
         # NOTE: having oneself in the sources should push towards two nodes connected by an edge being together,
-        #       but this worsens performance since it consumes an inbound edge slow for a weakly shared hyperedge!
+        #       but this worsens performance since it consumes an inbound edge slot for a weakly shared hyperedge!
         #if inbound:
         #    d[n] = average_sf / len(inbound)
         #else:

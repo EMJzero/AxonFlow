@@ -1,9 +1,9 @@
 from typing import Optional
 
+from itertools import islice, combinations
 from collections import defaultdict
-from functools import reduce
 from scipy.spatial import KDTree
-from itertools import islice
+from functools import reduce
 import networkx as nx
 import numpy as np
 import heapq
@@ -321,6 +321,92 @@ def particleSwarmPlacement(hg: HyperGraph, model : HardwareModel, num_particles:
     # Convert continuous global best to integer lattice coordinates
     best_placement = [Coord2D(int(round(x)), int(round(y))) for x, y in gbest_pos]
     return best_placement
+
+"""
+Compute a layout of a graph of 'nodes' nodes onto a 2D integer lattice via the algorithm proposed
+in the "TrueNorth Ecosystem" paper.
+
+NOTE: requires nodes to be topologically ordered!
+Arguments:
+- hg: hypergraph to layout, nodes must be in topological order.
+- masked_edges: src->dst connections that were ignored to build the topological order.
+- model: neuromorphic hardware model.
+"""
+@core
+def trueNorthPlacement(hg : HyperGraph, masked_edges : list[tuple[int, int]], model : HardwareModel) -> list[Coord2D]:
+    nodes_layers = [set()]
+    for node in range(hg.nodes):
+        for he in hg.getInboundHyperedges(node):
+            if he.source() in nodes_layers[-1]:
+                if (he.source(), node) in masked_edges:
+                    continue
+                nodes_layers.append(set())
+                break
+        nodes_layers[-1].add(node)
+    
+    inbound_sources = [{he.source() for he in hg.getInboundHyperedges(n)} for n in range(hg.nodes)]
+    
+    chips = defaultdict(set) # chip(x, y) -> set of nodes
+    placement = BiMap({n : None for n in range(hg.nodes)}) # node idx -> placement
+    
+    """
+    Given a set of nodes, returns subset of N nodes with the highest
+    number of shared sources of inbound hyperedges among them.
+    """
+    def closest_N_nodes(nodes : Iterable[int], N : int) -> Iterable[int]:
+        best, best_iou = None, -1
+        for subset in combinations(nodes, N):
+            union = set()
+            for s in subset:
+                union.update(inbound_sources[s])
+            union = len(union)
+            intersection = sum(1 for n in inbound_sources[subset[0]] if all(n in inbound_sources[s] for s in subset[1:]))
+            iou = intersection / union if union != 0 else 0
+            if iou > best_iou:
+                best, best_iou = subset, iou
+        return best
+    
+    input = nodes_layers.pop(0)
+    input_per_chip = len(input)//model.chipsCount()
+    chips_with_extra_input = len(input) % model.chipsCount()
+    for c_x in range(model.chips_per_system_x):
+        for c_y in range(model.chips_per_system_y):
+            chip_idx = c_x * model.chips_per_system_y + c_y
+            input_count = input_per_chip + (1 if chip_idx < chips_with_extra_input else 0)
+            coords = get_equispaced_lattice_points(model.cores_per_chip_x, model.cores_per_chip_y, input_count)
+            #closest = [input.pop(0) for _ in input_count]
+            closest = closest_N_nodes(input, input_count)
+            for coord, n in zip(coords, closest):
+                chip_coords = Coord2D(c_x * model.cores_per_chip_x, c_y * model.cores_per_chip_y)
+                placement[n] = chip_coords + coord
+                chips[chip_coords]
+                input.remove(n)
+
+    for layer in nodes_layers:
+        for node in layer:
+            inbound = inbound_sources[n]
+            best_chip_coords, best_intersection = None, -1
+            # select best chip based on intersection of stored nodes sets
+            for chip_coords, nodes in chips.items():
+                intersection = sum(1 for n in inbound if n in nodes)
+                if intersection > best_intersection and len(nodes) < model.coresPerChipCount():
+                    best_chip_coords, best_intersection = chip_coords, intersection
+            # select best core in chip based on minimum total manhattan distance
+            best_placement, best_distance = None, math.inf
+            for x in range(model.cores_per_chip_x):
+                for y in range(model.cores_per_chip_y):
+                    coord = best_chip_coords + Coord2D(x, y)
+                    if coord in placement.inv:
+                        continue
+                    distance = 0
+                    for connected_node in inbound_sources[node]:
+                        if connected_node in placement:
+                            distance += manhattan(coord, placement[connected_node])
+                    if distance < best_distance:
+                        best_placement, best_distance = coord, distance
+            placement[node] = best_placement
+    
+    return [placement[n] for n in range(hg.nodes)]
 
 """
 Print method that shows a matrix of 0s and 1s, a digit per hardware core,

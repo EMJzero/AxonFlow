@@ -366,3 +366,43 @@ def can_distribute_sets(sets_list : list[set[int]], N : int, M : int, K : int, s
                 break  # symmetry breaking
 
     return False
+
+"""
+Generate 'num_points' approximately equi-spaced points on a 2D lattice based on Manhattan distance.
+
+Parameters:
+- width: the width of the lattice (number of columns). Must be > 0.
+- height: the height of the lattice (number of rows). Must be > 0.
+- num_points: the number of equi-spaced points to return. Must be ≤ width * height.
+
+Returns: a list of Coord2D instances representing approximately equi-spaced points.
+"""
+def get_equispaced_lattice_points(width: int, height: int, num_points: int) -> list[Coord2D]:
+    if width <= 0 or height <= 0:
+        raise Exception("Width and height must be positive integers.")
+    
+    total_points = width * height
+    if num_points > total_points:
+        raise Exception(f"Cannot select {num_points} points from a lattice of size {width}x{height} ({total_points} points).")
+
+    # flatten all possible lattice points in row-major order
+    all_points = [Coord2D(x, y) for y in range(height) for x in range(width)]
+    
+    if num_points == 1:
+        # choose the center point
+        center_x = width // 2
+        center_y = height // 2
+        return [Coord2D(center_x, center_y)]
+
+    # choose the points approximately equidistant in the list in terms of manhattan spread
+    # distribute indices as evenly as possible
+    step = total_points / num_points
+    selected_points = []
+    for i in range(num_points):
+        index = int(round(i * step))
+        if index >= total_points:
+            index = total_points - 1
+        selected_points.append(all_points[index])
+
+    # deduplicate in rare edge rounding cases
+    return list(dict.fromkeys(selected_points))

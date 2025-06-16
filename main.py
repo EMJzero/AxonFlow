@@ -122,7 +122,7 @@ if __name__ == "__main__":
             print("Passed!")
         print("\n-------- partitioning --------")
         partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
-        partitioning_setlist = partitionSetlistMiniHashWeightsTEMP(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
+        partitioning_setlist = partitionSetlistMiniHashWeightsTEMPVAR(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
         partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
         partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
         partitioning_swap = swapPartitioner(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
@@ -136,6 +136,8 @@ if __name__ == "__main__":
         part_snn_greedy.squishHyperedges()
         part_snn_seq.squishHyperedges()
         part_snn_swap.squishHyperedges()
+        topological_order_mmr, masked_edges_mmr = topologicalOrder(part_snn_mmr, break_cycles = True) # Setup Locality for TrueNorth's placement algorithm.
+        topological_order_seq, masked_edges_seq = topologicalOrder(part_snn_seq, break_cycles = True) # Setup Locality as in Ouwen Jin's paper.
         print("Metrics multilevel multistart refined partitioning:")
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_multilevel_multistart_refined), 'tot_hyperedges_spike_frequency': part_snn_mmr.totalSpikeFrequency()}, 1)
         print("Metrics setlist minihash partitioning:")
@@ -150,18 +152,21 @@ if __name__ == "__main__":
         print("\n----------- layout -----------")
         # These are complete approaches, novel or from previous works
         spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY()) # NEW IDEA!
-        topological_order, _ = topologicalOrder(part_snn_seq, break_cycles = True) # Setup Locality as in Ouwen Jin's paper.
-        hsc_placement = hilbertPlacement(topological_order.nodes, hardware.coresAlongX(), hardware.coresAlongY()) # Ouwen Jin's paper.
+        hsc_placement = hilbertPlacement(topological_order_seq.nodes, hardware.coresAlongX(), hardware.coresAlongY()) # Ouwen Jin's paper.
         pso_placement = particleSwarmPlacement(part_snn_swap, hardware, num_iterations = 20) # This is the full approach from DFSynthesizer's paper.
+        truenorth_placement = trueNorthPlacement(topological_order_mmr, masked_edges_mmr, hardware) # TrueNorth's placement algorithm
         metrics_spectral = hardware.getAllMetrics(part_snn_mmr, spectral_placement)
-        metrics_hsc = hardware.getAllMetrics(topological_order, hsc_placement)
+        metrics_hsc = hardware.getAllMetrics(topological_order_seq, hsc_placement)
         metrics_pso = hardware.getAllMetrics(part_snn_swap, pso_placement)
+        metrics_truenorth = hardware.getAllMetrics(topological_order_mmr, truenorth_placement)
         print("Metrics spectral layout (canon version - multilevel multistart refined partitioning):")
         prettyPrintDict(metrics_spectral, 1)
         print("Metrics HSC layout (canon version - sequential partitioning):")
         prettyPrintDict(metrics_hsc, 1)
         print("Metrics PSO layout (canon version - swap partitioning):")
         prettyPrintDict(metrics_pso, 1)
+        print("Metrics TrueNorth layout (not-so-much canon version - multilevel multistart refined partitioning):")
+        prettyPrintDict(metrics_truenorth, 1)
         # These are crossbreeds obtained by mixing placement and partitioning algorithms
         spectral_placement_variant = spectralPlacement(part_snn_seq.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
         topological_order_variant, _ = topologicalOrder(part_snn_mmr, break_cycles = True)

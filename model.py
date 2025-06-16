@@ -14,14 +14,19 @@ Given a placed SNN, checks the placement's validity and returns its performance 
 """
 class HardwareModel:
     # CONSTRAINTS:
+    # how many neurons a core can store and process.
     neurons_per_core : int
     # synapses are shared across all neurons in a core, each neuron can have a different
     # weight for a synapse, but the incoming axon is the same for all neurons.
+    # => this is the number of "max. inbound axons per core" of "max. synapses per neuron".
     synapses_per_core : int
     cores_per_chip_x : int
     cores_per_chip_y : int
     chips_per_system_x : int
     chips_per_system_y: int
+    # TODO: two hardware constraints are missing, that Loihi has:
+    # 1) maximum number of outbound hyperedge branches per core (counting each hyperedge once per destination core)
+    # 2) maximum number of true synapses per core (in TrueNorth, this is just neurons*axons, so no need, but in Loihi it is less, 2**14)
     
     # COSTS:
     # energy required for a core's router to route a spike [pJ]
@@ -60,6 +65,12 @@ class HardwareModel:
     def coresCount(self) -> int:
         return (self.cores_per_chip_x*self.cores_per_chip_y)*self.chips_per_system_x*self.chips_per_system_y
     
+    def coresPerChipCount(self) -> int:
+        return self.cores_per_chip_x*self.cores_per_chip_y
+    
+    def chipsCount(self) -> int:
+        return self.chips_per_system_x*self.chips_per_system_y
+    
     def coresAlongX(self) -> int:
         return self.cores_per_chip_x*self.chips_per_system_x
     
@@ -72,12 +83,14 @@ class HardwareModel:
     
     Can give false negatives. Never gives false positives.
     """
-    def checkSnnFit(self, snn : HyperGraph) -> bool:
+    def checkSnnFit(self, snn : HyperGraph, verbose : bool = False) -> bool:
         if snn.nodes > self.coresCount()*self.neurons_per_core:
-            print("more neurons than the HW can house")
+            if verbose:
+                print("SNN CAN'T FIT ON THE HW: more neurons than the HW can house")
             return False # more neurons than the HW can house
         if any(len(snn.getInboundHyperedges(n)) > self.synapses_per_core for n in range(snn.nodes)):
-            print("more inbound synapses on a single neuron than the HW can handle")
+            if verbose:
+                print("SNN CAN'T FIT ON THE HW:more inbound synapses on a single neuron than the HW can handle")
             return False # more inbound synapses on a single neuron than the HW can handle
         #if not can_distribute_sets_heuristic([{he.source() for he in snn.getInboundHyperedges(n)} for n in range(snn.nodes)], self.coresCount(), self.synapses_per_core, self.neurons_per_core):
         #    print("no valid way to split neurons (and their synapses) among cores")
@@ -85,7 +98,8 @@ class HardwareModel:
         try:
             partitionSequential(snn, self.neurons_per_core, self.synapses_per_core, self.coresCount())
         except:
-            print("no valid way to split neurons (and their synapses) among cores")
+            if verbose:
+                print("SNN CAN'T FIT ON THE HW:no valid way to split neurons (and their synapses) among cores")
             return False # no valid way to split neurons (and their synapses) among cores
         return True
     
@@ -96,15 +110,19 @@ class HardwareModel:
     - partitions: list of partitions indices, one per neuron, in order.
                   It assigns to each node its partition.
     """
-    def checkPartitionValidity(self, snn: HyperGraph, partitions : list[int]) -> bool:
+    def checkPartitionValidity(self, snn: HyperGraph, partitions : list[int], verbose : bool = False) -> bool:
         if len(partitions) != snn.nodes:
             raise Exception("Each neuron must be assigned to a partition.")
         partitions_counter = Counter(partitions)
         partitions_count = len(partitions_counter)
         if partitions_count > self.coresCount():
+            if verbose:
+                print("INVALID PARTITIONING: more partitions than cores")
             return False # more partitions than cores
         neurons_per_partition = partitions_counter.values()
         if any(npc > self.neurons_per_core for npc in neurons_per_partition):
+            if verbose:
+                print("INVALID PARTITIONING: more neurons per partition than a core can store")
             return False # more neurons per partition than a core can store
         
         synapses_per_partition = [0 for _ in range(partitions_count)]
@@ -118,6 +136,8 @@ class HardwareModel:
                     synapses_per_partition[partition] += 1
                     already_seen.add(partition)
         if any(spp > self.synapses_per_core for spp in synapses_per_partition):
+            if verbose:
+                print("INVALID PARTITIONING: more inbound synapses per partition than a core can handle", synapses_per_partition)
             return False # more inbound synapses per partition than a core can handle
         return True
     
@@ -280,7 +300,7 @@ class HardwareModel:
         # ISSUE: the original version used as 'potential_func' just 'abs', but that meant that you ignored the potential energy
         # caused by the node already occupying 'node_placement + d', and that is a problem if such a node is heavily connected! 
         if node < 0 or node >= part_snn.nodes:
-            return (0.0 for _ in directions)
+            return {d : 0.0 for d in directions}
         base_potential = 0.0
         alt_potentials = {d : 0.0 for d in directions}
         node_placement = placement[node]
@@ -304,7 +324,7 @@ class HardwareModel:
 # Source: table 2 in "Loihi: A Neuromorphic Manycore Processor with On-Chip Learning", referring to data at 0.75V.
 loihi = HardwareModel(
     neurons_per_core = 1024,
-    synapses_per_core = min(2**14, 4096),
+    synapses_per_core = 4096,
     cores_per_chip_x = 16,
     cores_per_chip_y = 8,
     chips_per_system_x = 1,
@@ -313,4 +333,17 @@ loihi = HardwareModel(
     energy_per_wire = 3.5,
     latency_per_routing = 2.1,
     latency_per_wire = 5.3
+)
+
+truenorth = HardwareModel(
+    neurons_per_core = 256,
+    synapses_per_core = 256,
+    cores_per_chip_x = 64,
+    cores_per_chip_y = 64,
+    chips_per_system_x = 1,
+    chips_per_system_y = 1,
+    energy_per_routing = 1.7, # unknown (this is from Loihi)
+    energy_per_wire = 3.5, # unknown (this is from Loihi)
+    latency_per_routing = 2.1, # unknown (this is from Loihi)
+    latency_per_wire = 5.3 # unknown (this is from Loihi)
 )
