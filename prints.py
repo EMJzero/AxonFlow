@@ -14,7 +14,13 @@ def hijack_print(prefix):
     original_print = builtins.print
     def custom_print(*args, **kwargs):
         if Settings.VERBOSE:
-            original_print(colored(f"[{prefix}]", Settings.VERBOSE_COLOR), *args, **kwargs)
+            sep = kwargs.get('sep', ' ')
+            end = kwargs.get('end', '\n')
+            lines = sep.join(str(arg) for arg in args).split('\n')
+            first_prefix = f"[{prefix}]"
+            other_prefix = ' '*len(prefix) + '└▶' #f"[{'-' * len(prefix)}]"
+            for i, line in enumerate(lines):
+                original_print(colored(first_prefix if i == 0 else other_prefix, Settings.VERBOSE_COLOR), line, end = end if i == len(lines) - 1 else '\n')
     builtins.print = custom_print
     try:
         yield

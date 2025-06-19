@@ -181,21 +181,23 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                 if tension > 0:
                     heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
     
+    prev_moves_counts = [0, 0]
     while len(candidates) > 0:
         print("FD remaining candidates", len(candidates))
         moves = 0
+        one_candidate = len(candidates) == 1
         affected : set[Coord2D] = set()
         while moves < batch and len(candidates) > 0:
             _, coords, other_coords = heapq.heappop(candidates)
             tension = forces[coords][other_coords - coords] + forces[other_coords][coords - other_coords]
             if tension > 0:
                 moves += 1
-                print("FD moving:", new_placement[other_coords], "<->", new_placement[coords])
+                #print("FD moving:", new_placement[other_coords], "<->", new_placement[coords])
                 new_placement[coords], new_placement[other_coords] = new_placement[other_coords], new_placement[coords]
                 forces[coords] = model.getForces(hg, new_placement.inv, new_placement[coords], directions)
                 forces[other_coords] = model.getForces(hg, new_placement.inv, new_placement[other_coords], directions)
                 for node in [new_placement[coords], new_placement[other_coords]]:
-                    if node > 0:
+                    if node >= 0:
                         for he in hg.getTouchingHyperedges(node):
                             for other_node in he.nodes:
                                 if other_node != node:
@@ -225,6 +227,12 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                     deduplicate.add((coords.x, coords.y, other_coords.x, other_coords.y))
                     deduplicate.add((other_coords.x, other_coords.y, coords.x, coords.y))
         heapq.heapify(candidates)
+        # ISSUE: unless we stop using batches when candidates are few, we might have endless loops due to lazy updates
+        # ALTERNATIVE FIX: do NOT rebuild forces for all nodes (see above "ISSUE")
+        if all(m == moves for m in prev_moves_counts) and not one_candidate:
+            batch = max(min(moves - 1, batch), 1)
+        prev_moves_counts.pop(0)
+        prev_moves_counts.append(moves)
     
     return [new_placement.inv[node] for node in range(hg.nodes)]
 

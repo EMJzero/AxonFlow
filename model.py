@@ -297,8 +297,8 @@ class HardwareModel:
     An invalid node index silently results in zero force in all directions.
     """
     def getForces(self, part_snn : HyperGraph, placement : Union[list[Coord2D], dict[int, Coord2D]], node : int, directions : tuple[Coord2D, ...] = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1)), potential_func : Callable[[Coord2D], float] = lambda c : max(abs(c), 1)) -> dict[Coord2D, float]:
-        # ISSUE: the original version used as 'potential_func' just 'abs', but that meant that you ignored the potential energy
-        # caused by the node already occupying 'node_placement + d', and that is a problem if such a node is heavily connected! 
+        # ISSUE: the original version used as 'potential_func' just 'abs', without 'max(1, ...)', but that meant that you ignored the potential
+        # energy caused by the node already occupying 'node_placement + d', and that is a problem if such a node is heavily connected!
         if node < 0 or node >= part_snn.nodes:
             return {d : 0.0 for d in directions}
         base_potential = 0.0

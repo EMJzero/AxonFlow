@@ -116,7 +116,7 @@ if __name__ == "__main__":
 
     try:
         print("\n---- checking feasibility ----")
-        if not hardware.checkSnnFit(snn):
+        if not hardware.checkSnnFit(snn, verbose = True):
             print("WARNING: the generated SNN may not fit on the given HW, change either's configuration or the seed.")
         else:
             print("Passed!")
