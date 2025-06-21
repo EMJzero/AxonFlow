@@ -832,6 +832,88 @@ def partitionSetlistMiniHashWeightsTEMPEXH(hg: HyperGraph, N: int, M: int, K: in
     return result
 
 """
+Experimental version of 'partitionSetlistMiniHashTEMP' with weights.
+The implementation is extremely inefficient, but its purpose is to show if using weights can improve the result.
+
+Variant: here we don't start with zero clusters, but with each node initially being its own cluster.
+"""
+@core
+def partitionSetlistMiniHashWeights(hg: HyperGraph, N: int, M: int, K: int, threshold : float = 0.0) -> list[int]:
+    # TODO: tune my arguments!
+    # NOTE: for now (1k nodes), unless num_perm == num_bands it is too unlikely to get a collision...
+    #       => these arguments shall dynamically adapt w.r.t. the 'hg' size...
+    lhs : WeightedMinHashLSH[int] = WeightedMinHashLSH(num_perm = 8, num_bands = 8)
+    
+    for n in range(hg.nodes):
+        d = dict()
+        inbound = hg.getInboundHyperedges(n)
+        #average_sf = 0
+        for he in inbound:
+            src = he.source()
+            #average_sf += he.spike_frequency
+            if src not in d:
+                d[he.source()] = he.spike_frequency
+            else:
+                d[he.source()] += he.spike_frequency
+        # NOTE: having oneself in the sources should push towards two nodes connected by an edge being together,
+        #       but this worsens performance since it consumes an inbound edge slot for a weakly shared hyperedge!
+        #if inbound:
+        #    d[n] = average_sf / len(inbound)
+        #else:
+        #    d[n] = 0.0
+        lhs.insert(d, set_id = n)
+
+    queue = list(lhs.ids())
+    assignments = DisjointSet(i for i in range(hg.nodes))
+    merged = True
+
+    while merged:
+        merged = False
+        while queue:
+            i = queue.pop(0)
+            cluster = lhs.get(i)
+
+            cand_ids, cand_dists = lhs.query_by_id(i)
+            
+            # pick the best mergeable cluster
+            best_cid, best_jacc = None, 0.0
+            for cid, dist in zip(cand_ids, cand_dists):
+                cl = lhs.get(cid)
+                if cl.merge_count + cluster.merge_count > N:
+                    continue
+
+                # IDEA: to avoid putting together only the best nodes, punish merges between already large clusters!
+                d = dist / max(cluster.merge_count, cl.merge_count)
+                if d <= best_jacc:
+                    continue
+
+                # Exact union‐size check via intersection count
+                if len(set(cl.weighted_set.keys()) | set(cluster.weighted_set.keys())) <= M:
+                    best_cid, best_jacc = cid, d
+
+            # merge into the chosen cluster
+            if best_cid is not None and best_jacc >= threshold * (len(lhs) / hg.nodes)**2:
+                assignments.union(i, best_cid)
+                lhs.merge([i, best_cid], merged_set_id = best_cid)
+                try:
+                    queue.remove(best_cid)
+                except:
+                    pass
+                merged = True
+        queue = list(lhs.ids())
+
+    result = [-1 for _ in range(hg.nodes)]
+    for i, part in enumerate(assignments):
+        for node in part:
+            result[node] = i
+
+        # enforce the <= K clusters requirement
+        if i >= K:
+            raise Exception(f"Partitioning could only form {i + 1} > {K} clusters under the provided N and M constraints.")
+
+    return result
+
+"""
 Simple sequential partitioning algorithm, assigns nodes to the same partition until a constraint
 would be violated, then creates and starts filling the next partition.
 

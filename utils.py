@@ -1,6 +1,11 @@
+from __future__ import annotations
+
 from typing import Generic, TypeVar, Generator, Callable, Iterable, Self, Iterator, Optional
 from collections.abc import MutableMapping
 from collections import defaultdict
+import hashlib
+import random
+import math
 
 T = TypeVar('T')
 U = TypeVar('U')
@@ -208,6 +213,197 @@ class DisjointSet(Generic[T]):
     """
     def __contains__(self, x: T) -> bool:
         return x in self.parent
+
+"""
+Weighted MinHash LSH (locality sensitive hanshing)-based indexing infrastructure.
+
+Arguments:
+- num_perm: number of independent hash functions (permutations) used to generate one MinHash signature.
+- num_bands: number of slices (bands) the signature is divided into for LSH bucketing. Must divide 'num_perm' exactly.
+"""
+class WeightedMinHashLSH(Generic[T]):
+    """
+    Struct for one entry in the data structure.
+    """
+    class Entry:
+        def __init__(self, weighted_set : dict[T, float], signature : list[int], merge_count : int = 1):
+            self.weighted_set = weighted_set
+            self.signature = signature
+            self.merge_count = merge_count
+    
+    def __init__(self, num_perm : int = 128, num_bands : int = 32):
+        self.num_perm = num_perm
+        self.num_bands = num_bands
+        self.band_size = num_perm // num_bands
+        assert self.num_perm % self.num_bands == 0, f"The given 'num_perm' ({num_perm}) must be divisible by 'num_bands' ({num_bands})."
+
+        self.index : list[dict[int, set[int]]] = [defaultdict(set) for _ in range(self.num_bands)] # usage: index[band_idx][hash] -> set of set_ids
+        self.data : dict[int, WeightedMinHashLSH.Entry] = {} # usage: data[set_id] -> entry
+        self.id_counter = 0
+
+        # Random parameters for ICWS
+        self._r = [random.gammavariate(2.0, 1.0) for _ in range(self.num_perm)]
+        self._c = [random.gammavariate(2.0, 1.0) for _ in range(self.num_perm)]
+        self._beta = [random.uniform(0, 1) for _ in range(self.num_perm)]
+
+    """
+    Computes the MinHash signature of a weighted set (dict element->weight).
+    Return a list of integers of length 'self.num_perm'.
+    """
+    def _weighted_minhash_signature(self, weighted_set : dict[T, float]) -> list[int]:
+        # TODO: devise a good weighted implementation!!!!!
+        # UNWEIGHTED: minimum among the hashes of the set's values.
+        return [min((hashlib.sha1(str((k, per)).encode()).hexdigest() for k in weighted_set.keys()), default = random.randbytes(20).hex()) for per in range(self.num_perm)]
+        # WEIGHTED??: ICWS-based weighted MinHash implementation.
+        signature = []
+        for i in range(self.num_perm):
+            min_val = float('inf')
+            min_hash = None
+            r = self._r[i]
+            c = self._c[i]
+            beta = self._beta[i]
+            for key, weight in weighted_set.items():
+                if weight <= 0:
+                    continue
+                logw = math.log(weight)
+                f = math.floor(logw / r + beta)
+                h = math.exp((f - beta) * r) * c
+                if h < min_val:
+                    min_val = h
+                    min_hash = hash(key)
+            signature.append(min_hash)
+        return signature
+
+    """
+    Hash a single band to an integer value.
+    """
+    def _hash_band(self, band):
+        return hashlib.sha1(str(band).encode()).hexdigest()
+
+    """
+    Return the original set dictionary for a given ID.
+    """
+    def get(self, set_id : int) -> WeightedMinHashLSH.Entry:
+        if set_id in self.data:
+            return self.data[set_id]
+        else:
+            raise Exception(f"The provided set ID {set_id} does not exist.")
+
+    """
+    Return the IDs present in the datastructure.
+    """
+    def ids(self) -> Iterable[int]:
+        return self.data.keys()
+
+    """
+    Insert a new weighted set into the index.
+    If no 'set_id' is provided, an internal counter is used.
+    The final 'set_id' is returned.
+    """
+    def insert(self, weighted_set : dict[T, float], set_id : Optional[int] = None, merge_count : int = 1) -> int:
+        if set_id is None:
+            set_id = self.id_counter
+            self.id_counter += 1
+
+        signature = self._weighted_minhash_signature(weighted_set)
+        self.data[set_id] = WeightedMinHashLSH.Entry(weighted_set, signature, merge_count)
+
+        for i in range(self.num_bands):
+            band = tuple(signature[i*self.band_size:(i + 1)*self.band_size])
+            band_hash = self._hash_band(band)
+            self.index[i][band_hash].add(set_id)
+
+        return set_id
+
+    """
+    Delete a set from the index.
+    """
+    def delete(self, set_id : int):
+        if set_id not in self.data:
+            return
+
+        signature = self.data[set_id].signature
+        for i in range(self.num_bands):
+            band = tuple(signature[i * self.band_size:(i + 1) * self.band_size])
+            band_hash = self._hash_band(band)
+            self.index[i][band_hash].discard(set_id)
+
+        del self.data[set_id]
+
+    """
+    Merge multiple sets already stored in the structure and insert the merged version.
+    The old sets are deleted. Returns new set's ID.
+    """
+    def merge(self, set_ids : list[int], merged_set_id : int = None) -> int:
+        merged = {}
+        mcount = 0
+        for sid in set_ids:
+            if sid not in self.data:
+                raise Exception(f"The provided set ID {sid} does not exist.")
+            wset = self.data[sid].weighted_set
+            mcount += self.data[sid].merge_count
+            for k, v in wset.items():
+                merged[k] = merged.get(k, 0) + v
+        for sid in set_ids:
+            self.delete(sid)
+        return self.insert(merged, merge_count = mcount, set_id = merged_set_id)
+
+    """
+    Query similar sets.
+    If 'top_k' is set, it returns up to 'top_k' most similar sets.
+    Returns the candidate IDs and optionally the list of their distances.
+    """
+    def query(self, weighted_set : dict[T, float], top_k : Optional[int] = None) -> tuple[list[int], list[float]]:
+        signature = self._weighted_minhash_signature(weighted_set)
+        candidates = set()
+
+        for i in range(self.num_bands):
+            band = tuple(signature[i * self.band_size:(i + 1) * self.band_size])
+            band_hash = self._hash_band(band)
+            candidates.update(self.index[i][band_hash])
+
+        scored = []
+        for cid in candidates:
+            other_set = self.data[cid].weighted_set
+            score = self._weighted_jaccard(weighted_set, other_set)
+            scored.append((score, cid))
+
+        # If top_k is requested, rank them by similarity
+        # TODO: inefficient, builds a new list...
+        if top_k is not None:
+            scored.sort(reverse=True)
+            return [cid for _, cid in scored[:top_k]], [score for score, _ in scored[:top_k]]
+        else:
+            return [cid for _, cid in scored], [score for score, _ in scored]
+
+    """
+    Query similar sets using an existing stored set.
+    """
+    def query_by_id(self, set_id : int, top_k : Optional[int] = None) -> tuple[list[int], list[float]]:
+        if set_id not in self.data:
+            raise Exception(f"The provided set ID {set_id} does not exist.")
+        target_set = self.data[set_id].weighted_set
+        candidates, scores = self.query(target_set, top_k = top_k)
+        try:
+            idx = candidates.index(set_id)
+            candidates.pop(idx)
+            scores.pop(idx)
+        except ValueError:
+            pass
+        return candidates, scores
+
+    """
+    Compute the weighted Jaccard similarity between two sets.
+    """
+    def _weighted_jaccard(self, set1 : dict[T, float], set2: dict[T, float]) -> float:
+        set1_only = sum(v for k, v in set1.items() if k not in set2)
+        set2_only = sum(v for k, v in set2.items() if k not in set1)
+        intersection = sum(v + set2[k] for k, v in set1.items() if k in set2)
+        union = set1_only + set2_only + intersection
+        return intersection / union if union > 0 else 0.0
+    
+    def __len__(self) -> int:
+        return len(self.data)
 
 """
 Compute the manhattan distance betwenn two points 'pt1' and 'pt2' in an n-dimensional lattice.
