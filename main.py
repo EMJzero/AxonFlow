@@ -67,6 +67,7 @@ def parse_options() -> dict[str, Any]:
     options = {
         "help": args_match_and_remove("-h") or args_match_and_remove("--help"),
         "interactive": args_match_and_remove("-i") or args_match_and_remove("--interactive"),
+        "load": args_match_and_remove("-l") or args_match_and_remove("--load"),
         "quiet": args_match_and_remove("-q") or args_match_and_remove("--quiet"),
     }
     return options
@@ -75,6 +76,7 @@ def help_options() -> None:
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
     print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
+    print("-l, --load\t\tLoads a true SNN graph instead of randomly generating one.")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -93,14 +95,18 @@ if __name__ == "__main__":
         Settings.VERBOSE = False
 
     # MAIN CODE:
-    print("\n------ generating graph ------")
-    seed = 79
-    nodes_count = 1024
-    nodes_per_edge_mean, nodes_per_edge_variation = 16, 4
-    print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
-    snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
-    #print("\n-------- loading graph -------")
-    #snn = loadSNN("./snn_models/snn_graph.graphml")
+    seed = 192 #79
+    if not options["load"]:
+        print("\n------ generating graph ------")
+        nodes_count = 1024
+        nodes_per_edge_mean, nodes_per_edge_variation = 8, 4
+        print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
+        snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
+    else:
+        print("\n-------- loading graph -------")
+        #snn = loadSNNGraphML("./snn_models/simple.graphml")
+        snn = loadSNNcomposite("./snn_models/mnist_cnn_0.npz", "./snn_models/mnist_cnn_input.npz", "./snn_models/mnist_cnn.graphml")
+        print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}\nSeed: {seed}")
     #acyclic_snn = makeAcyclic(snn)
     hardware = HardwareModel(
         neurons_per_core = 256,
@@ -123,7 +129,7 @@ if __name__ == "__main__":
             print("Passed!")
         print("\n-------- partitioning --------")
         partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
-        partitioning_setlist = partitionSetlistMiniHashWeightsTEMPVAR(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
+        partitioning_setlist = partitionSetlistMiniHashWeights(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
         partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
         partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
         partitioning_swap = swapPartitioner(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
@@ -170,19 +176,18 @@ if __name__ == "__main__":
         prettyPrintDict(metrics_truenorth, 1)
         # These are crossbreeds obtained by mixing placement and partitioning algorithms
         spectral_placement_variant = spectralPlacement(part_snn_seq.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
-        topological_order_variant, _ = topologicalOrder(part_snn_mmr, break_cycles = True)
-        hsc_placement_variant = hilbertPlacement(topological_order_variant.nodes, hardware.coresAlongX(), hardware.coresAlongY())
+        hsc_placement_variant = hilbertPlacement(topological_order_mmr.nodes, hardware.coresAlongX(), hardware.coresAlongY())
         metrics_spectral_variant = hardware.getAllMetrics(part_snn_seq, spectral_placement_variant)
-        metrics_hsc_variant = hardware.getAllMetrics(topological_order_variant, hsc_placement_variant)
+        metrics_hsc_variant = hardware.getAllMetrics(topological_order_mmr, hsc_placement_variant)
         print("Metrics spectral layout (crossbreed - sequential partitioning):")
         prettyPrintDict(metrics_spectral_variant, 1)
         print("Metrics HSC layout (crossbreed - multilevel multistart refined partitioning):")
         prettyPrintDict(metrics_hsc_variant, 1)
         # these are the complete approaches plus FD algorithm
         spectral_placement_fd = forceDirectedRefinement(part_snn_mmr, spectral_placement, hardware) # 1/2 NEW IDEA!
-        hsc_placement_fd = forceDirectedRefinement(topological_order, hsc_placement, hardware) # This is the full approach from Ouwen Jin's paper.
+        hsc_placement_fd = forceDirectedRefinement(topological_order_seq, hsc_placement, hardware) # This is the full approach from Ouwen Jin's paper.
         metrics_spectral_fd = hardware.getAllMetrics(part_snn_mmr, spectral_placement_fd)
-        metrics_hsc_fd = hardware.getAllMetrics(topological_order, hsc_placement_fd)
+        metrics_hsc_fd = hardware.getAllMetrics(topological_order_seq, hsc_placement_fd)
         print("Metrics spectral layout (canon version - refined with force-directed algorithm):")
         prettyPrintDict(metrics_spectral_fd, 1)
         print("Metrics HSC layout (canon version - refined with force-directed algorithm):")

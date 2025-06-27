@@ -90,7 +90,7 @@ class HardwareModel:
             return False # more neurons than the HW can house
         if any(len(snn.getInboundHyperedges(n)) > self.synapses_per_core for n in range(snn.nodes)):
             if verbose:
-                print("SNN CAN'T FIT ON THE HW:more inbound synapses on a single neuron than the HW can handle")
+                print("SNN CAN'T FIT ON THE HW: more inbound synapses on a single neuron than the HW can handle")
             return False # more inbound synapses on a single neuron than the HW can handle
         #if not can_distribute_sets_heuristic([{he.source() for he in snn.getInboundHyperedges(n)} for n in range(snn.nodes)], self.coresCount(), self.synapses_per_core, self.neurons_per_core):
         #    print("no valid way to split neurons (and their synapses) among cores")
@@ -99,7 +99,7 @@ class HardwareModel:
             partitionSequential(snn, self.neurons_per_core, self.synapses_per_core, self.coresCount())
         except:
             if verbose:
-                print("SNN CAN'T FIT ON THE HW:no valid way to split neurons (and their synapses) among cores")
+                print("SNN CAN'T FIT ON THE HW: no valid way to split neurons (and their synapses) among cores")
             return False # no valid way to split neurons (and their synapses) among cores
         return True
     

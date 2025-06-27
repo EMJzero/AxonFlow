@@ -1,10 +1,16 @@
+from typing import Iterable, TypeVar, Generator, Any, Callable
+
 from contextlib import contextmanager
+from prettytable import PrettyTable
 from termcolor import colored
+from itertools import islice
 import functools
 import builtins
 import time
 
 from settings import *
+
+T = TypeVar('T')
 
 """
 Custom print to be used inside 'core' functions.
@@ -75,6 +81,26 @@ Prints a nicely formatted textual representation of the provided dictionary.
 """
 def prettyPrintDict(dictionary : dict, indent_level : int = 0) -> None:
     print(prettyFormatDict(dictionary, indent_level))
+
+"""
+Given an iterable, prints its elements in an equi-spaced grid with each row having
+'elem_per_row' (default is 4) elements.
+"""
+def prettyPrintIterable(iterable : Iterable, elem_per_row : int = 4) -> None:
+    def iter_in_chunks(iterable : Iterable[T], chunk_size : int) -> Generator[None, list[T], None]:
+        it = iter(iterable)
+        while True:
+            chunk = list(islice(it, chunk_size))
+            if not chunk:
+                break
+            yield chunk
+
+    table = PrettyTable([i for i in range(elem_per_row)])
+    table.header = False
+    table.border = False
+    for chunk in iter_in_chunks(iterable, elem_per_row):
+        table.add_row(chunk + ['' for _ in range(elem_per_row - len(chunk))])
+    print(table)
 
 """
 Failure in drawing graphs with braill on the CLI.

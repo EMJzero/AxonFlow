@@ -6,9 +6,12 @@ from collections import defaultdict
 import hashlib
 import random
 import math
+import re
 
 T = TypeVar('T')
 U = TypeVar('U')
+
+# CLASSES:
 
 """
 Class for 2D discrete (integer) coordinate based on a tuple.
@@ -343,6 +346,7 @@ class WeightedMinHashLSH(Generic[T]):
             wset = self.data[sid].weighted_set
             mcount += self.data[sid].merge_count
             for k, v in wset.items():
+                # WARNING: maybe you should not add weights if the entry was generated from the same hyperedge...
                 merged[k] = merged.get(k, 0) + v
         for sid in set_ids:
             self.delete(sid)
@@ -404,6 +408,8 @@ class WeightedMinHashLSH(Generic[T]):
     
     def __len__(self) -> int:
         return len(self.data)
+
+# FUNCTIONS:
 
 """
 Compute the manhattan distance betwenn two points 'pt1' and 'pt2' in an n-dimensional lattice.
@@ -602,3 +608,11 @@ def get_equispaced_lattice_points(width: int, height: int, num_points: int) -> l
 
     # deduplicate in rare edge rounding cases
     return list(dict.fromkeys(selected_points))
+
+"""
+Converts a string from camel to snake case notation.
+"""
+def camel_to_snake(s : str) -> str:
+    # Insert _ before capital letters that are followed by a lowercase letter, and are not at the start
+    s = re.sub(r'(?<!^)(?=[A-Z][a-z])', '_', s)
+    return s.lower()
