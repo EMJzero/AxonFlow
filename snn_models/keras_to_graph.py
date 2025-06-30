@@ -18,17 +18,20 @@ Nodes represent individual scalar activations, named as <layer_name>_coord.
 Supported layers: InputLayer, Dense, Conv2D, Add, Concatenate, AveragePooling2D, MaxPooling2D, BatchNormalization, Flatten, Dropout, Activation.
 Batch size must be 1.
 """
-def extract_neuron_graph(model):
+def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -> nx.DiGraph:
     print("Generating NN graph...")
     G = nx.DiGraph()
     layer_outputs = {} # id(layer) -> (shape, coordinate [valid neuron indices], node names, layer idx + name [when not creating nodes, this should be the name of the last layer that added nodes])
     layer_idx = 0 # increment only after handling layers that add nodes
 
     for layer in model.layers:
-        print(f"Working on layer {layer.name}...")
+        print(f"Working on layer {layer.name} (type {type(layer).__name__})...")
         # fix Keras's naming scheme that adds "_n" for layers with the same name after the first one,
         # thus screwing up the notation for dimensions; we move the index before the name...
-        layer_name = f"{layer_idx}_{re.match(r'^((?:_?[a-zA-Z][a-zA-Z0-9]+)+)', layer.name).group(1)}"
+        if use_layer_type_as_name:
+            layer_name = f"{layer_idx}_{type(layer).__name__.lower()}"
+        else:
+            layer_name = f"{layer_idx}_{re.match(r'^((?:_?[a-zA-Z][a-zA-Z0-9]+)+)', layer.name).group(1)}"
         #layer_idx = len(layer_outputs)
         # get previous output mapping
         if isinstance(layer, tf.keras.layers.InputLayer):
@@ -67,6 +70,7 @@ def extract_neuron_graph(model):
                 continue
 
             # process supported layers
+            # NOTE: either ensure that child classes are checked before parents, or switch from 'isinstance(c, t)' to 'type(c) == t' for strict matching!
             if isinstance(layer, tf.keras.layers.Dense):
                 units = layer.units
                 inp_shape, inp_coords, inp_names, in_name = inputs[0]
@@ -78,6 +82,81 @@ def extract_neuron_graph(model):
                     for iname in inp_names:
                         G.add_edge(iname, oname)
                 layer_outputs[id(layer)] = ((units,), out_coords, out_names, layer_name)
+                layer_idx += 1
+
+            elif isinstance(layer, tf.keras.layers.ZeroPadding2D):
+                inp_shape, inp_coords, inp_names, in_name = inputs[0]
+                if len(inp_shape) != 3:
+                    print(f"WARNING: input shape (\"{inp_shape}\") not of length 3 on layer {layer.name}...")
+                    continue
+
+                h_in, w_in, c = inp_shape
+                pad = layer.padding
+                if isinstance(pad, int):
+                    pad = ((pad, pad), (pad, pad))  # symmetric
+                (top, bottom), (left, right) = pad
+
+                h_out = h_in + top + bottom
+                w_out = w_in + left + right
+                out_coords = list(np.ndindex(h_out, w_out, c))
+                out_names = [f"{layer_name}_{i}_{j}_{k}" for (i, j, k) in out_coords]
+                for name in out_names:
+                    G.add_node(name)
+
+                for (i, j, k), oname in zip(out_coords, out_names):
+                    ii = i - top
+                    jj = j - left
+                    if 0 <= ii < h_in and 0 <= jj < w_in:
+                        iname = f"{in_name}_{ii}_{jj}_{k}"
+                        G.add_edge(iname, oname)
+
+                layer_outputs[id(layer)] = ((h_out, w_out, c), out_coords, out_names, layer_name)
+                layer_idx += 1
+
+            elif isinstance(layer, tf.keras.layers.DepthwiseConv2D):
+                inp_shape, inp_coords, inp_names, in_name = inputs[0]
+                if len(inp_shape) != 3:
+                    print(f"WARNING: input shape (\"{inp_shape}\") not of length 3 on layer {layer.name}...")
+                    continue
+
+                h_in, w_in, c_in = inp_shape
+                kh, kw = layer.kernel_size
+                sh, sw = layer.strides
+                padding = layer.padding
+                depth_multiplier = layer.depth_multiplier
+
+                if padding == 'same':
+                    h_out = int(np.ceil(h_in / sh))
+                    w_out = int(np.ceil(w_in / sw))
+                    pad_h = max((h_out - 1) * sh + kh - h_in, 0)
+                    pad_w = max((w_out - 1) * sw + kw - w_in, 0)
+                else:  # valid
+                    h_out = int(np.floor((h_in - kh + sh) / sh))
+                    w_out = int(np.floor((w_in - kw + sw) / sw))
+                    pad_h = 0
+                    pad_w = 0
+
+                c_out = c_in * depth_multiplier
+                out_coords = list(np.ndindex(h_out, w_out, c_out))
+                out_names = [f"{layer_name}_{i}_{j}_{k}" for i, j, k in out_coords]
+                for oname in out_names:
+                    G.add_node(oname)
+
+                pad_top = pad_h // 2
+                pad_left = pad_w // 2
+
+                for idx, (i, j, k) in enumerate(out_coords):
+                    out_name = out_names[idx]
+                    in_c = k // depth_multiplier  # map output channel to corresponding input channel
+                    for di in range(kh):
+                        for dj in range(kw):
+                            ii = i * sh + di - pad_top
+                            jj = j * sw + dj - pad_left
+                            if 0 <= ii < h_in and 0 <= jj < w_in:
+                                in_name_full = f"{in_name}_{ii}_{jj}_{in_c}"
+                                G.add_edge(in_name_full, out_name)
+
+                layer_outputs[id(layer)] = ((h_out, w_out, c_out), out_coords, out_names, layer_name)
                 layer_idx += 1
 
             elif isinstance(layer, tf.keras.layers.Conv2D):
@@ -190,13 +269,43 @@ def extract_neuron_graph(model):
                 layer_outputs[id(layer)] = ((h_out, w_out, c), out_coords, out_names, layer_name)
                 layer_idx += 1
 
+            elif isinstance(layer, tf.keras.layers.GlobalAveragePooling2D):
+                inp_shape, inp_coords, inp_names, in_name = inputs[0]
+                if len(inp_shape) != 3:
+                    print(f"WARNING: input shape (\"{inp_shape}\") not of length 3 on layer {layer.name}...")
+                    continue
+
+                h, w, c = inp_shape
+                out_coords = [(i,) for i in range(c)]
+                out_names = [f"{layer_name}_{i}" for i in range(c)]
+                for name in out_names:
+                    G.add_node(name)
+
+                for i in range(c):
+                    out_name = f"{layer_name}_{i}"
+                    for h_idx in range(h):
+                        for w_idx in range(w):
+                            in_name_full = f"{in_name}_{h_idx}_{w_idx}_{i}"
+                            G.add_edge(in_name_full, out_name)
+
+                layer_outputs[id(layer)] = ((c,), out_coords, out_names, layer_name)
+                layer_idx += 1
+
             elif isinstance(layer, tf.keras.layers.Flatten):
                 inp_shape, inp_coords, inp_names, in_name = inputs[0]
                 layer_outputs[id(layer)] = ((np.prod(inp_shape),), [(i,) for i in range(len(inp_names))], inp_names, in_name) # not adding node -> use the input layer's name!
                 # NOTE: this "+= 1" is technically wrong, but exists to comply with SNN toolbox...
                 layer_idx += 1
 
-            elif isinstance(layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.Activation, tf.keras.layers.Dropout)):
+            elif isinstance(layer, tf.keras.layers.Reshape):
+                inp_shape, inp_coords, inp_names, in_name = inputs[0]
+                new_shape = layer.target_shape
+                if np.prod(inp_shape) != np.prod(new_shape):
+                    print(f"WARNING: reshape mismatch in layer {layer.name}: {inp_shape} -> {new_shape}...")
+
+                layer_outputs[id(layer)] = (new_shape, list(np.ndindex(*new_shape)), inp_names, in_name)  # Keep same node names
+
+            elif isinstance(layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.Activation, tf.keras.layers.ReLU, tf.keras.layers.Dropout)):
                 if len(inputs) != 1:
                     print(f"WARNING: while stitching together input-to-output of layer {layer.name}, the layer had multiple inputs...")
                 layer_outputs[id(layer)] = inputs[0]

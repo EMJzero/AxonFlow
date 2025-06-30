@@ -133,16 +133,19 @@ if __name__ == "__main__":
         partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
         partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
         partitioning_swap = swapPartitioner(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
+        partitioning_hmetis = partitionHMETIS(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # Ouwen Jin's paper.
         part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
         part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist, keep_self_cycles = True)
         part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy, keep_self_cycles = True)
         part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential, keep_self_cycles = True)
         part_snn_swap = snn.getPartitionsHypergraph(partitioning_swap, keep_self_cycles = True)
+        part_snn_hmetis = snn.getPartitionsHypergraph(partitioning_hmetis, keep_self_cycles = True)
         part_snn_mmr.squishHyperedges()
         part_snn_setlist.squishHyperedges()
         part_snn_greedy.squishHyperedges()
         part_snn_seq.squishHyperedges()
         part_snn_swap.squishHyperedges()
+        part_snn_hmetis.squishHyperedges()
         topological_order_mmr, masked_edges_mmr = topologicalOrder(part_snn_mmr, break_cycles = True) # Setup Locality for TrueNorth's placement algorithm.
         topological_order_seq, masked_edges_seq = topologicalOrder(part_snn_seq, break_cycles = True) # Setup Locality as in Ouwen Jin's paper.
         print("Metrics multilevel multistart refined partitioning:")
@@ -155,6 +158,8 @@ if __name__ == "__main__":
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_sequential), 'tot_hyperedges_spike_frequency': part_snn_seq.totalSpikeFrequency()}, 1)
         print("Metrics swap partitioning:")
         prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_swap), 'tot_hyperedges_spike_frequency': part_snn_swap.totalSpikeFrequency()}, 1)
+        print("Metrics hMETIS partitioning:")
+        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_hmetis), 'tot_hyperedges_spike_frequency': part_snn_hmetis.totalSpikeFrequency()}, 1)
 
         print("\n----------- layout -----------")
         # These are complete approaches, novel or from previous works

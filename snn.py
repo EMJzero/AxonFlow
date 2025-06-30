@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from typing import Optional, Self, Union
 
+from collections import defaultdict
 import networkx as nx
 import numpy as np
 import random
@@ -21,20 +22,47 @@ class HyperEdge(Iterable):
     _id : int
     
     def __init__(self, source : int, destinations : tuple[int, ...], spike_frequency : float):
-        # TODO: raise an exception if len(destionations) == 0
+        if len(destinations) == 0:
+            raise Exception("Hyperedges can't have zero destinations.")
+        # TODO: raise an exception if a node occurs more than once in destinations
         self.nodes = (source,) + destinations
         self.spike_frequency = spike_frequency
         self._id = hash(self.nodes + (self.spike_frequency, random.random()))
     
+    """
+    Returns this hyperedge's source node.
+    """
     def source(self) -> int:
         return self.nodes[0]
     
+    """
+    Returns this hyperedge's destination nodes.
+    """
     def destinations(self) -> tuple[int, ...]:
         return self.nodes[1:]
     
+    """
+    Returns True iif 'other' has the same source and destinations as this hyperedge.
+    """
     def sameNodes(self, other : Self) -> bool:
         other_destinations = other.nodes[1:]
         return self.nodes[0] == other.nodes[0] and len(self.nodes) == len(other.nodes) and all(node in other_destinations for node in self.nodes[1:])
+    
+    """
+    Returns an hash that is identical between any two hyperedges with the same source and set of destinations.
+    Ignores: spike frequency, order of destinations.
+    """
+    def sameNodesHash(self) -> int:
+        # TODO: make me lazy?
+        return hash((self.nodes[0], hash(frozenset(self.nodes[1:]))))
+    
+    """
+    Updates the hyperedge's spike frequency
+    WARNING: also updates the hyperedge's id (and hash).
+    """
+    def updateSpikeFrequency(self, new_spike_frequency : int) -> None:
+        self.spike_frequency = new_spike_frequency
+        self._id = hash(self.nodes + (self.spike_frequency, random.random()))
     
     def __iter__(self) -> Iterator[int]:
         return iter(self.nodes)
@@ -146,27 +174,45 @@ class HyperGraph(Iterable):
     - keep_self_cycles: if True, hyperedges entirely contained in a partition do not
                         disappear, instead are kept as a self-edge from the partition
                         to itself, preserving the total spike frequency.
+    - squish_hyperedges: if True, collapses identical post-partitioning hyperedges in
+                         a single one. This is more efficient than calling separately
+                         the 'squishHyperedges' function.
     """
-    def getPartitionsHypergraph(self, partitions : list[int], keep_self_cycles : bool = False) -> Self:
+    def getPartitionsHypergraph(self, partitions : list[int], keep_self_cycles : bool = False, squish_hyperedges : bool = False) -> Self:
         if len(partitions) != self.nodes:
             raise Exception("Each node must be assigned to a partition.")
         new_nodes = len(set(partitions))
         if any(i not in partitions for i in range(0, new_nodes)):
             raise Exception("Partitions must be incrementally indexed from 0 onward.")
         
-        new_hyperedges = []
-        self_cycles = {}
-        for he in self.hyperedges:
-            affected_partitions = tuple(set([partitions[node] for node in he])) # deduplicate
-            if len(affected_partitions) > 1:
-                new_hyperedges.append(HyperEdge(affected_partitions[0], affected_partitions[1:], he.spike_frequency))
-            elif keep_self_cycles:
-                if affected_partitions[0] not in self_cycles:
-                    self_cycles[affected_partitions[0]] = he.spike_frequency
-                else:
+        # compute new hyperedges
+        if not squish_hyperedges:
+            new_hyperedges = []
+            self_cycles = defaultdict(lambda : 0)
+            for he in self.hyperedges:
+                affected_partitions = tuple(set([partitions[node] for node in he])) # deduplicate nodes
+                if len(affected_partitions) > 1:
+                    new_hyperedges.append(HyperEdge(affected_partitions[0], affected_partitions[1:], he.spike_frequency))
+                elif keep_self_cycles:
                     self_cycles[affected_partitions[0]] += he.spike_frequency
+        else:
+            new_hyperedges = {}
+            self_cycles = defaultdict(lambda : 0)
+            for he in self.hyperedges:
+                affected_partitions = tuple(set([partitions[node] for node in he])) # deduplicate nodes
+                if len(affected_partitions) > 1:
+                    samenodes_hash = hash((affected_partitions[0], hash(frozenset(affected_partitions[1:]))))
+                    if samenodes_hash not in new_hyperedges:
+                        new_hyperedges[samenodes_hash] = HyperEdge(affected_partitions[0], affected_partitions[1:], he.spike_frequency)
+                    else:
+                        new_hyperedges[samenodes_hash].updateSpikeFrequency(new_hyperedges[samenodes_hash].spike_frequency + he.spike_frequency)
+                elif keep_self_cycles:
+                    self_cycles[affected_partitions[0]] += he.spike_frequency
+            new_hyperedges = list(new_hyperedges.values())
+        # reinstate self-cycles
         for partition, spike_frequency in self_cycles.items():
             new_hyperedges.append(HyperEdge(partition, (partition,), spike_frequency))
+
         return HyperGraph(new_nodes, new_hyperedges)
     
     """

@@ -616,3 +616,13 @@ def camel_to_snake(s : str) -> str:
     # Insert _ before capital letters that are followed by a lowercase letter, and are not at the start
     s = re.sub(r'(?<!^)(?=[A-Z][a-z])', '_', s)
     return s.lower()
+
+"""
+Modifies an array of integers to contain only contigous numbers form 0 upward,
+this is done by replacing higher values with missing lower ones.
+"""
+def force_array_of_contigous_integers(arr : list[int]) -> None:
+    unique_vals = sorted(set(arr))
+    value_map = {val: idx for idx, val in enumerate(unique_vals)}
+    for i in range(len(arr)):
+        arr[i] = value_map[arr[i]]

@@ -3,7 +3,7 @@ from typing import Optional
 from collections import defaultdict, Counter
 from datasketch import MinHash, MinHashLSH
 from itertools import combinations
-import hashlib
+import numpy as np
 import random
 import heapq
 import math
@@ -38,35 +38,23 @@ the hypergraph, assigning it to its partition.
 """
 @core
 def partitionGreedy(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
-    node_to_edges = defaultdict(list)
-    for i, he in enumerate(hg.hyperedges):
-        for node in he:
-            node_to_edges[node].append(i)
-
-    partitions = []  # Each partition is a dict: {'nodes': set, 'in_edges': set}
-    node_to_partition = [-1] * hg.nodes  # Output assignment
+    partitions = []  # each partition is a dict: {'nodes': set, 'in_edges': set}
+    node_to_partition = [-1] * hg.nodes  # partitions assignment
 
     for node in range(hg.nodes):
         best_partition = -1
-        best_score = float('inf')
-        candidate_edges = node_to_edges[node]
+        best_score = math.inf
+        candidate_edges = hg.getTouchingHyperedges(node)
 
         for pid, p in enumerate(partitions):
             if len(p['nodes']) >= N:
                 continue
 
-            new_in_edges = set()
-            for ei in candidate_edges:
-                he = hg.hyperedges[ei]
-                if node in he.destinations() and ei not in p['in_edges']:
-                    new_in_edges.add(ei)
-
-            if len(p['in_edges']) + len(new_in_edges) > M:
+            if len(p['in_edges']) + sum(1 for he in hg.getInboundHyperedges(node) if he not in p['in_edges']) > M:
                 continue
 
             cut_cost = 0
-            for ei in candidate_edges:
-                he = hg.hyperedges[ei]
+            for he in candidate_edges:
                 other_parts = set()
                 for n in he:
                     if n == node:
@@ -88,19 +76,19 @@ def partitionGreedy(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
 
         p = partitions[best_partition]
         p['nodes'].add(node)
-        for ei in candidate_edges:
-            he = hg.hyperedges[ei]
+        for he in candidate_edges:
             if node in he.destinations():
-                p['in_edges'].add(ei)
+                p['in_edges'].add(he)
         node_to_partition[node] = best_partition
 
     return node_to_partition
 
 """
-Merges original nodes by heavy-edge matching until coarse node count <= max_coarse_nodes.
+Merges original nodes by heavy-edge matching until coarse nodes count <= target_coarse_nodes or no valid merges remain.
 Returns (coarse_graph, coarse_groups), where 'coarse_groups[i]' lists original nodes merged into coarse node 'i'.
+Constraints are given by 'max_nodes' and 'max_inbound_edges'.
 """
-def coarsen_hypergraph(hg: HyperGraph, max_coarse_nodes: int, max_inbound_edges: int) -> tuple[HyperGraph, list[list[int]]]:
+def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int) -> tuple[HyperGraph, list[list[int]]]:
     parent = list(range(hg.nodes))
     groups = {i: [i] for i in range(hg.nodes)}
 
@@ -110,112 +98,91 @@ def coarsen_hypergraph(hg: HyperGraph, max_coarse_nodes: int, max_inbound_edges:
             u = parent[u]
         return u
 
-    # Compute heavy‐edge weights between destination pairs
+    # compute heavy‐edge weights between destination pairs
     pair_weights = Counter()
-    for e in hg.hyperedges:
-        for u, v in combinations(e.nodes[1:], 2):
+    for he in hg.hyperedges:
+        for u, v in combinations(he.nodes[1:], 2):
             a, b = (u, v) if u < v else (v, u)
-            pair_weights[(a, b)] += e.spike_frequency
+            pair_weights[(a, b)] += he.spike_frequency
 
-    # Merge strongest pairs
-    for (u, v), _ in sorted(pair_weights.items(), key=lambda x: -x[1]):
+    # merge strongest pairs
+    for (u, v), _ in sorted(pair_weights.items(), key = lambda x: -x[1]):
         ru, rv = find(u), find(v)
         if ru == rv:
             continue
 
         merged = groups[ru] + groups[rv]
-        if len(merged) > max_coarse_nodes:
+        if len(merged) > max_nodes:
             continue
 
-        merged_set = set(merged)
-        # Gather all hyperedges that have any destination in merged_set
-        candidate = sum((hg.getInboundHyperedges(n) for n in merged_set), start = [])
-        hyperedges = {
-            he
-            for he in candidate
-            if any(d in merged_set for d in he.destinations())
-        }
-
-        if len(hyperedges) > max_inbound_edges:
+        # constrain the number of hyperedges that have any destination in merged_set
+        inbound = set()
+        for n in merged:
+            inbound.update(hg.getInboundHyperedges(n))
+        if len(inbound) > max_inbound_edges:
             continue
 
-        # Commit merge
+        # commit merge
         parent[rv] = ru
         groups[ru].extend(groups[rv])
         del groups[rv]
 
-        if len(groups) <= max_coarse_nodes:
+        if len(groups) <= target_coarse_nodes:
             break
 
-    # Build coarse groups and edges
+    # build coarse groups and edges
     coarse_groups = list(groups.values())
     node_to_coarse = [0] * hg.nodes
     for ci, grp in enumerate(coarse_groups):
         for n in grp:
             node_to_coarse[n] = ci
 
-    seen = set()
-    coarse_hes, coarse_freqs = [], []
-    for e in hg.hyperedges:
-        src = node_to_coarse[e.source()]
-        dsts = tuple({ node_to_coarse[d] for d in e.destinations() if node_to_coarse[d] != src })
+    coarse_hes = defaultdict(lambda : 0) # he-tuple -> spike frequency
+    for he in hg.hyperedges:
+        src = node_to_coarse[he.source()]
+        dsts = tuple({node_to_coarse[d] for d in he.destinations() if node_to_coarse[d] != src})
         if not dsts:
             continue
         key = (src,) + dsts
-        if key in seen:
-            continue
-        seen.add(key)
-        coarse_hes.append(key)
-        coarse_freqs.append(e.spike_frequency)
+        coarse_hes[key] += he.spike_frequency
 
-    return HyperGraph(len(coarse_groups), coarse_hes, coarse_freqs), coarse_groups
+    return HyperGraph(len(coarse_groups), list(coarse_hes.keys()), list(coarse_hes.values())), coarse_groups
 
 """
-FM-style (Fiduccia-Mattheyses) refinement on the full hypergraph.
-Starts from 'coarse_assignment' and 'coarse_groups', returns a refined list of length 'hypergraph.nodes'.
+FM-style (Fiduccia-Mattheyses) refinement on the full hypergraph. Let 'hg' be the uncoarsened hypergraph.
+Starts from 'coarse_assignment' (partition of the coarsened hypergraph) and 'coarse_groups' (uncoarsened
+hypergraph nodes per-coarsened group), returns a refined list of length 'hypergraph.nodes'.
 """
 def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_groups: list[list[int]], max_nodes: int, max_inbound_edges: int) -> list[int]:
     node_to_part = [-1] * hg.nodes
     parts = defaultdict(set)
     in_edges = defaultdict(set)
 
-    # Initialize from coarse assignment
+    # initialize from coarse assignment
     for ci, grp in enumerate(coarse_groups):
         pid = coarse_assignment[ci]
         for u in grp:
             node_to_part[u] = pid
             parts[pid].add(u)
 
-    # Build node -> incident hyperedges map
-    node_to_edges = defaultdict(list)
-    for eid, e in enumerate(hg.hyperedges):
-        for u in e:
-            node_to_edges[u].append(eid)
-
-    # Initial inbound-edge sets: any hyperedge with at least one destination in the partition
-    for eid, e in enumerate(hg.hyperedges):
-        for d in e.destinations():
+    # initial inbound-edge sets: any hyperedge with at least one destination in the partition
+    for he in hg:
+        for d in he.destinations():
             pid = node_to_part[d]
             if pid >= 0:
-                in_edges[pid].add(eid)
+                in_edges[pid].add(he)
 
-    # Build FM gain heap
+    # build FM gain heap
     heap, moved = [], set()
     for u in range(hg.nodes):
         cur = node_to_part[u]
-        neighbor_parts = {
-            node_to_part[v]
-            for eid in node_to_edges[u]
-            for v in hg.hyperedges[eid]
-            if node_to_part[v] != cur
-        }
+        neighbor_parts = [node_to_part[v] for he in hg.getTouchingHyperedges(u) for v in he if node_to_part[v] != cur]
         for tgt in neighbor_parts:
             gain = 0.0
-            for eid in node_to_edges[u]:
-                e = hg.hyperedges[eid]
-                before = {node_to_part[v] for v in e}
+            for he in hg.getTouchingHyperedges(u):
+                before = {node_to_part[v] for v in he}
                 after = (before - {cur}) | {tgt}
-                gain += e.spike_frequency * ((len(before) > 1) - (len(after) > 1))
+                gain += he.spike_frequency * ((len(before) > 1) - (len(after) > 1))
             if gain > 0:
                 heapq.heappush(heap, (-gain, u, tgt))
 
@@ -228,29 +195,27 @@ def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_gro
         if cur == tgt or len(parts[tgt]) + 1 > max_nodes:
             continue
 
-        # Simulate new inbound edges for target
+        # simulate new inbound edges for target
         new_in = set(in_edges[tgt])
-        for eid in node_to_edges[u]:
-            e = hg.hyperedges[eid]
-            if any(d in parts[tgt] or d == u for d in e.destinations()):
-                new_in.add(eid)
+        for he in hg.getTouchingHyperedges(u):
+            if any(d in parts[tgt] or d == u for d in he.destinations()):
+                new_in.add(he)
         if len(new_in) > max_inbound_edges:
             continue
 
-        # Commit move
+        # commit move
         parts[cur].remove(u)
         parts[tgt].add(u)
         node_to_part[u] = tgt
         moved.add(u)
 
-        # Recompute inbound edges for both affected partitions
+        # recompute inbound edges for both affected partitions
         for pid in (cur, tgt):
             updated = set()
             for n in parts[pid]:
-                for eid in node_to_edges[n]:
-                    e = hg.hyperedges[eid]
-                    if any(d in parts[pid] for d in e.destinations()):
-                        updated.add(eid)
+                for he in hg.getTouchingHyperedges(n):
+                    if any(d in parts[pid] for d in he.destinations()):
+                        updated.add(he)
             in_edges[pid] = updated
 
     return node_to_part
@@ -358,7 +323,7 @@ A list with an entry per hypergraph node, that is the node's assigned partition'
 @core
 def partitionGreedyMultilevelRefined(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
     # Step 1: Coarsen
-    coarse_hg, groupings = coarsen_hypergraph(hg, min(max_partitions * max_nodes // 2, hg.nodes // 10), max_inbound_edges)
+    coarse_hg, groupings = coarsen_hypergraph(hg, min(max_partitions * max_nodes // 2, hg.nodes // 10), max_nodes, max_inbound_edges)
     # Step 2: Initial Partitioning
     coarse_partition = partitionGreedy(coarse_hg, max_nodes, max_inbound_edges, max_partitions)
     # Step 3: Refinement
@@ -379,7 +344,7 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
     for ms in range(multistarts):
         print("Multistart count:", ms)
         # 1) Coarsen
-        coarse_hg, coarse_groups = coarsen_hypergraph(hg, max_nodes, max_inbound_edges)
+        coarse_hg, coarse_groups = coarsen_hypergraph(hg, min(max_partitions, hg.nodes // max_nodes), max_nodes, max_inbound_edges)
 
         # 2) Greedy assign on coarse graph
         indices = list(range(coarse_hg.nodes))
@@ -432,6 +397,136 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
             best_cut, best_assign = cut_value, final_assign
 
     return best_assign
+
+"""
+True hierarchical partitioning as in hMETIS.
+"""
+@core
+def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int, multistarts: int = 3, seed : Optional[int] = None) -> list[int]:
+    """
+    Source: "Multilevel Hypergraph Partitioning: Applications in VLSI Domain" by George Karypis
+    """
+    def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int, seed : Optional[int] = None) -> tuple[list[tuple[HyperGraph, list[list[int]]]], list[int], list[Counter[int]]]:
+        current_hg = hg
+        partition_sizes = [1 for _ in range(hg.nodes)] # size of each partition (node) in current_hg
+        inbound_he_ids = [Counter(hash(he) for he in hg.getInboundHyperedges(n)) for n in range(hg.nodes)] # inbound hyperedges IDs for each partition (node) in current_hg
+
+        result = []
+
+        coarsened = True
+        while current_hg.nodes > target_coarse_nodes and coarsened:
+            coarsened = False
+            coarsenings = []
+            next_partition_sizes = []
+            next_inbound_he_ids = []
+            
+            # visit verticies in random order, for each iterate all yet unmatched connected nodes
+            # => merge the node with the other note it is connected with under the strongest weight
+            rng = np.random.default_rng(seed)
+            nodes = np.arange(current_hg.nodes)
+            rng.shuffle(nodes)
+            unused = set(range(current_hg.nodes))
+            for n in nodes:
+                if n in unused:
+                    candidates = defaultdict(lambda : 0)
+                    for he in current_hg.getTouchingHyperedges(n):
+                        for m in he:
+                            if m in unused and m != n:
+                                candidates[m] += he.spike_frequency
+                    # TODO: inefficient max retrieval -> use a heap?
+                    while candidates:
+                        best = max(candidates, key = candidates.get)
+                        if (new_size := partition_sizes[n] + partition_sizes[best]) < max_nodes and len(new_ids_set := inbound_he_ids[n] + inbound_he_ids[best]) < max_inbound_edges:
+                            coarsenings.append((n, best))
+                            next_partition_sizes.append(new_size)
+                            next_inbound_he_ids.append(new_ids_set)
+                            coarsened = True
+                            unused.remove(n)
+                            unused.remove(best)
+                            break
+                        candidates.pop(best)
+            next_part_idx = 0
+            partitions = [-1 for _ in range(current_hg.nodes)]
+            for n, m in coarsenings:
+                partitions[n] = next_part_idx
+                partitions[m] = next_part_idx
+                next_part_idx += 1
+            for u in unused:
+                partitions[u] = next_part_idx
+                coarsenings.append((u,))
+                next_partition_sizes.append(partition_sizes[u])
+                next_inbound_he_ids.append(inbound_he_ids[u])
+                next_part_idx += 1
+            
+            current_hg = current_hg.getPartitionsHypergraph(partitions, squish_hyperedges = True)
+            partition_sizes = next_partition_sizes
+            inbound_he_ids = next_inbound_he_ids
+
+            result.append((current_hg, coarsenings))
+        
+        return result, partition_sizes, inbound_he_ids
+
+    """
+    Source: "Multilevel Hypergraph Partitioning: Applications in VLSI Domain" by George Karypis
+    Updates the candidate 'partitioning' in place!
+    """
+    def greedy_FM_refinement(hg: HyperGraph, partitioning: list[int], partition_sizes : list[int], inbound_he_ids : list[Counter[int]], max_nodes: int, max_inbound_edges: int, seed : Optional[int] = None) -> None:
+        rng = np.random.default_rng(seed)
+        nodes = np.arange(hg.nodes)
+        rng.shuffle(nodes)
+        for n in nodes:
+            connectivity_w_partitions = defaultdict(lambda : 0) # partition -> sum of spike frequency of connections
+            for he in hg.getTouchingHyperedges(n):
+                for m in he:
+                    if m != n:
+                        connectivity_w_partitions[partitioning[m]] += he.spike_frequency
+            my_partition = partitioning[n]
+            loss = connectivity_w_partitions.pop(my_partition) if my_partition in connectivity_w_partitions else 0
+            while connectivity_w_partitions:
+                best_partition = max(connectivity_w_partitions, key = connectivity_w_partitions.get)
+                if connectivity_w_partitions[best_partition] - loss < 0:
+                    break
+                elif partition_sizes[best_partition] + 1 <= max_nodes and len(best_inbound := inbound_he_ids[best_partition] + (my_inbound := Counter(map(hash, hg.getInboundHyperedges(n))))) <= max_inbound_edges:
+                    partitioning[n] = best_partition
+                    partition_sizes[best_partition] += 1
+                    partition_sizes[my_partition] -= 1
+                    inbound_he_ids[best_partition] = best_inbound
+                    inbound_he_ids[my_partition] -= my_inbound
+                    break
+                connectivity_w_partitions.pop(best_partition)
+
+    # TODO: multistart!!!!!!!
+    # !!!!!
+    # !!!!!
+    # =>=> Add a cost estimation for partitions feature in the model!
+    # =>=> Extract a random seed for each start by using the initial seed!
+    
+    # hierarchically coarsened hypergraphs, from less to most coarsened
+    coarsening_levels, partition_sizes, inbound_he_ids = coarsen_hypergraph(hg, min(max_partitions, hg.nodes // max_nodes), max_nodes, max_inbound_edges, seed)
+    if len(coarsening_levels) == 0:
+        if hg.nodes > max_partitions:
+            raise Exception("Cannot coarsen the hypergraph.")
+        else:
+            # TODO: do one round of refinement here still
+            return [i for i in range(hg.nodes)]
+    # NOTE: partitioning = initialPartitionig( ... )
+    # => no need since we coarsen up to the point of having the right number of partitions
+    partitions_count = coarsening_levels[-1][0].nodes
+    if partitions_count > max_partitions:
+        raise Exception("Cannot coarsen up until reaching a sufficiently low number of partitions.")
+    partitioning = [i for i in range(coarsening_levels[-1][0].nodes)]
+    for i in range(len(coarsening_levels) - 1, -1, -1):
+        cl_hg, cl_coarsenings = coarsening_levels[i]
+        greedy_FM_refinement(cl_hg, partitioning, partition_sizes, inbound_he_ids, max_nodes, max_inbound_edges, seed)
+        # undo the coarsening
+        new_partitioning = [-1 for _ in range(coarsening_levels[i - 1][0].nodes if i > 0 else hg.nodes)]
+        for p, c in zip(partitioning, cl_coarsenings):
+            for n in c:
+                new_partitioning[n] = p
+        partitioning = new_partitioning
+    greedy_FM_refinement(hg, partitioning, partition_sizes, inbound_he_ids, max_nodes, max_inbound_edges, seed)
+    force_array_of_contigous_integers(partitioning)
+    return partitioning
 
 """
 Run the following map operation on the nodes of the hypergraph:
@@ -527,309 +622,6 @@ def partitionSetlistMiniHash(hg: HyperGraph, N: int, M: int, K: int, num_perm : 
     cid_map = {old: new for new, old in enumerate(unique_cids)}
     labels  = [cid_map[c] for c in assignments]
     return labels
-
-"""
-Experimental version of 'partitionSetlistMiniHash' with weights.
-The implementation is extremely inefficient, but its purpose is to show if using weights can improve the result.
-"""
-@core
-def partitionSetlistMiniHashWeightsTEMP(hg: HyperGraph, N: int, M: int, K: int, num_perm : int = 256, threshold : float = 0.0) -> list[int]:
-    sets : list[dict[int, float]] = []
-    for n in range(hg.nodes):
-        d = dict()
-        inbound = hg.getInboundHyperedges(n)
-        #average_sf = 0
-        for he in inbound:
-            src = he.source()
-            #average_sf += he.spike_frequency
-            if src not in d:
-                d[he.source()] = he.spike_frequency
-            else:
-                d[he.source()] += he.spike_frequency
-        # NOTE: having oneself in the sources should push towards two nodes connected by an edge being together,
-        #       but this worsens performance since it consumes an inbound edge slow for a weakly shared hyperedge!
-        #if inbound:
-        #    d[n] = average_sf / len(inbound)
-        #else:
-        #    d[n] = 0.0
-        sets.append(d)
-
-    # TODO: setup fast query infrastructure
-    # lhs = ...
-
-    # EXPERIMENTAL VERSION WITH A SLOW DISTANCE CALCULATION
-    def distance(set1 : dict[int, float], set2 : dict[int, float]) -> float:
-        return sum(v + set2[k] for k, v in set1.items() if k in set2)
-    
-    clusters = {} # cid -> { 'union_set', 'count', 'minhash' (unused for now) }
-    assignments = [] # will hold cid for each input set
-    next_cid = 0
-
-    for i, s in enumerate(sets):
-        # TODO: prepare weighted MinHash
-        # TODO: pull candidates from the query infrastructure
-        cand_ids = [cid for cid in clusters.keys()]
-        
-        # pick the best mergeable cluster
-        best_cid, best_jacc = None, 0.0
-        for cid in cand_ids:
-            cl = clusters[cid]
-            if cl['count'] >= N:
-                continue
-
-            # estimate weighted Jaccard distance
-            j = distance(s, cl['union_set']) # use cl['minhash'] eventually here!
-            if j <= best_jacc:
-                continue
-
-            # Exact union‐size check via intersection count
-            if len(set(cl['union_set'].keys()) | set(s.keys())) <= M:
-                best_cid, best_jacc = cid, j
-
-        # no existing cluster fits, start a new one
-        if best_cid is None or best_jacc < threshold / i:
-            cid = next_cid
-            next_cid += 1
-            clusters[cid] = {'union_set': s.copy(), 'count': 1, 'minhash': None}
-            # TODO: add new cluster to query infrastructure
-            #lsh.insert(cid, mh)
-        else:
-            # merge into the chosen cluster
-            cid = best_cid
-            cl = clusters[cid]
-            cl['union_set'] |= s
-            cl['count'] += 1
-            # TODO: update cluster’s MinHash: pointwise min of hashvalues
-            #for i in range(num_perm):
-            #    cl['minhash'].hashvalues[i] = min(cl['minhash'].hashvalues[i], mh.hashvalues[i])
-            # TODO: re‐index query infrastruture so its buckets reflect the updated sketch
-            #lsh.remove(cid)
-            #lsh.insert(cid, cl['minhash'])
-
-        # record which cluster this set went into
-        assignments.append(cid)
-
-    # enforce the <= K clusters requirement
-    unique_cids = sorted(clusters.keys())
-    if len(unique_cids) > K:
-        raise Exception(f"Partitioning could only form {len(unique_cids)} > {K} clusters under the provided N and M constraints.")
-
-    # remap arbitrary cid values into 0..C–1
-    cid_map = {old: new for new, old in enumerate(unique_cids)}
-    labels  = [cid_map[c] for c in assignments]
-    return labels
-
-"""
-Experimental version of 'partitionSetlistMiniHashTEMP' with weights.
-The implementation is extremely inefficient, but its purpose is to show if using weights can improve the result.
-
-Variant: here we don't start with zero clusters, but with each node initially being its own cluster.
-"""
-@core
-def partitionSetlistMiniHashWeightsTEMPVAR(hg: HyperGraph, N: int, M: int, K: int, threshold : float = 0.0) -> list[int]:
-    class Cluster:
-        def __init__(self, nodes_set : dict[int, float]):
-            self.nodes_set = nodes_set
-            self.count = 1
-            #self.minhash = ...
-    
-    sets : dict[int, Cluster] = dict() # node
-    for n in range(hg.nodes):
-        d = dict()
-        inbound = hg.getInboundHyperedges(n)
-        #average_sf = 0
-        for he in inbound:
-            src = he.source()
-            #average_sf += he.spike_frequency
-            if src not in d:
-                d[he.source()] = he.spike_frequency
-            else:
-                d[he.source()] += he.spike_frequency
-        # NOTE: having oneself in the sources should push towards two nodes connected by an edge being together,
-        #       but this worsens performance since it consumes an inbound edge slot for a weakly shared hyperedge!
-        #if inbound:
-        #    d[n] = average_sf / len(inbound)
-        #else:
-        #    d[n] = 0.0
-        sets[n] = Cluster(d)
-
-    # TODO: setup fast query infrastructure
-    # TODO: prefill it with all elements of 'sets'
-    # lhs = ...
-
-    # EXPERIMENTAL VERSION WITH A SLOW DISTANCE CALCULATION
-    def distance(set1 : dict[int, float], set2 : dict[int, float]) -> float:
-        set1_only = sum(v for k, v in set1.items() if k not in set2)
-        set2_only = sum(v for k, v in set2.items() if k not in set1)
-        intersection = sum(v + set2[k] for k, v in set1.items() if k in set2)
-        union = set1_only + set2_only + intersection
-        return intersection / union if union > 0 else 0.0
-    
-    queue = list(sets.keys())
-    assignments = DisjointSet(i for i in range(hg.nodes))
-    merged = True
-
-    while merged:
-        merged = False
-        while queue:
-            i = queue.pop(0)
-            cluster = sets[i]
-
-            # TODO: prepare weighted MinHash
-            # TODO: pull candidates from the query infrastructure
-            cand_ids = [cid for cid in sets.keys() if cid != i]
-            
-            # pick the best mergeable cluster
-            best_cid, best_jacc = None, 0.0
-            for cid in cand_ids:
-                cl = sets[cid]
-                if cl.count + cluster.count > N:
-                    continue
-
-                # estimate weighted Jaccard distance
-                # IDEA: to avoid putting together only the best nodes, punish merges between already large clusters!
-                d = distance(cluster.nodes_set, cl.nodes_set) / max(cluster.count, cl.count)
-                if d <= best_jacc:
-                    continue
-
-                # Exact union‐size check via intersection count
-                if len(set(cl.nodes_set.keys()) | set(cluster.nodes_set.keys())) <= M:
-                    best_cid, best_jacc = cid, d
-
-            # merge into the chosen cluster
-            if best_cid is not None and best_jacc >= threshold * (len(sets) / hg.nodes)**2:
-                assignments.union(i, best_cid)
-                cl = sets[best_cid]
-                cl.nodes_set |= cluster.nodes_set
-                cl.count += cluster.count
-                sets.pop(i)
-                try:
-                    queue.remove(best_cid)
-                except:
-                    pass
-                # TODO: update cluster’s MinHash: pointwise min of hashvalues
-                # TODO: re‐index query infrastruture so its buckets reflect the updated sketch
-                merged = True
-        queue = list(sets.keys())
-
-    result = [-1 for _ in range(hg.nodes)]
-    for i, part in enumerate(assignments):
-        for node in part:
-            result[node] = i
-
-        # enforce the <= K clusters requirement
-        if i >= K:
-            raise Exception(f"Partitioning could only form {i + 1} > {K} clusters under the provided N and M constraints.")
-
-    return result
-
-"""
-Experimental version of 'partitionSetlistMiniHashTEMPVAR'.
-The implementation is stupidly inefficient, but its purpose is to show if picking always the best pair yields good results.
-
-Variant: here we simply iterate over all pairs instead of just all nodes (n -> n^2 complexity).
-"""
-@core
-def partitionSetlistMiniHashWeightsTEMPEXH(hg: HyperGraph, N: int, M: int, K: int, threshold : float = 0.0) -> list[int]:
-    class Cluster:
-        def __init__(self, nodes_set : dict[int, float]):
-            self.nodes_set = nodes_set
-            self.count = 1
-            #self.minhash = ...
-    
-    sets : dict[int, Cluster] = dict()
-    for n in range(hg.nodes):
-        d = dict()
-        inbound = hg.getInboundHyperedges(n)
-        #average_sf = 0
-        for he in inbound:
-            src = he.source()
-            #average_sf += he.spike_frequency
-            if src not in d:
-                d[he.source()] = he.spike_frequency
-            else:
-                d[he.source()] += he.spike_frequency
-        # NOTE: having oneself in the sources should push towards two nodes connected by an edge being together,
-        #       but this worsens performance since it consumes an inbound edge slow for a weakly shared hyperedge!
-        #if inbound:
-        #    d[n] = average_sf / len(inbound)
-        #else:
-        #    d[n] = 0.0
-        sets[n] = Cluster(d)
-
-    # TODO: setup fast query infrastructure
-    # TODO: prefill it with all elements of 'sets'
-    # lhs = ...
-
-    # EXPERIMENTAL VERSION WITH A SLOW DISTANCE CALCULATION
-    def distance(set1 : dict[int, float], set2 : dict[int, float]) -> float:
-        set1_only = sum(v for k, v in set1.items() if k not in set2)
-        set2_only = sum(v for k, v in set2.items() if k not in set1)
-        intersection = sum(v + set2[k] for k, v in set1.items() if k in set2)
-        union = set1_only + set2_only + intersection
-        return intersection / union if union > 0 else 0.0
-    
-    assignments = DisjointSet(i for i in range(hg.nodes))
-    merged = True
-
-    while merged:
-        merged = False
-        best_cid1, best_cid2, best_jacc = None, None, 0.0
-        keys = list(sets.keys())
-        Nskips, Mskips = 0, 0
-        for _i in range(len(keys)):
-            i = keys[_i]
-            cluster1 = sets[i]
-            if cluster1.count >= N:
-                    Nskips += _i + 1
-                    continue
-            
-            for _j in range(_i):
-                j = keys[_j]
-                cluster2 = sets[j]
-                if cluster2.count + cluster1.count > N:
-                    Nskips += 1
-                    continue
-
-                # ISSUE: too many nodes remain unclustered!
-                #        This occurs because
-
-                # estimate weighted Jaccard distance
-                # IDEA: to avoid putting together only the best nodes, punish merges between already large clusters!
-                d = distance(cluster1.nodes_set, cluster2.nodes_set) / max(cluster1.count, cluster2.count)
-                if d <= best_jacc:
-                    continue
-
-                # Exact union‐size check via intersection count
-                if len(set(cluster1.nodes_set.keys()) | set(cluster2.nodes_set.keys())) <= M:
-                    best_cid1, best_cid2, best_jacc = i, j, d
-                else:
-                    Mskips += 1
-
-        print("best cide:", best_cid1, "best distance:", best_jacc, "skipped due to N:", Nskips, "skipped due to M:", Mskips, "remaining sets:", len(sets))
-        # merge into the chosen cluster
-        if best_cid1 != None and best_jacc >= threshold * (len(sets) / hg.nodes)**2:
-            assignments.union(best_cid1, best_cid2)
-            cluster1 = sets[best_cid1]
-            cluster2 = sets[best_cid2]
-            #cluster1.nodes_set |= cluster2.nodes_set
-            cluster1.nodes_set = dict_sum(cluster1.nodes_set, cluster2.nodes_set)
-            cluster1.count += cluster2.count
-            sets.pop(best_cid2)
-            # TODO: update cluster’s MinHash: pointwise min of hashvalues
-            # TODO: re‐index query infrastruture so its buckets reflect the updated sketch
-            merged = True
-
-    result = [-1 for _ in range(hg.nodes)]
-    for i, part in enumerate(assignments):
-        for node in part:
-            result[node] = i
-
-        # enforce the <= K clusters requirement
-        if i >= K:
-            raise Exception(f"Partitioning could only form {i + 1} > {K} clusters under the provided N and M constraints.")
-
-    return result
 
 """
 Experimental version of 'partitionSetlistMiniHashTEMP' with weights.

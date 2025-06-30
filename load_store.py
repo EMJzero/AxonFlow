@@ -76,18 +76,18 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     table.border = False
     table.preserve_internal_border = True
     print(f"Arrays in files '{os.path.basename(npz_log_path)}', '{os.path.basename(npz_input_path)}':")
-    for array_name in data.files:
-        array = data[array_name]
+    for array_name in (data.files if not isinstance(data, dict) else data.keys()):
+        array = np.array(data[array_name], dtype = object)
         table.add_row([array_name, array.shape, array.dtype, os.path.basename(npz_log_path)])
-    for array_name in input.files:
-        array = input[array_name]
+    for array_name in (input.files if not isinstance(input, dict) else input.keys()):
+        array = np.array(input[array_name], dtype = object)
         table.add_row([array_name, array.shape, array.dtype, os.path.basename(npz_input_path)])
     print(table)
     
-    if "spiketrains_n_b_l_t" not in data.files:
+    if "spiketrains_n_b_l_t" not in (data.files if not isinstance(data, dict) else data.keys()):
         raise Exception(f"The '{npz_log_path}' file does not contain an 'spiketrains_n_b_l_t' array.")
 
-    if "arr_0" not in input.files:
+    if "arr_0" not in (input.files if not isinstance(input, dict) else input.keys()):
         raise Exception(f"The '{npz_input_path}' file does not contain an 'arr_0' array.")
 
     graphml_path = os.path.abspath(graphml_path)
@@ -108,8 +108,8 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     table = PrettyTable(["Layer Name", "Shape", "Neurons", "Avg. spike freq."])
     table.border = False
     table.preserve_internal_border = True
-    input_frequencies : np.ndarray = input['arr_0']
-    spiketrains : np.ndarray = data["spiketrains_n_b_l_t"]
+    input_frequencies = np.array(input['arr_0'], dtype = object)
+    spiketrains = np.array(data["spiketrains_n_b_l_t"], dtype = object)
     print("Recognized layers in SNN logs:")
     prettyPrintIterable(["input"] + list(spiketrains[:, 1]))
     print("Recognized layers in SNN graph:")
