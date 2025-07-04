@@ -220,9 +220,14 @@ class DisjointSet(Generic[T]):
 """
 Weighted MinHash LSH (locality sensitive hanshing)-based indexing infrastructure.
 
+Based on:
+- https://github.com/ekzhu/datasketch/blob/master/datasketch/lsh.py
+
 Arguments:
 - num_perm: number of independent hash functions (permutations) used to generate one MinHash signature.
+            => higher values reduce both false positives and true positives.
 - num_bands: number of slices (bands) the signature is divided into for LSH bucketing. Must divide 'num_perm' exactly.
+            => tune w.r.t. the data, higher values make collisions less likely but more accurate.
 """
 class WeightedMinHashLSH(Generic[T]):
     """
@@ -321,7 +326,7 @@ class WeightedMinHashLSH(Generic[T]):
     """
     Delete a set from the index.
     """
-    def delete(self, set_id : int):
+    def delete(self, set_id : int) -> None:
         if set_id not in self.data:
             return
 
@@ -388,6 +393,238 @@ class WeightedMinHashLSH(Generic[T]):
             raise Exception(f"The provided set ID {set_id} does not exist.")
         target_set = self.data[set_id].weighted_set
         candidates, scores = self.query(target_set, top_k = top_k)
+        try:
+            idx = candidates.index(set_id)
+            candidates.pop(idx)
+            scores.pop(idx)
+        except ValueError:
+            pass
+        return candidates, scores
+
+    """
+    Compute the weighted Jaccard similarity between two sets.
+    """
+    def _weighted_jaccard(self, set1 : dict[T, float], set2: dict[T, float]) -> float:
+        set1_only = sum(v for k, v in set1.items() if k not in set2)
+        set2_only = sum(v for k, v in set2.items() if k not in set1)
+        intersection = sum(v + set2[k] for k, v in set1.items() if k in set2)
+        union = set1_only + set2_only + intersection
+        return intersection / union if union > 0 else 0.0
+    
+    def __len__(self) -> int:
+        return len(self.data)
+
+"""
+Like 'WeightedMinHashLSH' but optimized for top-k queries and based on a prefix tree data structure.
+
+Based on:
+- http://ilpubs.stanford.edu:8090/678/1/2005-14.pdf
+- https://github.com/ekzhu/datasketch/blob/master/datasketch/lshforest.py
+
+Arguments:
+- hash_bits: bits to use in reach MinHash and thus in reach prefix of the tree.
+             => higher values reduce both false positive and true positives.
+"""
+class WeightedMinHashLSHForest(Generic[T]):
+    """
+    Struct for one entry in the data structure.
+    """
+    class Entry:
+        def __init__(self, weighted_set : dict[T, float], signature : tuple[bytes, ...], merge_count : int = 1):
+            self.weighted_set = weighted_set
+            self.signature = signature
+            self.merge_count = merge_count
+    
+    def __init__(self, num_perm : int = 256, tree_count : int = 8, hash_bytes : int = 4):
+        self.num_perm = num_perm
+        self.tree_count = tree_count
+        self.hash_bytes = hash_bytes
+        assert self.num_perm % self.tree_count == 0, f"The given 'num_perm' ({num_perm}) must be divisible by 'tree_count' ({tree_count})."
+        self.tree_depth = self.num_perm // self.tree_count
+        
+        self.tables = [defaultdict(list) for _ in range(self.tree_count)] # usage: tables[tree_idx] -> dict[prefix] -> list of idx of entries with that prefix in the tree
+        self.data : dict[int, WeightedMinHashLSH.Entry] = {} # usage: data[set_id] -> entry
+        # sorted array implementation for the prefix trees
+        self.sorted_tables = [[] for _ in range(self.tree_count)] # usage: sorted_hashtables[tree_idx] -> sorted list of prefixes in the tree
+        self.sorted = [True for _ in range(self.tree_count)]
+        self.id_counter = 0
+
+    """
+    Computes the MinHash signature of a weighted set (dict element->weight).
+    Return a list of integers of length 'self.num_perm'.
+    """
+    def _weighted_minhash_signature(self, weighted_set : dict[T, float]) -> tuple[bytes, ...]:
+        # TODO: devise a good weighted implementation!!!!!
+        # UNWEIGHTED: minimum among the hashes of the set's values.
+        #return [min((int.from_bytes(hashlib.sha1(str((k, per)).encode()).digest()[:self.hash_bytes], 'big') for k in weighted_set.keys()), default = random.randbytes(20).hex()) for per in range(self.num_perm)]
+        #return b''.join(min((hashlib.sha1(str((k, per)).encode()).digest()[:self.hash_bytes] for k in weighted_set.keys()), default = random.randbytes(self.hash_bytes)) for per in range(self.num_perm))
+        return tuple(b''.join(min((hashlib.sha1(str((k, p, t)).encode()).digest()[:self.hash_bytes] for k in weighted_set.keys()), default = random.randbytes(self.hash_bytes)) for p in range(self.tree_depth)) for t in range(self.tree_count))
+
+    """
+    Return the original set dictionary for a given ID.
+    """
+    def get(self, set_id : int) -> WeightedMinHashLSH.Entry:
+        if set_id in self.data:
+            return self.data[set_id]
+        else:
+            raise Exception(f"The provided set ID {set_id} does not exist.")
+
+    """
+    Return the IDs present in the datastructure.
+    """
+    def ids(self) -> Iterable[int]:
+        return self.data.keys()
+
+    """
+    Insert a new weighted set into the index.
+    If no 'set_id' is provided, an internal counter is used.
+    The final 'set_id' is returned.
+    If 'immediate_sort' is True and trees are already sorted, this inserts the new element
+    with a binary search and a cost of 'log n' instead of a constant. Otherwise, a full
+    sort will be done upon the first query being requested.
+    """
+    def insert(self, weighted_set : dict[T, float], set_id : Optional[int] = None, merge_count : int = 1, immediate_sort : bool = False) -> int:
+        if set_id is None:
+            set_id = self.id_counter
+            self.id_counter += 1
+
+        signature = self._weighted_minhash_signature(weighted_set)
+        self.data[set_id] = WeightedMinHashLSH.Entry(weighted_set, signature, merge_count)
+
+        for t, prefix, table, sorted_table in zip(range(self.tree_count), signature, self.tables, self.sorted_tables):
+            table[prefix].append(set_id)
+            if immediate_sort and self.sorted[t]:
+                idx = self._binary_search(len(sorted_table), lambda x : sorted_table[x] >= prefix)
+                sorted_table.insert(idx, prefix)
+            else:
+                sorted_table.append(prefix)
+                self.sorted[t] = False
+
+        return set_id
+
+    """
+    Delete a set from the index.
+    """
+    def delete(self, set_id : int) -> None:
+        if set_id not in self.data:
+            return
+
+        signature = self.data[set_id].signature
+        for prefix, table, sorted_table in zip(signature, self.tables, self.sorted_tables):
+            if len(table[prefix]) == 1:
+                del table[prefix]
+            else:
+                table[prefix].remove(set_id)
+            idx = self._binary_search(len(sorted_table), lambda x : sorted_table[x] >= prefix)
+            sorted_table.pop(idx)
+            # no need for re-sorting here!
+
+        del self.data[set_id]
+
+    """
+    Merge multiple sets already stored in the structure and insert the merged version.
+    The old sets are deleted. Returns new set's ID.
+    """
+    def merge(self, set_ids : list[int], merged_set_id : int = None) -> int:
+        merged = {}
+        mcount = 0
+        for sid in set_ids:
+            if sid not in self.data:
+                raise Exception(f"The provided set ID {sid} does not exist.")
+            wset = self.data[sid].weighted_set
+            mcount += self.data[sid].merge_count
+            for k, v in wset.items():
+                # WARNING: maybe you should not add weights if the entry was generated from the same hyperedge...
+                merged[k] = merged.get(k, 0) + v
+        for sid in set_ids:
+            self.delete(sid)
+        return self.insert(merged, merge_count = mcount, set_id = merged_set_id, immediate_sort = True)
+
+    """
+    Sort the prefix trees (lists).
+    Must be called before running a query.
+    """
+    def _sort(self) -> None:
+        for t in range(self.tree_count):
+            if not self.sorted[t]:
+                self.sorted_tables[t].sort()
+                self.sorted[t] = True
+
+    """
+    Binary search on the range [0, n].
+    The callable 'func' is responsible for, given an index, returning True
+    if the value at the provided index is >= than the searched value.
+    Thus, the access to the searched data structure shall be done in 'func'.
+    The searched value shall also be known only inside 'func'.
+    """
+    def _binary_search(self, n : int, func : Callable[[int], bool]) -> int:
+        i, j = 0, n
+        while i < j:
+            h = int(i + (j - i) / 2)
+            if not func(h):
+                i = h + 1
+            else:
+                j = h
+        return i
+
+    """
+    Support method for 'query'.
+    Searches all trees and returns all entries with a prefix equal to signature[:depth].
+    This equates to all children of the node signature[:depth] in the prefix trees.
+    """
+    def _query(self, signature : list[bytes], depth : int) -> Generator[int, None, None]:
+        if depth > self.tree_depth or depth <= 0:
+            raise ValueError("Depth outside valid range.")
+        # generate prefixes of concatenated hash values
+        prefixes = map(lambda p : p[:depth], signature)
+        for sorted_table, prefix, table in zip(self.sorted_tables, prefixes, self.tables):
+            i = self._binary_search(len(sorted_table), lambda x : sorted_table[x][:depth] >= prefix)
+            if i < len(sorted_table) and sorted_table[i][:depth] == prefix:
+                j = i
+                while j < len(sorted_table) and sorted_table[j][:depth] == prefix:
+                    for id in table[sorted_table[j]]:
+                        yield id
+                    j += 1
+
+    """
+    Query similar sets.
+    If 'top_k' is set, it returns up to 'top_k' most similar sets.
+    Returns the candidate IDs and optionally the list of their distances.
+    """
+    def query(self, weighted_set : dict[T, float], top_k : int = 1, compute_scores : bool = False) -> tuple[list[int], Optional[list[float]]]:
+        self._sort()
+        if top_k <= 0:
+            raise ValueError("Top-k must be strictly positive.")
+        
+        signature = self._weighted_minhash_signature(weighted_set)
+        candidates = set()
+        depth = self.tree_depth
+        while depth > 0 and len(candidates) < top_k:
+            for id in self._query(signature, depth):
+                candidates.add(id)
+                if len(candidates) >= top_k:
+                    break
+            depth -= 1
+        candidates = list(candidates)
+        
+        if compute_scores:
+            scored = []
+            for cid in candidates:
+                other_set = self.data[cid].weighted_set
+                score = self._weighted_jaccard(weighted_set, other_set)
+                scored.append(score)
+            return candidates, scored
+        else:
+            return candidates, None
+
+    """
+    Query similar sets using an existing stored set.
+    """
+    def query_by_id(self, set_id : int, top_k : int = 1, compute_scores : bool = False) -> tuple[list[int], list[float]]:
+        if set_id not in self.data:
+            raise Exception(f"The provided set ID {set_id} does not exist.")
+        target_set = self.data[set_id].weighted_set
+        candidates, scores = self.query(target_set, top_k = top_k, compute_scores = compute_scores)
         try:
             idx = candidates.index(set_id)
             candidates.pop(idx)

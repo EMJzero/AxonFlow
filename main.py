@@ -95,31 +95,33 @@ if __name__ == "__main__":
         Settings.VERBOSE = False
 
     # MAIN CODE:
-    seed = 192 #79
-    if not options["load"]:
-        print("\n------ generating graph ------")
-        nodes_count = 1024
-        nodes_per_edge_mean, nodes_per_edge_variation = 8, 4
-        print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
-        snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
-    else:
-        print("\n-------- loading graph -------")
-        #snn = loadSNNGraphML("./snn_models/simple.graphml")
-        snn = loadSNNcomposite("./snn_models/mnist_cnn_0.npz", "./snn_models/mnist_cnn_input.npz", "./snn_models/mnist_cnn.graphml")
-        print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}\nSeed: {seed}")
-    #acyclic_snn = makeAcyclic(snn)
-    hardware = HardwareModel(
-        neurons_per_core = 256,
-        synapses_per_core = 1024,
-        cores_per_chip_x = 64,
-        cores_per_chip_y = 64,
-        chips_per_system_x = 1,
-        chips_per_system_y = 1,
-        energy_per_routing = 1.0,
-        energy_per_wire = 0.1,
-        latency_per_routing = 1.0,
-        latency_per_wire = 0.1
-    )
+    try:
+        seed = 192 #79
+        if not options["load"]:
+            print("\n------ generating graph ------")
+            nodes_count = 1024
+            nodes_per_edge_mean, nodes_per_edge_variation = 8, 4
+            print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
+            snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
+        else:
+            print("\n-------- loading graph -------")
+            #snn = loadSNNGraphML("./snn_models/simple.graphml")
+            network_name = "simple_cnn"
+            snn = loadSNNcomposite(f"./snn_models/{network_name}_0.npz", f"./snn_models/{network_name}_input.npz", f"./snn_models/{network_name}.graphml")
+            print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}\nSeed: {seed}")
+        #acyclic_snn = makeAcyclic(snn)
+        hardware = HardwareModel(
+            neurons_per_core = 256,
+            synapses_per_core = 1024,
+            cores_per_chip_x = 64,
+            cores_per_chip_y = 64,
+            chips_per_system_x = 1,
+            chips_per_system_y = 1,
+            energy_per_routing = 1.0,
+            energy_per_wire = 0.1,
+            latency_per_routing = 1.0,
+            latency_per_wire = 0.1
+        )
 
     try:
         print("\n---- checking feasibility ----")

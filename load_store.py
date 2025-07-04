@@ -3,6 +3,7 @@ from prettytable import PrettyTable
 from itertools import product
 import numpy as np
 import networkx
+import time
 import re
 import os
 
@@ -40,6 +41,61 @@ def loadSNNGraphML(path : str) -> HyperGraph:
         hyperedges[src].append(dst)
     
     return HyperGraph(len(nodes), [HyperEdge(nodes[k], tuple(map(lambda n : nodes[n], v)), nodes_spike_frequencies[k]) for k, v in hyperedges.items()])
+
+"""
+Given a path relative to this script or absolute pointing to a GraphML graph,
+manually parses it and returns its set of node names and a list of edges,
+each represented as a tuple '(src, dst)'.
+
+NOTE: 'log_interval' specifies the interval in seconds between read lines logs.
+"""
+@core
+def manualGraphMLparser(path : str, log_interval : int = 60) -> tuple[set[str], list[tuple[str, str]]]:
+    path = os.path.abspath(path)
+    if not os.path.exists(path):
+        raise Exception(f"The provided path does not exist: {path}")
+    elif not os.path.isfile(path):
+        raise Exception(f"The provided path is not a file: {path}")
+    elif path.split('.')[-1] != "graphml":
+        print("WARNING: the provided file does not have the '.graphml' extension. Are you sure it stores a graph?")
+    
+    total_size = os.path.getsize(path)
+    print("Manually parsing SNN from:", path, f"(size: {total_size//2**30}GB)")
+    nodeline_regex = re.compile(r'<node id="(\w+)"\/>')
+    edgeline_regex = re.compile(r'<edge source="(\w+)" target="(\w+)"\/>')
+    weirdline_regex = re.compile(r'(?:<[\?\w\s\'\"\-\.\:\/\=]*>)*<node id="(\w+)"\/>')
+    nodes = set()
+    edges = []
+    lines_count = 0
+    total_bytes_read = 0
+    last_print_time = time.monotonic()
+    with open(path) as file_in:
+        for line in file_in:
+            lines_count += 1
+            total_bytes_read += len(line)
+            if lines_count & 1023 == 0:
+                now = time.monotonic()
+                if now - last_print_time >= 60 and lines_count > 0:
+                    last_print_time = now
+                    avg_line_len = total_bytes_read / lines_count
+                    estimated_total = int(total_size / avg_line_len)
+                    print(f"Processed {lines_count} / ~{estimated_total} lines...")
+            # assume line starts with the pattern
+            match = nodeline_regex.match(line)
+            if match:
+                nodes.add(match.group(1))
+                continue
+            match = edgeline_regex.match(line)
+            if match:
+                edges.append((match.group(1), match.group(2)))
+                continue
+            # fall back on the weirdline regex
+            match = weirdline_regex.search(line)
+            if match:
+                nodes.add(match.group(1))
+                continue
+            print("Unmatched line:", line.strip())
+    return nodes, edges
 
 """
 Given a path relative to this script or absolute pointing to a NumPy array file
@@ -99,30 +155,43 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
         print("WARNING: the provided file does not have the '.graphml' extension. Are you sure it stores a graph?")
     
     print("Loading SNN graph from:", graphml_path)
-    g = networkx.read_graphml(graphml_path)
-    if not isinstance(g, networkx.DiGraph) and not isinstance(g, networkx.MultiDiGraph):
-        raise Exception(f"The provided graph does not get loaded as neither a DiGraph nor a MultiDiGraph instance by NetworkX. Its current class is {type(g)}.")
+    #g = networkx.read_graphml(graphml_path)
+    #if not isinstance(g, networkx.DiGraph) and not isinstance(g, networkx.MultiDiGraph):
+    #    raise Exception(f"The provided graph does not get loaded as neither a DiGraph nor a MultiDiGraph instance by NetworkX. Its current class is {type(g)}.")
+    class GraphContainer:
+        def __init__(self, nodes : set[str], edges : list[tuple[str, str]]):
+            self.nodes = nodes
+            self.edges = edges
+    g = GraphContainer(*manualGraphMLparser(graphml_path))
     
     spike_frequencies = defaultdict(lambda : 0) # node -> spike frequency
     
     table = PrettyTable(["Layer Name", "Shape", "Neurons", "Avg. spike freq."])
     table.border = False
     table.preserve_internal_border = True
+    nodenames_regex = re.compile(r'^(\d+(?:_[a-zA-Z][a-zA-Z0-9]+)+)')
+    layernames_regex = re.compile(r'(\d\d)([\w\d]+)_[\dx]*')
     input_frequencies = np.array(input['arr_0'], dtype = object)
     spiketrains = np.array(data["spiketrains_n_b_l_t"], dtype = object)
     print("Recognized layers in SNN logs:")
     prettyPrintIterable(["input"] + list(spiketrains[:, 1]))
     print("Recognized layers in SNN graph:")
-    #prettyPrintIterable(set((s := n.split('_'))[0] + '_' + s[1] for n in g.nodes))
-    prettyPrintIterable(set(re.match(r'^(\d+(?:_[a-zA-Z][a-zA-Z0-9]+)+)', n).group(1) for n in g.nodes))
+    #layer_names = set((s := n.split('_'))[0] + '_' + s[1] for n in g.nodes)
+    graph_layer_names = set(nodenames_regex.match(n).group(1) for n in g.nodes)
+    prettyPrintIterable(graph_layer_names)
     print("Parsing network layers and computing spike frequencies:")
-    print("\t-> working on layer: 0_input")
+    # guess the input layer's name
+    input_layer_name_candidates = ["input", "inputlayer"]
+    input_layer_name = next((iname for iname in input_layer_name_candidates if f"0_{iname}_0_0_0" in g.nodes), None)
+    if not input_layer_name:
+        raise Exception(f"No valid input layer name found for the SNN, tried:", ", ".join(input_layer_name_candidates))
+    print(f"\t-> working on layer: 0_{input_layer_name}")
     input_shape = input_frequencies.shape
     if len(input_shape) != 4:
         raise Exception(f"Input shape of 'arr_0' in file '{npz_input_path}' does not contain 4 items.")
     # iterate over an arbitrary number of dimensions
     for index in product(*(range(dim) for dim in input_shape)):
-        nodename = f"0_input_" + '_'.join(map(str, index[1:]))
+        nodename = f"0_{input_layer_name}_" + '_'.join(map(str, index[1:]))
         if nodename not in g.nodes:
             raise Exception(f"Could not find node {nodename} in the graph.")
         # directly use the input's value as mean spike frequency
@@ -134,25 +203,40 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     for layer_spiketrains, layer_name in spiketrains:
         neurons_count = 0
         tot_spike_freq = 0
-        match = re.match(r'(\d\d)([\w\d]+)_[\dx]*', layer_name)
+        match = layernames_regex.match(layer_name)
         layer_idx, layer_type = int(match.group(1)) + 1, camel_to_snake(match.group(2))
-        print(f"\t-> working on layer: {layer_idx}_{layer_type}")
+        compress_timesteps = layer_name.split("_")[1].count("x") + 1 + 1 == len(layer_spiketrains.shape) - 1
+        graph_layer_name = f"{layer_idx}_{layer_type}"
+        if graph_layer_name not in graph_layer_names:
+            # if the log's layer name is not in the graph's layer names, pick the one with the same ids
+            new_graph_layer_name = next((gln for gln in graph_layer_names if str(layer_idx) == gln.split('_', 1)[0]), None)
+            if not new_graph_layer_name:
+                raise Exception(f"Could not find node {graph_layer_name} in the graph.")
+            print(f"WARNING: layer {graph_layer_name} not found in graph, taking layer {new_graph_layer_name} by index.")
+            graph_layer_name = new_graph_layer_name
+        print(f"\t-> working on layer: {graph_layer_name}")
         # isolate the first dimension (batch size) an the last (time steps) as we do the mean over them
-        batches, shape, time_steps = layer_spiketrains.shape[0], layer_spiketrains.shape[1:-1], layer_spiketrains.shape[-1]
+        if compress_timesteps:
+            batches, shape, time_steps = layer_spiketrains.shape[0], layer_spiketrains.shape[1:-1], layer_spiketrains.shape[-1]
+        else:
+            batches, shape = layer_spiketrains.shape[0], layer_spiketrains.shape[1:]
         # iterate over an arbitrary number of dimensions
         for index in product(*(range(dim) for dim in shape)):
-            nodename = f"{layer_idx}_{layer_type}_" + '_'.join(map(str, index))
+            nodename = f"{graph_layer_name}_" + '_'.join(map(str, index))
             if nodename not in g.nodes:
                 raise Exception(f"Could not find node {nodename} in the graph.")
             # compute the mean number of spikes across inputs in the batch and time steps
-            sf = sum(sum(layer_spiketrains[b][index][t] for t in range(time_steps)) for b in range(batches)) / (batches * time_steps)
+            if compress_timesteps:
+                sf = sum(sum(layer_spiketrains[b][index][t] for t in range(time_steps)) for b in range(batches)) / (batches * time_steps)
+            else:
+                sf = sum(layer_spiketrains[b][index] for b in range(batches)) / batches
             spike_frequencies[nodename] += sf
             tot_spike_freq += sf
             neurons_count += 1
         table.add_row([layer_name, layer_spiketrains.shape, neurons_count, tot_spike_freq / neurons_count])
     print(table)
 
-    print("Building HyperGraph:")
+    print("Building HyperGraph...")
     nodes = {n : i for i, n in enumerate(g.nodes)} # node id -> node index
     hyperedges = defaultdict(list) # source node id -> list of destinations ids
     for edge in g.edges:

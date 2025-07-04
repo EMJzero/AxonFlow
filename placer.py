@@ -355,7 +355,7 @@ def trueNorthPlacement(hg : HyperGraph, masked_edges : list[tuple[int, int]], mo
     inbound_sources = [{he.source() for he in hg.getInboundHyperedges(n)} for n in range(hg.nodes)]
     
     chips = defaultdict(set) # chip(x, y) -> set of nodes
-    placement = BiMap({n : None for n in range(hg.nodes)}) # node idx -> placement
+    placement = BiMap() # node idx -> placement
     
     """
     Given a set of nodes, returns subset of N nodes with the highest

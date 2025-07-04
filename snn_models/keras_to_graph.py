@@ -231,6 +231,29 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 # NOTE: this "+= 1" is technically wrong, but exists to comply with SNN toolbox...
                 layer_idx += 1
 
+            elif isinstance(layer, tf.keras.layers.Multiply):
+                # NOTE: ensure all input shapes match
+                base_shape, base_coords, base_names, base_layer_name = inputs[0]
+                coord_to_names = {coord: [] for coord in base_coords}
+
+                for shape, coords, names, _ in inputs:
+                    if shape != base_shape or len(coords) != len(base_coords):
+                        print(f"WARNING: Shape mismatch in Multiply layer {layer.name}")
+                        continue
+                    for coord, name in zip(coords, names):
+                        coord_to_names[coord].append(name)
+
+                out_names = [f"{layer_name}_{'_'.join(map(str, coord))}" for coord in base_coords]
+                for out_name in out_names:
+                    G.add_node(out_name)
+
+                for coord, out_name in zip(base_coords, out_names):
+                    for in_name in coord_to_names[coord]:
+                        G.add_edge(in_name, out_name)
+
+                layer_outputs[id(layer)] = (base_shape, base_coords, out_names, layer_name)
+                layer_idx += 1
+
             elif isinstance(layer, (tf.keras.layers.AveragePooling2D, tf.keras.layers.MaxPooling2D)):
                 inp_shape, inp_coords, inp_names, in_name = inputs[0]
                 h_in, w_in, c = inp_shape
@@ -276,13 +299,14 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                     continue
 
                 h, w, c = inp_shape
-                out_coords = [(i,) for i in range(c)]
-                out_names = [f"{layer_name}_{i}" for i in range(c)]
+                out_coords = [(0, 0, i,) for i in range(c)]
+                # NOTE: for compatibility with SNN toolbox, we gotta keep the width and height idxs...
+                out_names = [f"{layer_name}_0_0_{i}" for i in range(c)]
                 for name in out_names:
                     G.add_node(name)
 
                 for i in range(c):
-                    out_name = f"{layer_name}_{i}"
+                    out_name = f"{layer_name}_0_0_{i}"
                     for h_idx in range(h):
                         for w_idx in range(w):
                             in_name_full = f"{in_name}_{h_idx}_{w_idx}_{i}"
@@ -304,8 +328,17 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                     print(f"WARNING: reshape mismatch in layer {layer.name}: {inp_shape} -> {new_shape}...")
 
                 layer_outputs[id(layer)] = (new_shape, list(np.ndindex(*new_shape)), inp_names, in_name)  # Keep same node names
+                # NOTE: this "+= 1" is technically wrong, but exists to comply with SNN toolbox...
+                layer_idx += 1
 
-            elif isinstance(layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.Activation, tf.keras.layers.ReLU, tf.keras.layers.Dropout)):
+            elif isinstance(layer, tf.keras.layers.Dropout):
+                if len(inputs) != 1:
+                    print(f"WARNING: while stitching together input-to-output of layer {layer.name}, the layer had multiple inputs...")
+                layer_outputs[id(layer)] = inputs[0]
+                # NOTE: this "+= 1" is technically wrong, but exists to comply with SNN toolbox...
+                layer_idx += 1
+
+            elif isinstance(layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.Activation, tf.keras.layers.ReLU)):
                 if len(inputs) != 1:
                     print(f"WARNING: while stitching together input-to-output of layer {layer.name}, the layer had multiple inputs...")
                 layer_outputs[id(layer)] = inputs[0]
