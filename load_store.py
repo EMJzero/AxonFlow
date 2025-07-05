@@ -60,7 +60,7 @@ def manualGraphMLparser(path : str, log_interval : int = 60) -> tuple[set[str], 
         print("WARNING: the provided file does not have the '.graphml' extension. Are you sure it stores a graph?")
     
     total_size = os.path.getsize(path)
-    print("Manually parsing SNN from:", path, f"(size: {total_size//2**30}GB)")
+    print("Manually parsing SNN from:", path, f"(size: {fileSizeString(total_size)})")
     nodeline_regex = re.compile(r'<node id="(\w+)"\/>')
     edgeline_regex = re.compile(r'<edge source="(\w+)" target="(\w+)"\/>')
     weirdline_regex = re.compile(r'(?:<[\?\w\s\'\"\-\.\:\/\=]*>)*<node id="(\w+)"\/>')
@@ -211,7 +211,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
             # if the log's layer name is not in the graph's layer names, pick the one with the same ids
             new_graph_layer_name = next((gln for gln in graph_layer_names if str(layer_idx) == gln.split('_', 1)[0]), None)
             if not new_graph_layer_name:
-                raise Exception(f"Could not find node {graph_layer_name} in the graph.")
+                raise Exception(f"Could not find layer {graph_layer_name} in the graph's nodes list.")
             print(f"WARNING: layer {graph_layer_name} not found in graph, taking layer {new_graph_layer_name} by index.")
             graph_layer_name = new_graph_layer_name
         print(f"\t-> working on layer: {graph_layer_name}")
@@ -244,7 +244,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
         hyperedges[src].append(dst)
     
     # return data, g # test with 'd, g = loadSNNcomposite("./snn_models/mnist_cnn_0.npz", "./snn_models/mnist_cnn_input.npz", "./snn_models/mnist_cnn.graphml")'
-    return HyperGraph(len(nodes), [HyperEdge(nodes[k], tuple(map(lambda n : nodes[n], v)), spike_frequencies[k]) for k, v in hyperedges.items()])
+    return HyperGraph(len(nodes), [HyperEdge(nodes[k], tuple(map(lambda n : nodes[n], v)), spike_frequencies[k]) for k, v in hyperedges.items()], no_checks = True)
 
 """
 FAILURE

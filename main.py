@@ -6,6 +6,7 @@ import signal
 import code
 import time
 import sys
+import os
 
 from graph_utils import *
 from partitioner import *
@@ -41,34 +42,44 @@ def signal_handler(signal: int, frame: Optional[FrameType]) -> None:
 T = TypeVar('T')
 
 """
-Searchs and removes flags from sys.argv.
+Searchs and removes flags from 'sys.argv'.
 If 'with_value' is False, the return values is either True or False depending on the presence or absence of the option.
 If 'with_value' is True, the return value is the value assigned with the option, if present, otherwise it is False if
 the option is not present and None if no valid argument was provided.
 Optionally, 'value_type' can be used to parse the desired value when 'with_value' is True.
+Optionally, use 'flags_tag' to override the flags marker if not using '-'.
 """
-def args_match_and_remove(flag : str, with_value : bool = False, value_type : type[T] = str) -> Union[bool, T]:
-    try:
-        idx = sys.argv.index(flag)
-        sys.argv.pop(idx)
-        if with_value:
-            try:
-                value = value_type(sys.argv[idx])
-                sys.argv.pop(idx)
-                return value
-            except:
-                return None
-        else:
-            return True
-    except:
-        return False
+def args_match_and_remove(flags: Union[str, list[str]], with_value: bool = False, value_type: type[T] = str, flags_tag : str = '-') -> Union[bool, T, None]:
+    if isinstance(flags, str):
+        flags = [flags]
+    for flag in flags:
+        try:
+            idx = sys.argv.index(flag)
+            sys.argv.pop(idx)
+
+            if with_value:
+                if idx >= len(sys.argv) or sys.argv[idx].startswith(flags_tag):
+                    return None  # flag present, value is missing or looks like another flag
+                try:
+                    value = value_type(sys.argv[idx])
+                    sys.argv.pop(idx)
+                    return value
+                except Exception:
+                    return None  # flag present, value couldn't be parsed
+            else:
+                return True  # flag present, no value expected
+        except ValueError:
+            continue
+    return False  # no matching of the flags found
 
 def parse_options() -> dict[str, Any]:
     options = {
-        "help": args_match_and_remove("-h") or args_match_and_remove("--help"),
-        "interactive": args_match_and_remove("-i") or args_match_and_remove("--interactive"),
-        "load": args_match_and_remove("-l") or args_match_and_remove("--load"),
-        "quiet": args_match_and_remove("-q") or args_match_and_remove("--quiet"),
+        "help": args_match_and_remove(["-h", "--help"]),
+        "interactive": args_match_and_remove(["-i", "--interactive"]),
+        "load": args_match_and_remove(["-l", "--load"], with_value = True),
+        "save": args_match_and_remove(["-s", "--save"], with_value = True),
+        "reload": args_match_and_remove(["-r", "--reload"], with_value = True),
+        "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
 
@@ -76,7 +87,10 @@ def help_options() -> None:
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
     print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
-    print("-l, --load\t\tLoads a true SNN graph instead of randomly generating one.")
+    print(("-l, --load <?path>\tLoads a true SNN graph instead of randomly generating one. If omitted, the default path is './snn_models/simple_cnn'.\n"
+           "\t\t\tThe given path is concatenated with '_0.npz', '_input.npz', '.graphml', these are the three files expected to be found."))
+    print(("-s, --save <path>\tSaves the used SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'."))
+    print(("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load."))
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -97,19 +111,34 @@ if __name__ == "__main__":
     # MAIN CODE:
     try:
         seed = 192 #79
-        if not options["load"]:
+        if options["reload"]:
+            print("\n------- reloading graph ------")
+            path = options["reload"]
+            if not os.path.exists(path):
+                raise Exception(f"The provided path does not exist: {path}")
+            print("Reloading model from:", path)
+            snn = HyperGraph.load(path)
+            print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}\nSeed: {seed}")
+        elif options["load"] or options["load"] is None:
+            print("\n-------- loading graph -------")
+            path = options["load"] if options["load"] else "./snn_models/simple_cnn"
+            #snn = loadSNNGraphML(f"{path}.graphml")
+            snn = loadSNNcomposite(f"{path}_0.npz", f"{path}_input.npz", f"{path}.graphml")
+            print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}\nSeed: {seed}")
+        else:
             print("\n------ generating graph ------")
             nodes_count = 1024
             nodes_per_edge_mean, nodes_per_edge_variation = 8, 4
             print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
             snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
-        else:
-            print("\n-------- loading graph -------")
-            #snn = loadSNNGraphML("./snn_models/simple.graphml")
-            network_name = "simple_cnn"
-            snn = loadSNNcomposite(f"./snn_models/{network_name}_0.npz", f"./snn_models/{network_name}_input.npz", f"./snn_models/{network_name}.graphml")
-            print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}\nSeed: {seed}")
-        #acyclic_snn = makeAcyclic(snn)
+            #acyclic_snn = makeAcyclic(snn)
+        if options["save"]:
+            path = os.path.abspath(options["save"])
+            os.makedirs(os.path.dirname(path), exist_ok = True)
+            print("Saving model to:", path)
+            snn.save(path)
+            print("Saved, file size:", fileSizeString(os.path.getsize(path)))
+        
         hardware = HardwareModel(
             neurons_per_core = 256,
             synapses_per_core = 1024,
@@ -123,7 +152,6 @@ if __name__ == "__main__":
             latency_per_wire = 0.1
         )
 
-    try:
         print("\n---- checking feasibility ----")
         if not hardware.checkSnnFit(snn, verbose = True):
             print("WARNING: the generated SNN may not fit on the given HW, change either's configuration or the seed.")

@@ -714,9 +714,10 @@ Variant: here we don't start with zero clusters, but with each node initially be
 @core
 def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int, threshold : float = 0.0, top_k : int = 16) -> list[int]:
     # TODO: tune my arguments!
-    # NOTE: for now (1k nodes), unless num_perm == num_bands it is too unlikely to get a collision...
-    #       => these arguments shall dynamically adapt w.r.t. the 'hg' size...
-    lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 16, tree_count = 4)
+    # 16, 4 is fast and works decently
+    # 32, 8 takes double the time, but is akin to a round of FM
+    # 64, 16 is slow but beats one round of FM
+    lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 32, tree_count = 16)
     
     for n in range(hg.nodes):
         d = dict()

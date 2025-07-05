@@ -103,6 +103,18 @@ def prettyPrintIterable(iterable : Iterable, elem_per_row : int = 4) -> None:
     print(table)
 
 """
+Given a file size in bytes, returns a string representing it in the closest unit
+of measure between B, KB, MB, GB, and TB.
+"""
+def fileSizeString(filesize : int) -> str:
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    size = float(filesize)
+    for unit in units:
+        if size < 1024 or unit == 'TB':
+            return f"{size:.1f} {unit}"
+        size /= 1024
+
+"""
 Failure in drawing graphs with braill on the CLI.
 
 import random

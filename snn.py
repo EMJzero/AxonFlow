@@ -4,9 +4,11 @@ from collections.abc import Iterable, Iterator
 from typing import Optional, Self, Union
 
 from collections import defaultdict
+from array import array
 import networkx as nx
 import numpy as np
 import random
+import struct
 
 from prints import *
 
@@ -87,6 +89,12 @@ class HyperEdge(Iterable):
 Directed hypergraph to model a SNN.
 Each edge has one source neuron (node) and represents an axon going into many neurons (nodes) with a synapse for each.
 Edges are weighted by the frequency with which they are traversed by a spike.
+
+Arguments:
+- nodes: number of nodes in the hypergraph.
+- hyperedges: list of ready-to-use Hyperedges or list of tuples representing hyperedges with the first entry being the source.
+- spike_frequencies: if 'hyperedges' is a list of tuples, this shall indicate for each tuple, in order, its spike frequency.
+- no_checks: if True, hyperedges must be a list of Hyperedges and all checks on arguments are disabled to speedup construction.
 """
 class HyperGraph(Iterable):
     # each node is identified by an index in [0, nodes)
@@ -98,23 +106,27 @@ class HyperGraph(Iterable):
     # pointers to hyperedges entering a node
     _inbound : list[list[HyperEdge]]
     
-    def __init__(self, nodes : int, hyperedges : list[Union[HyperEdge, tuple[int, ...]]], spike_frequencies : Optional[list[float]] = None):
+    def __init__(self, nodes : int, hyperedges : list[Union[HyperEdge, tuple[int, ...]]], spike_frequencies : Optional[list[float]] = None, no_checks : bool = False):
         self.nodes = nodes
         if len(hyperedges) == 0:
             self.hyperedges = []
-        elif all(isinstance(he, HyperEdge) for he in hyperedges):
+        elif no_checks or all(isinstance(he, HyperEdge) for he in hyperedges):
             self.hyperedges = hyperedges # Be wary, there's no copy here!
         elif all(isinstance(he, tuple) and len(he) >= 2 for he in hyperedges) and spike_frequencies and len(spike_frequencies) == len(hyperedges):
             self.hyperedges = [HyperEdge(he[0], he[1:], spike_frequencies[i]) for i, he in enumerate(hyperedges)]
         else:
             raise Exception("""Failed to build hypergraph. Hyperedges shall be provided either as an empty list, a list of HyperEdge instances, or a list of tuples of at least two entries each.
                                In the latter case, spike_frequencies must also be a list of the same lenght, while the first entry in each tuple specifies the source node for that hyperedge.""")
-        if any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
+        if not no_checks and any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
             raise Exception("Invalid hyperedges, all node indices must be in the range [0, nodes).")
         
         # pay the overhead here to build faster access structures
-        self._outbound = [[he for he in self.hyperedges if he.source() == node] for node in range(self.nodes)]
-        self._inbound = [[he for he in self.hyperedges if node in he.destinations()] for node in range(self.nodes)]
+        self._outbound = [[] for _ in range(self.nodes)]
+        self._inbound = [[] for _ in range(self.nodes)]
+        for he in self.hyperedges:
+            self._outbound[he.source()].append(he)
+            for d in he.destinations():
+                self._inbound[d].append(he)
 
     """
     Generate a random hypergraph with 'n' nodes, where each node is the source
@@ -132,8 +144,8 @@ class HyperGraph(Iterable):
         spike_frequencies = []
 
         rng = np.random.default_rng(seed)
-        all_nodes = np.arange(n)
-        num_dests = np.clip(rng.normal(loc = c, scale = d, size = n).astype(int), 0, n - 1)
+        all_nodes = np.arange(n, dtype = np.int32)
+        num_dests = np.clip(rng.normal(loc = c, scale = d, size = n).astype(np.int32), 0, n - 1)
         for source in range(n):
             nd = num_dests[source]
             if nd == 0:
@@ -250,8 +262,6 @@ class HyperGraph(Iterable):
             raise Exception("The amount of nodes to add must be positive.")
         self.nodes += amount
     
-    
-    
     """
     Adds an HyperEdge to the HyperGraph.
     If the HyperEdge uses node indices that are not valid, an exception is thrown.
@@ -307,6 +317,38 @@ class HyperGraph(Iterable):
         for he in self.hyperedges:
             result += he.__str__() + ', '
         return result[:-2] + ']'
+    
+    """
+    Save the present hypergraph to 'path'.
+    """
+    def save(self, path: str) -> None:
+        with open(path, 'wb') as f:
+            f.write(struct.pack('<II', self.nodes, len(self.hyperedges)))
+            for he in self.hyperedges:
+                src = he.source()
+                dsts = he.destinations()
+                freq = he.spike_frequency
+                f.write(struct.pack('<I', len(dsts)))
+                f.write(struct.pack('<I', src))
+                f.write(array('I', dsts).tobytes())
+                f.write(struct.pack('<f', freq))
+
+    """
+    Load and return an hypergraph from 'path'.
+    """
+    @classmethod
+    def load(cls, path: str) -> Self:
+        with open(path, 'rb') as f:
+            nodes, num_edges = struct.unpack('<II', f.read(8))
+            hyperedges = []
+            for _ in range(num_edges):
+                num_dsts = struct.unpack('<I', f.read(4))[0]
+                src = struct.unpack('<I', f.read(4))[0]
+                dsts = array('I')
+                dsts.frombytes(f.read(4 * num_dsts))
+                freq = struct.unpack('<f', f.read(4))[0]
+                hyperedges.append(HyperEdge(src, tuple(dsts), freq))
+        return cls(nodes, hyperedges, no_checks = True)
 
 class Edge(HyperEdge):
     def __init__(self, source : int, destination : int, spike_frequency : float):
