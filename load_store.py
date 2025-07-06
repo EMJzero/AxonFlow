@@ -7,6 +7,7 @@ import time
 import re
 import os
 
+from settings import *
 from prints import *
 from utils import *
 from snn import *
@@ -75,7 +76,7 @@ def manualGraphMLparser(path : str, log_interval : int = 60) -> tuple[set[str], 
             total_bytes_read += len(line)
             if lines_count & 1023 == 0:
                 now = time.monotonic()
-                if now - last_print_time >= 60 and lines_count > 0:
+                if now - last_print_time >= Settings.PRINT_INTERVAL and lines_count > 0:
                     last_print_time = now
                     avg_line_len = total_bytes_read / lines_count
                     estimated_total = int(total_size / avg_line_len)

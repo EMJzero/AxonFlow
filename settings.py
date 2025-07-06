@@ -17,3 +17,5 @@ class Settings(metaclass = MetaSettings):
     TIMING = True
     # Color for the information printed by 'VERBOSE' and 'TIMING'
     VERBOSE_COLOR = "yellow"
+    # Default print interval in seconds for timer-controller prints
+    PRINT_INTERVAL = 60

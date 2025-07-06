@@ -61,6 +61,24 @@ def core(func):
     return wrapper
 
 """
+Returns a print function that, when called, prints only if 'interval'
+time has passed since the last print and 'condition' is True.
+
+Arguments:
+- interval: imposed interval between prints in seconds.
+- condition: condition to be satisfied for the print to occur.
+"""
+def getTimerPrinter(interval : int, condition : Callable = lambda : True):
+    last_print_time = time.monotonic()
+    def printer(string : str):
+        nonlocal last_print_time
+        now = time.monotonic()
+        if now - last_print_time >= interval and condition():
+            last_print_time = now
+            print(string)
+    return printer
+
+"""
 Returns a string with a pretty textual representation of the provided dictionary.
 """
 def prettyFormatDict(dictionary : dict, indent_level : int = 0) -> str:

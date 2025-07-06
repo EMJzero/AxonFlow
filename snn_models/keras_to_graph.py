@@ -347,6 +347,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 print(f"WARNING: unrecognized layer type ({type(layer)}) for layer {layer.name}...")
                 continue
 
+    print("Graph generation complete!")
     return G
 
 # Example usage:

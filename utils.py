@@ -534,8 +534,11 @@ class WeightedMinHashLSHForest(Generic[T]):
             wset = self.data[sid].weighted_set
             mcount += self.data[sid].merge_count
             for k, v in wset.items():
-                # WARNING: maybe you should not add weights if the entry was generated from the same hyperedge...
-                merged[k] = merged.get(k, 0) + v
+                # WARNING, options are:
+                # 1) adding weights: unfair if the set entry was generated from the same hyperedge, as it would count twice;
+                # 2) taking the maximum: underplays the relevance of sharing synapses multiple times, but arguably that shouldn't be a reason pick which merge;
+                # 3) computing the average: costly to track.
+                merged[k] = max(merged.get(k, 0), v)
         for sid in set_ids:
             self.delete(sid)
         return self.insert(merged, merge_count = mcount, set_id = merged_set_id, immediate_sort = True)
@@ -642,6 +645,9 @@ class WeightedMinHashLSHForest(Generic[T]):
         intersection = sum(v + set2[k] for k, v in set1.items() if k in set2)
         union = set1_only + set2_only + intersection
         return intersection / union if union > 0 else 0.0
+    
+    def __contains__(self, key : int) -> bool:
+        return key in self.data
     
     def __len__(self) -> int:
         return len(self.data)

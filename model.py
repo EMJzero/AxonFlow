@@ -99,7 +99,7 @@ class HardwareModel:
             partitionSequential(snn, self.neurons_per_core, self.synapses_per_core, self.coresCount())
         except:
             if verbose:
-                print("SNN CAN'T FIT ON THE HW: no valid way to split neurons (and their synapses) among cores")
+                print("SNN WON'T LIKELY FIT ON THE HW: no valid way to split neurons (and their synapses) among cores")
             return False # no valid way to split neurons (and their synapses) among cores
         return True
     

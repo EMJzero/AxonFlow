@@ -8,6 +8,7 @@ import random
 import heapq
 import math
 
+from settings import *
 from prints import *
 from utils import *
 from snn import *
@@ -701,7 +702,7 @@ def partitionSetlistMiniHashWeights(hg: HyperGraph, N: int, M: int, K: int, thre
 
         # enforce the <= K clusters requirement
         if i >= K:
-            raise Exception(f"Partitioning could only form {i + 1} > {K} clusters under the provided N and M constraints.")
+            raise Exception(f"Partitioning could only form {len(lhs)} > {K} clusters under the provided N and M constraints.")
 
     return result
 
@@ -718,6 +719,8 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     # 32, 8 takes double the time, but is akin to a round of FM
     # 64, 16 is slow but beats one round of FM
     lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 32, tree_count = 16)
+    
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
     
     for n in range(hg.nodes):
         d = dict()
@@ -737,9 +740,11 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
         #else:
         #    d[n] = 0.0
         lhs.insert(d, set_id = n)
+        timerPrint(f"Building LSH forest: {n}/{hg.nodes}...")
 
     queue = list(lhs.ids())
     assignments = DisjointSet(i for i in range(hg.nodes))
+    full_top_k = []
     merged = True
 
     while merged:
@@ -775,7 +780,28 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
                 except:
                     pass
                 merged = True
+            else:
+                # TODO: THIS IS A TEMPORARY FIX!
+                # True fix idea:
+                # - do not return in top-k queries incompatible sets
+                # - remove from lsh any set (i) that did not get merged
+                idx = 0
+                while idx < len(full_top_k):
+                    if full_top_k[idx] not in lhs:
+                        full_top_k.pop(idx)
+                    elif lhs.get(full_top_k[idx]).merge_count < lhs.get(i).merge_count:
+                        break
+                    else:
+                        idx += 1
+                full_top_k.insert(idx, i)
+                if len(full_top_k) > top_k:
+                    full_top_k.pop()
+        # stop looking up sets that already full (inferred from the fact that they didn't get merged)
+        for j in full_top_k:
+            lhs.delete(j)
+        full_top_k.clear()
         queue = list(lhs.ids())
+        timerPrint(f"Merging nodes: {len(lhs)} left...")
 
     result = [-1 for _ in range(hg.nodes)]
     for i, part in enumerate(assignments):
@@ -784,7 +810,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
 
         # enforce the <= K clusters requirement
         if i >= K:
-            raise Exception(f"Partitioning could only form {i + 1} > {K} clusters under the provided N and M constraints.")
+            raise Exception(f"Partitioning could only form {len(lhs)} > {K} clusters under the provided N and M constraints.")
 
     return result
 

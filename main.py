@@ -139,6 +139,7 @@ if __name__ == "__main__":
             snn.save(path)
             print("Saved, file size:", fileSizeString(os.path.getsize(path)))
         
+        print("\n------- hardware model -------")
         hardware = HardwareModel(
             neurons_per_core = 256,
             synapses_per_core = 1024,
@@ -151,6 +152,11 @@ if __name__ == "__main__":
             latency_per_routing = 1.0,
             latency_per_wire = 0.1
         )
+        print((f"Neurons per core: {hardware.neurons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
+               f"Cores along x: {hardware.cores_per_chip_x}\tCores along y: {hardware.cores_per_chip_y}\n"
+               f"Chips along x: {hardware.chips_per_system_x}\tChips along y: {hardware.chips_per_system_y}\n"
+               f"Routing energy: {hardware.energy_per_routing}\tWire energy: {hardware.energy_per_wire}\n"
+               f"Routing latency: {hardware.latency_per_routing}\tWire latency: {hardware.latency_per_wire}"))
 
         print("\n---- checking feasibility ----")
         if not hardware.checkSnnFit(snn, verbose = True):
