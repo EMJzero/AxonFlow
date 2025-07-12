@@ -702,7 +702,7 @@ def partitionSetlistMiniHashWeights(hg: HyperGraph, N: int, M: int, K: int, thre
 
         # enforce the <= K clusters requirement
         if i >= K:
-            raise Exception(f"Partitioning could only form {len(lhs)} > {K} clusters under the provided N and M constraints.")
+            raise Exception(f"Partitioning could only form {len(assignments)} > {K} clusters under the provided N and M constraints.")
 
     return result
 
@@ -744,32 +744,33 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
 
     queue = list(lhs.ids())
     assignments = DisjointSet(i for i in range(hg.nodes))
-    full_top_k = []
     merged = True
+
+    cluster : WeightedMinHashLSHForest.Entry = None
+    def valid(other_cluster : WeightedMinHashLSHForest.Entry):
+        # Checks:
+        # 1) Total count of merged original nodes
+        # 2) Exact inbound hyperedges union‐size check via intersection count
+        return other_cluster.merge_count + cluster.merge_count <= N and len(set(other_cluster.weighted_set.keys()) | set(cluster.weighted_set.keys())) <= M
 
     while merged:
         merged = False
+        unmerged = []
         while queue:
             i = queue.pop(0)
             cluster = lhs.get(i)
 
-            cand_ids, cand_dists = lhs.query_by_id(i, top_k, True)
+            # TODO: fine tune "count_invalid ="!
+            cand_ids, cand_simils = lhs.query_by_id(i, valid, top_k, 2, True)
             
             # pick the best mergeable cluster
             best_cid, best_jacc = None, 0.0
-            for cid, dist in zip(cand_ids, cand_dists):
+            for cid, sim in zip(cand_ids, cand_simils):
                 cl = lhs.get(cid)
-                if cl.merge_count + cluster.merge_count > N:
-                    continue
-
                 # IDEA: to avoid putting together only the best nodes, punish merges between already large clusters!
-                d = dist / max(cluster.merge_count, cl.merge_count)
-                if d <= best_jacc:
-                    continue
-
-                # Exact union‐size check via intersection count
-                if len(set(cl.weighted_set.keys()) | set(cluster.weighted_set.keys())) <= M:
-                    best_cid, best_jacc = cid, d
+                s = sim / max(cluster.merge_count, cl.merge_count)
+                if s > best_jacc:
+                    best_cid, best_jacc = cid, s
 
             # merge into the chosen cluster
             if best_cid is not None and best_jacc >= threshold * (len(lhs) / hg.nodes)**2:
@@ -781,37 +782,24 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
                     pass
                 merged = True
             else:
-                # TODO: THIS IS A TEMPORARY FIX!
-                # True fix idea:
-                # - do not return in top-k queries incompatible sets
-                # - remove from lsh any set (i) that did not get merged
-                idx = 0
-                while idx < len(full_top_k):
-                    if full_top_k[idx] not in lhs:
-                        full_top_k.pop(idx)
-                    elif lhs.get(full_top_k[idx]).merge_count < lhs.get(i).merge_count:
-                        break
-                    else:
-                        idx += 1
-                full_top_k.insert(idx, i)
-                if len(full_top_k) > top_k:
-                    full_top_k.pop()
-        # stop looking up sets that already full (inferred from the fact that they didn't get merged)
-        for j in full_top_k:
-            lhs.delete(j)
-        full_top_k.clear()
+                unmerged.append(i)
+        # remove cluster with no valid merge candidates
+        # NOTE: no need remove from 'unmerged' clusters that got merged into others,
+        #       since their id became that of the other cluster, so they will not be deleted!
+        for full_id in unmerged:
+            lhs.delete(full_id)
+        
         queue = list(lhs.ids())
-        timerPrint(f"Merging nodes: {len(lhs)} left...")
+        timerPrint(f"Merging nodes: {len(assignments)} left...")
 
+    # enforce the <= K clusters requirement
+    if len(assignments) > K:
+        raise Exception(f"Partitioning could only form {len(assignments)} > {K} clusters under the provided N and M constraints.")
+    
     result = [-1 for _ in range(hg.nodes)]
     for i, part in enumerate(assignments):
         for node in part:
             result[node] = i
-
-        # enforce the <= K clusters requirement
-        if i >= K:
-            raise Exception(f"Partitioning could only form {len(lhs)} > {K} clusters under the provided N and M constraints.")
-
     return result
 
 """

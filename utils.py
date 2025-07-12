@@ -145,6 +145,7 @@ class DisjointSet(Generic[T]):
     def __init__(self, elements: Optional[Iterable[T]] = None):
         self.parent: dict[T, T] = {}
         self.rank: dict[T, int] = {}
+        self.size = 0
         if elements:
             for elem in elements:
                 self.makeSet(elem)
@@ -157,6 +158,7 @@ class DisjointSet(Generic[T]):
     - x: the element to be added as its own set.
     """
     def makeSet(self, x: T) -> None:
+        self.size += 1
         if x not in self.parent:
             self.parent[x] = x
             self.rank[x] = 0
@@ -184,6 +186,7 @@ class DisjointSet(Generic[T]):
     - y: an element in the second set.
     """
     def union(self, x: T, y: T) -> None:
+        self.size -= 1
         x_root = self.find(x)
         y_root = self.find(y)
 
@@ -207,7 +210,7 @@ class DisjointSet(Generic[T]):
         for x in self.parent:
             root = self.find(x)
             sets[root].append(x)
-
+        
         for group in sets.values():
             yield (elem for elem in group)
     
@@ -216,6 +219,9 @@ class DisjointSet(Generic[T]):
     """
     def __contains__(self, x: T) -> bool:
         return x in self.parent
+
+    def __len__(self) -> int:
+        return self.size
 
 """
 Weighted MinHash LSH (locality sensitive hanshing)-based indexing infrastructure.
@@ -591,20 +597,29 @@ class WeightedMinHashLSHForest(Generic[T]):
 
     """
     Query similar sets.
+    Use 'validity_condition' to check if a candidate 'Entry' is a valid
+    candidate for fusions with 'weighted_set' wr.r.t. constraints. If
+    'count_invalid' is not 0, the number of invalid candidates will be
+    divided by 'count_invalid' and then count towards the 'top_k'.
     If 'top_k' is set, it returns up to 'top_k' most similar sets.
     Returns the candidate IDs and optionally the list of their distances.
     """
-    def query(self, weighted_set : dict[T, float], top_k : int = 1, compute_scores : bool = False) -> tuple[list[int], Optional[list[float]]]:
+    def query(self, weighted_set : dict[T, float], validity_condition = Callable[[Entry], bool], top_k : int = 1, count_invalid : int = 0, compute_scores : bool = False) -> tuple[list[int], Optional[list[float]]]:
         self._sort()
         if top_k <= 0:
             raise ValueError("Top-k must be strictly positive.")
         
         signature = self._weighted_minhash_signature(weighted_set)
         candidates = set()
+        invalid_candidates = set()
         depth = self.tree_depth
-        while depth > 0 and len(candidates) < top_k:
+        while depth > 0 and len(candidates) + (len(invalid_candidates)//count_invalid if count_invalid else 0) < top_k:
             for id in self._query(signature, depth):
-                candidates.add(id)
+                if id not in invalid_candidates:
+                    if validity_condition(self.data[id]):
+                        candidates.add(id)
+                    else:
+                        invalid_candidates.add(id)
                 if len(candidates) >= top_k:
                     break
             depth -= 1
@@ -623,11 +638,11 @@ class WeightedMinHashLSHForest(Generic[T]):
     """
     Query similar sets using an existing stored set.
     """
-    def query_by_id(self, set_id : int, top_k : int = 1, compute_scores : bool = False) -> tuple[list[int], list[float]]:
+    def query_by_id(self, set_id : int, validity_condition = Callable[[Entry], bool], top_k : int = 1, count_invalid : int = 0, compute_scores : bool = False) -> tuple[list[int], list[float]]:
         if set_id not in self.data:
             raise Exception(f"The provided set ID {set_id} does not exist.")
         target_set = self.data[set_id].weighted_set
-        candidates, scores = self.query(target_set, top_k = top_k, compute_scores = compute_scores)
+        candidates, scores = self.query(target_set, validity_condition = validity_condition, top_k = top_k, count_invalid = count_invalid, compute_scores = compute_scores)
         try:
             idx = candidates.index(set_id)
             candidates.pop(idx)
