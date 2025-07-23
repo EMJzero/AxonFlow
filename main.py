@@ -1,10 +1,13 @@
-from typing import TypeVar, Union, Any
+from typing import TypeVar, Union, Any, Callable
 from types import FrameType
 
 import traceback
+import textwrap
+import inspect
 import signal
 import code
 import time
+import ast
 import sys
 import os
 
@@ -28,6 +31,7 @@ def signal_handler(signal: int, frame: Optional[FrameType]) -> None:
         sys.exit(0)
     else:
         print('\nHANDLING TERMINATION...\n')
+        kill_all_children()
         stack = traceback.format_stack(frame)
         print('------------ stack -----------')
         print(''.join(stack[:-1])[:-1])
@@ -40,6 +44,54 @@ def signal_handler(signal: int, frame: Optional[FrameType]) -> None:
         in_interactive_mode = False
 
 T = TypeVar('T')
+
+# NOTE: this is TERRIBLE code design, as it runs code line by line...
+class ExceptionSwallowTransformer(ast.NodeTransformer):
+    def __init__(self, allowed_exceptions : tuple[type, ...]):
+        self.allowed_exceptions = allowed_exceptions
+
+    def visit_FunctionDef(self, node):
+        new_body = []
+        for stmt in node.body:
+            try_stmt = ast.Try(
+                body = [stmt],
+                handlers = [
+                    ast.ExceptHandler(
+                        type=ast.Tuple(elts = [ast.Name(exc.__name__, ctx = ast.Load()) for exc in self.allowed_exceptions], ctx = ast.Load()),
+                        name='e',
+                        body=[
+                            ast.Expr(ast.Call(
+                                func = ast.Name(id='print', ctx = ast.Load()),
+                                args = [ast.Constant(f"Swallowed: {ast.unparse(stmt).strip()}"), ast.Name(id = 'e', ctx = ast.Load())],
+                                keywords = []
+                            ))
+                        ]
+                    )
+                ],
+                orelse = [],
+                finalbody = []
+            )
+            new_body.append(try_stmt)
+        node.body = new_body
+        return node
+
+"""
+Runs the given function line by line.
+Any line that results in an exception is skipped.
+"""
+def make_swallowing_wrapper(func : Callable, allowed_exceptions : tuple[type, ...] = (AttributeError, TypeError, UnboundLocalError, TimeoutError)) -> dict[str, Any]:
+    src = inspect.getsource(func)
+    src = textwrap.dedent(src)
+
+    mod_ast = ast.parse(src)
+    mod_ast = ExceptionSwallowTransformer(allowed_exceptions).visit(mod_ast)
+    ast.fix_missing_locations(mod_ast)
+
+    # preserve the closure context
+    code = compile(mod_ast, filename = "<ast>", mode = "exec")
+    func_globals = func.__globals__.copy()
+    exec(code, func_globals)
+    return func_globals[func.__name__]
 
 """
 Searchs and removes flags from 'sys.argv'.
@@ -108,6 +160,9 @@ if __name__ == "__main__":
     if options["quiet"]:
         Settings.VERBOSE = False
 
+    if Settings.MULTIPROCESSING:
+        multiprocessing.current_process().name = '0'
+
     # MAIN CODE:
     try:
         seed = 192 #79
@@ -163,78 +218,108 @@ if __name__ == "__main__":
             print("WARNING: the generated SNN may not fit on the given HW, change either's configuration or the seed.")
         else:
             print("Passed!")
-        print("\n-------- partitioning --------")
-        partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
-        partitioning_setlist = partitionSetlistMiniHashWeights(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
-        partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
-        partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
-        partitioning_swap = swapPartitioner(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
-        partitioning_hmetis = partitionHMETIS(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # Ouwen Jin's paper.
-        part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
-        part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist, keep_self_cycles = True)
-        part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy, keep_self_cycles = True)
-        part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential, keep_self_cycles = True)
-        part_snn_swap = snn.getPartitionsHypergraph(partitioning_swap, keep_self_cycles = True)
-        part_snn_hmetis = snn.getPartitionsHypergraph(partitioning_hmetis, keep_self_cycles = True)
-        part_snn_mmr.squishHyperedges()
-        part_snn_setlist.squishHyperedges()
-        part_snn_greedy.squishHyperedges()
-        part_snn_seq.squishHyperedges()
-        part_snn_swap.squishHyperedges()
-        part_snn_hmetis.squishHyperedges()
-        topological_order_mmr, masked_edges_mmr = topologicalOrder(part_snn_mmr, break_cycles = True) # Setup Locality for TrueNorth's placement algorithm.
-        topological_order_seq, masked_edges_seq = topologicalOrder(part_snn_seq, break_cycles = True) # Setup Locality as in Ouwen Jin's paper.
-        print("Metrics multilevel multistart refined partitioning:")
-        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_multilevel_multistart_refined), 'tot_hyperedges_spike_frequency': part_snn_mmr.totalSpikeFrequency()}, 1)
-        print("Metrics setlist minihash partitioning:")
-        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_setlist), 'tot_hyperedges_spike_frequency': part_snn_setlist.totalSpikeFrequency()}, 1)
-        print("Metrics greedy partitioning:")
-        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_greedy), 'tot_hyperedges_spike_frequency': part_snn_greedy.totalSpikeFrequency()}, 1)
-        print("Metrics sequential partitioning:")
-        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_sequential), 'tot_hyperedges_spike_frequency': part_snn_seq.totalSpikeFrequency()}, 1)
-        print("Metrics swap partitioning:")
-        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_swap), 'tot_hyperedges_spike_frequency': part_snn_swap.totalSpikeFrequency()}, 1)
-        print("Metrics hMETIS partitioning:")
-        prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_hmetis), 'tot_hyperedges_spike_frequency': part_snn_hmetis.totalSpikeFrequency()}, 1)
+        
+        def line_by_line():
+            print("\n-------- partitioning --------")
+            # > partition
+            partitioning_multilevel_multistart_refined = Worker(partitionGreedyMultilevelRefinedMultistart, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
+            partitioning_setlist = Worker(partitionSetlistMiniHashWeightsForest, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
+            partitioning_greedy = Worker(partitionGreedy, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
+            partitioning_sequential = Worker(partitionSequential, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
+            #partitioning_swap = Worker(swapPartitioner, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
+            partitioning_hmetis = Worker(partitionHMETIS, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # Ouwen Jin's paper.
+            partitioning_multilevel_multistart_refined = partitioning_multilevel_multistart_refined.get()
+            partitioning_setlist = partitioning_setlist.get()
+            partitioning_greedy = partitioning_greedy.get()
+            partitioning_sequential = partitioning_sequential.get()
+            #partitioning_swap = partitioning_swap.get()
+            partitioning_hmetis = partitioning_hmetis.get()
+            # > compute partitioned hypergraphs, remove redundant hyperedges, topologically order their nodes
+            part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
+            part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist, keep_self_cycles = True)
+            part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy, keep_self_cycles = True)
+            part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential, keep_self_cycles = True)
+            #part_snn_swap = snn.getPartitionsHypergraph(partitioning_swap, keep_self_cycles = True)
+            part_snn_hmetis = snn.getPartitionsHypergraph(partitioning_hmetis, keep_self_cycles = True)
+            part_snn_mmr.squishHyperedges()
+            part_snn_setlist.squishHyperedges()
+            part_snn_greedy.squishHyperedges()
+            part_snn_seq.squishHyperedges()
+            #part_snn_swap.squishHyperedges()
+            part_snn_hmetis.squishHyperedges()
+            topological_order_mmr, masked_edges_mmr = topologicalOrder(part_snn_mmr, break_cycles = True) # Setup Locality for TrueNorth's placement algorithm.
+            topological_order_seq, masked_edges_seq = topologicalOrder(part_snn_seq, break_cycles = True) # Setup Locality as in Ouwen Jin's paper.
+            # > print metrics
+            print("Metrics multilevel multistart refined partitioning:")
+            prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_multilevel_multistart_refined), 'tot_hyperedges_spike_frequency': part_snn_mmr.totalSpikeFrequency()}, 1)
+            print("Metrics setlist minihash partitioning:")
+            prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_setlist), 'tot_hyperedges_spike_frequency': part_snn_setlist.totalSpikeFrequency()}, 1)
+            print("Metrics greedy partitioning:")
+            prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_greedy), 'tot_hyperedges_spike_frequency': part_snn_greedy.totalSpikeFrequency()}, 1)
+            print("Metrics sequential partitioning:")
+            prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_sequential), 'tot_hyperedges_spike_frequency': part_snn_seq.totalSpikeFrequency()}, 1)
+            #print("Metrics swap partitioning:")
+            #prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_swap), 'tot_hyperedges_spike_frequency': part_snn_swap.totalSpikeFrequency()}, 1)
+            print("Metrics hMETIS partitioning:")
+            prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_hmetis), 'tot_hyperedges_spike_frequency': part_snn_hmetis.totalSpikeFrequency()}, 1)
 
-        print("\n----------- layout -----------")
-        # These are complete approaches, novel or from previous works
-        spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY()) # NEW IDEA!
-        hsc_placement = hilbertPlacement(topological_order_seq.nodes, hardware.coresAlongX(), hardware.coresAlongY()) # Ouwen Jin's paper.
-        pso_placement = particleSwarmPlacement(part_snn_swap, hardware, num_iterations = 20) # This is the full approach from DFSynthesizer's paper.
-        truenorth_placement = trueNorthPlacement(topological_order_mmr, masked_edges_mmr, hardware) # TrueNorth's placement algorithm
-        metrics_spectral = hardware.getAllMetrics(part_snn_mmr, spectral_placement)
-        metrics_hsc = hardware.getAllMetrics(topological_order_seq, hsc_placement)
-        metrics_pso = hardware.getAllMetrics(part_snn_swap, pso_placement)
-        metrics_truenorth = hardware.getAllMetrics(topological_order_mmr, truenorth_placement)
-        print("Metrics spectral layout (canon version - multilevel multistart refined partitioning):")
-        prettyPrintDict(metrics_spectral, 1)
-        print("Metrics HSC layout (canon version - sequential partitioning):")
-        prettyPrintDict(metrics_hsc, 1)
-        print("Metrics PSO layout (canon version - swap partitioning):")
-        prettyPrintDict(metrics_pso, 1)
-        print("Metrics TrueNorth layout (not-so-much canon version - multilevel multistart refined partitioning):")
-        prettyPrintDict(metrics_truenorth, 1)
-        # These are crossbreeds obtained by mixing placement and partitioning algorithms
-        spectral_placement_variant = spectralPlacement(part_snn_seq.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
-        hsc_placement_variant = hilbertPlacement(topological_order_mmr.nodes, hardware.coresAlongX(), hardware.coresAlongY())
-        metrics_spectral_variant = hardware.getAllMetrics(part_snn_seq, spectral_placement_variant)
-        metrics_hsc_variant = hardware.getAllMetrics(topological_order_mmr, hsc_placement_variant)
-        print("Metrics spectral layout (crossbreed - sequential partitioning):")
-        prettyPrintDict(metrics_spectral_variant, 1)
-        print("Metrics HSC layout (crossbreed - multilevel multistart refined partitioning):")
-        prettyPrintDict(metrics_hsc_variant, 1)
-        # these are the complete approaches plus FD algorithm
-        spectral_placement_fd = forceDirectedRefinement(part_snn_mmr, spectral_placement, hardware) # 1/2 NEW IDEA!
-        hsc_placement_fd = forceDirectedRefinement(topological_order_seq, hsc_placement, hardware) # This is the full approach from Ouwen Jin's paper.
-        metrics_spectral_fd = hardware.getAllMetrics(part_snn_mmr, spectral_placement_fd)
-        metrics_hsc_fd = hardware.getAllMetrics(topological_order_seq, hsc_placement_fd)
-        print("Metrics spectral layout (canon version - refined with force-directed algorithm):")
-        prettyPrintDict(metrics_spectral_fd, 1)
-        print("Metrics HSC layout (canon version - refined with force-directed algorithm):")
-        prettyPrintDict(metrics_hsc_fd, 1)
+            print("\n----------- layout -----------")
+            # These are complete approaches, novel or from previous works
+            # > placement
+            spectral_placement = Worker(spectralPlacement, part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY()) # NEW IDEA!
+            hsc_placement = Worker(hilbertPlacement, topological_order_seq.nodes, hardware.coresAlongX(), hardware.coresAlongY()) # Ouwen Jin's paper.
+            #pso_placement = Worker(particleSwarmPlacement, part_snn_swap, hardware, num_iterations = 20) # This is the full approach from DFSynthesizer's paper.
+            truenorth_placement = Worker(trueNorthPlacement, topological_order_mmr, masked_edges_mmr, hardware) # TrueNorth's placement algorithm
+            spectral_placement = spectral_placement.get()
+            hsc_placement = hsc_placement.get()
+            #pso_placement = pso_placement.get()
+            truenorth_placement = truenorth_placement.get()
+            # > print metrics
+            metrics_spectral = hardware.getAllMetrics(part_snn_mmr, spectral_placement)
+            metrics_hsc = hardware.getAllMetrics(topological_order_seq, hsc_placement)
+            #metrics_pso = hardware.getAllMetrics(part_snn_swap, pso_placement)
+            metrics_truenorth = hardware.getAllMetrics(topological_order_mmr, truenorth_placement)
+            print("Metrics spectral layout (canon version - multilevel multistart refined partitioning):")
+            prettyPrintDict(metrics_spectral, 1)
+            print("Metrics HSC layout (canon version - sequential partitioning):")
+            prettyPrintDict(metrics_hsc, 1)
+            #print("Metrics PSO layout (canon version - swap partitioning):")
+            #prettyPrintDict(metrics_pso, 1)
+            print("Metrics TrueNorth layout (not-so-much canon version - multilevel multistart refined partitioning):")
+            prettyPrintDict(metrics_truenorth, 1)
+            # These are crossbreeds obtained by mixing placement and partitioning algorithms
+            # > placement
+            spectral_placement_variant = Worker(spectralPlacement, part_snn_seq.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
+            hsc_placement_variant = Worker(hilbertPlacement, topological_order_mmr.nodes, hardware.coresAlongX(), hardware.coresAlongY())
+            spectral_placement_variant = spectral_placement_variant.get()
+            hsc_placement_variant = hsc_placement_variant.get()
+            # > print metrics
+            metrics_spectral_variant = hardware.getAllMetrics(part_snn_seq, spectral_placement_variant)
+            metrics_hsc_variant = hardware.getAllMetrics(topological_order_mmr, hsc_placement_variant)
+            print("Metrics spectral layout (crossbreed - sequential partitioning):")
+            prettyPrintDict(metrics_spectral_variant, 1)
+            print("Metrics HSC layout (crossbreed - multilevel multistart refined partitioning):")
+            prettyPrintDict(metrics_hsc_variant, 1)
+            # These are the complete approaches plus FD algorithm
+            # > placement
+            spectral_placement_fd = Worker(forceDirectedRefinement, part_snn_mmr, spectral_placement, hardware) # 1/2 NEW IDEA!
+            hsc_placement_fd = Worker(forceDirectedRefinement, topological_order_seq, hsc_placement, hardware) # This is the full approach from Ouwen Jin's paper.
+            spectral_placement_fd = spectral_placement_fd.get()
+            hsc_placement_fd = hsc_placement_fd.get()
+            # > print metrics
+            metrics_spectral_fd = hardware.getAllMetrics(part_snn_mmr, spectral_placement_fd)
+            metrics_hsc_fd = hardware.getAllMetrics(topological_order_seq, hsc_placement_fd)
+            print("Metrics spectral layout (canon version - refined with force-directed algorithm):")
+            prettyPrintDict(metrics_spectral_fd, 1)
+            print("Metrics HSC layout (canon version - refined with force-directed algorithm):")
+            prettyPrintDict(metrics_hsc_fd, 1)
+        # run the above function while skipping lines that give exceptions...
+        line_by_line = make_swallowing_wrapper(line_by_line)
+        line_by_line()
     except Exception:
         print(traceback.format_exc())
+
+    kill_all_children()
 
     if options["interactive"]:
         print("\n------ interactive mode ------")

@@ -1,15 +1,77 @@
 from __future__ import annotations
 
-from typing import Generic, TypeVar, Generator, Callable, Iterable, Self, Iterator, Optional
+from typing import Generic, TypeVar, Generator, Callable, Iterable, Self, Iterator, Optional, Any
 from collections.abc import MutableMapping
 from collections import defaultdict
+import multiprocessing
+import itertools
 import hashlib
+import signal
 import random
 import math
 import re
 
+from settings import *
+from prints import *
+
 T = TypeVar('T')
 U = TypeVar('U')
+
+# MULTIPROCESSING:
+
+"""
+Spawns and immediately starts a new process to run 'func'.
+"""
+class Worker():
+    # global counter for assigning custom process IDs
+    # start from 1, since 0 is reserved for main
+    _process_counter = itertools.count(1)
+    _colors_generator = color_generator()
+
+    def __init__(self, func : Callable[..., Any], *args : tuple[Any, ...], **kwargs : dict[str, Any]):
+        self.queue = multiprocessing.Queue()
+        if not Settings.MULTIPROCESSING:
+            self._wrapper(func, None, args, kwargs)
+        else:
+            pid = next(self._process_counter)
+            while len(multiprocessing.active_children()) >= Settings.PROCESSES_COUNT:
+                time.sleep(Settings.MULTIPROCESSING_SPINNING_INTERVAL)
+            self.process = multiprocessing.Process(target = self._wrapper, args = (func, next(self._colors_generator), args, kwargs), name = f"{pid}")
+            self.process.start()
+    
+    def _wrapper(self, func : Callable[..., Any], color : Optional[tuple[int, int, int]], args : tuple[Any, ...], kwargs : dict[str, Any]) -> None:
+        try:
+            if color:
+                Settings.VERBOSE_COLOR = color
+            result = func(*args, **kwargs)
+            self.queue.put(result)
+        except KeyboardInterrupt as e:
+            self.queue.put(e)
+
+    """
+    Gets the latest result from the process.
+    Raises an exception if the process's execution time limit is exceeded.
+    This method is blocking.
+    """
+    def get(self):
+        if not Settings.MULTIPROCESSING:
+            return self.queue.get()
+
+        # NOTE: starting up processes takes a ton of time, so one may be able to finish in more than
+        #       'Settings.MULTIPROCESSING_TIMEOUT' simply because the CPU was busy and could not kill it...
+        start = time.perf_counter()
+        while self.process.is_alive():
+            elapsed = time.perf_counter() - start
+            if Settings.MULTIPROCESSING_TIMEOUT and elapsed >= Settings.MULTIPROCESSING_TIMEOUT:
+                self.process.terminate()
+                self.process.join()
+                raise TimeoutError(f"Process {self.process.name} exceeded the timeout of {Settings.MULTIPROCESSING_TIMEOUT} seconds and was terminated.")
+            self.process.join(timeout = min(Settings.MULTIPROCESSING_SPINNING_INTERVAL, Settings.MULTIPROCESSING_TIMEOUT - elapsed) if Settings.MULTIPROCESSING_TIMEOUT else Settings.MULTIPROCESSING_SPINNING_INTERVAL)
+        
+        result = self.queue.get()
+        if isinstance(result, Exception):
+            raise result
+        return result
 
 # CLASSES:
 
@@ -17,7 +79,9 @@ U = TypeVar('U')
 Class for 2D discrete (integer) coordinate based on a tuple.
 """
 class Coord2D(tuple):
-    def __new__(cls, x, y):
+    def __new__(cls, x : int, y : int):
+        if isinstance(x, tuple) and y is None: # accept tuple (x, y) for pickling or normal x, y
+            x, y = x
         if not (isinstance(x, int) and isinstance(y, int)):
             raise TypeError("Coordinates x and y must be integers.")
         return super().__new__(cls, (x, y))
@@ -48,6 +112,10 @@ class Coord2D(tuple):
 
     def __repr__(self) -> str:
         return f"(x = {self.x}, y = {self.y})"
+    
+    # tells pickle how to reconstruct this object
+    def __reduce__(self):
+        return (self.__class__, (self.x, self.y))
 
 """
 A bidirectional map, allowing efficient lookup in both directions, with optional default factories (like defaultdict).
@@ -884,3 +952,15 @@ def force_array_of_contigous_integers(arr : list[int]) -> None:
     value_map = {val: idx for idx, val in enumerate(unique_vals)}
     for i in range(len(arr)):
         arr[i] = value_map[arr[i]]
+
+"""
+Terminates all child processes.
+<<<86's S1 ending plays in the background>>>
+"""
+def kill_all_children():
+    for p in multiprocessing.active_children():
+        print(f"Terminating child process {p.name}.")
+        try:
+            p.kill()
+        except ProcessLookupError:
+            print(f"Process {p.name} already terminated.")

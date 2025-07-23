@@ -7,6 +7,8 @@ from tensorflow.keras import Input, Model
 from tensorflow import keras
 import tensorflow as tf
 
+from typing import Optional
+
 import networkx as nx
 import numpy as np
 import re
@@ -15,14 +17,44 @@ import os
 """
 Extracts a directed neuron-level graph from a Keras model.
 Nodes represent individual scalar activations, named as <layer_name>_coord.
-Supported layers: InputLayer, Dense, Conv2D, Add, Concatenate, AveragePooling2D, MaxPooling2D, BatchNormalization, Flatten, Dropout, Activation.
+Supported layers: InputLayer, Dense, Conv2D, ZeroPadding2D, DepthwiseConv2D, Add, Concatenate, Multiply, AveragePooling2D, MaxPooling2D, GlobalAveragePooling2D, BatchNormalization, Flatten, Reshape, Dropout, Activation.
 Batch size must be 1.
+If 'directly_to_file' is provided, networkx is NOT used and the graph is directly written in graphml format on the provided path.
 """
-def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -> nx.DiGraph:
+def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, directly_to_file : Optional[str] = None) -> Optional[nx.DiGraph]:
     print("Generating NN graph...")
-    G = nx.DiGraph()
+
+    nodes = 0
+    edges = 0
+    if not directly_to_file:
+        G = nx.DiGraph()
+    else:
+        G = open(directly_to_file, 'w')
+        G.write(("<?xml version='1.0' encoding='utf-8'?>\n"
+                 "<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\""
+                 "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\""
+                 "xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns"
+                 "http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\">\n"
+                 "<graph edgedefault=\"directed\">\n"))
+
     layer_outputs = {} # id(layer) -> (shape, coordinate [valid neuron indices], node names, layer idx + name [when not creating nodes, this should be the name of the last layer that added nodes])
     layer_idx = 0 # increment only after handling layers that add nodes
+
+    def add_node(name : str) -> None:
+        nonlocal nodes
+        nodes += 1
+        if not directly_to_file:
+            G.add_node(name)
+        else:
+            G.write(f"<node id=\"{name}\"/>\n")
+
+    def add_edge(src : str, dst : str) -> None:
+        nonlocal edges
+        edges += 1
+        if not directly_to_file:
+            G.add_edge(src, dst)
+        else:
+            G.write(f"<edge source=\"{src}\" target=\"{dst}\"/>\n")
 
     for layer in model.layers:
         print(f"Working on layer {layer.name} (type {type(layer).__name__})...")
@@ -42,7 +74,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
             coords = list(np.ndindex(*shape))
             names = [f"{layer_name}_{'_'.join(map(str, coord))}" for coord in coords]
             for name in names:
-                G.add_node(name)
+                add_node(name)
             layer_outputs[id(layer)] = (shape, coords, names, layer_name)
             layer_idx += 1
 
@@ -77,10 +109,10 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 out_coords = [(i,) for i in range(units)]
                 out_names = [f"{layer_name}_{i}" for i in range(units)]
                 for oname in out_names:
-                    G.add_node(oname)
+                    add_node(oname)
                 for oname in out_names:
                     for iname in inp_names:
-                        G.add_edge(iname, oname)
+                        add_edge(iname, oname)
                 layer_outputs[id(layer)] = ((units,), out_coords, out_names, layer_name)
                 layer_idx += 1
 
@@ -101,14 +133,14 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 out_coords = list(np.ndindex(h_out, w_out, c))
                 out_names = [f"{layer_name}_{i}_{j}_{k}" for (i, j, k) in out_coords]
                 for name in out_names:
-                    G.add_node(name)
+                    add_node(name)
 
                 for (i, j, k), oname in zip(out_coords, out_names):
                     ii = i - top
                     jj = j - left
                     if 0 <= ii < h_in and 0 <= jj < w_in:
                         iname = f"{in_name}_{ii}_{jj}_{k}"
-                        G.add_edge(iname, oname)
+                        add_edge(iname, oname)
 
                 layer_outputs[id(layer)] = ((h_out, w_out, c), out_coords, out_names, layer_name)
                 layer_idx += 1
@@ -140,7 +172,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 out_coords = list(np.ndindex(h_out, w_out, c_out))
                 out_names = [f"{layer_name}_{i}_{j}_{k}" for i, j, k in out_coords]
                 for oname in out_names:
-                    G.add_node(oname)
+                    add_node(oname)
 
                 pad_top = pad_h // 2
                 pad_left = pad_w // 2
@@ -154,7 +186,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                             jj = j * sw + dj - pad_left
                             if 0 <= ii < h_in and 0 <= jj < w_in:
                                 in_name_full = f"{in_name}_{ii}_{jj}_{in_c}"
-                                G.add_edge(in_name_full, out_name)
+                                add_edge(in_name_full, out_name)
 
                 layer_outputs[id(layer)] = ((h_out, w_out, c_out), out_coords, out_names, layer_name)
                 layer_idx += 1
@@ -184,7 +216,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 out_coords = list(np.ndindex(h_out, w_out, c_out))
                 out_names = [f"{layer_name}_{i}_{j}_{k}" for i, j, k in out_coords]
                 for oname in out_names:
-                    G.add_node(oname)
+                    add_node(oname)
 
                 pad_top = pad_h // 2
                 pad_left = pad_w // 2
@@ -198,7 +230,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                                 jj = j * sw + dj - pad_left
                                 if 0 <= ii < h_in and 0 <= jj < w_in:
                                     iname = f"{in_name}_{ii}_{jj}_{cin}"
-                                    G.add_edge(iname, out_name)
+                                    add_edge(iname, out_name)
                 layer_outputs[id(layer)] = ((h_out, w_out, c_out), out_coords, out_names, layer_name)
                 layer_idx += 1
 
@@ -209,11 +241,11 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 coords = inp1_coords
                 names = [f"{layer_name}_{'_'.join(map(str, coord))}" for coord in coords]
                 for name in names:
-                    G.add_node(name)
+                    add_node(name)
                 for idx, coord in enumerate(coords):
                     out = names[idx]
-                    G.add_edge(inp1_names[idx], out)
-                    G.add_edge(inp2_names[idx], out)
+                    add_edge(inp1_names[idx], out)
+                    add_edge(inp2_names[idx], out)
                 layer_outputs[id(layer)] = (inp1_shape, coords, names, layer_name)
                 layer_idx += 1
 
@@ -245,11 +277,11 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
 
                 out_names = [f"{layer_name}_{'_'.join(map(str, coord))}" for coord in base_coords]
                 for out_name in out_names:
-                    G.add_node(out_name)
+                    add_node(out_name)
 
                 for coord, out_name in zip(base_coords, out_names):
                     for in_name in coord_to_names[coord]:
-                        G.add_edge(in_name, out_name)
+                        add_edge(in_name, out_name)
 
                 layer_outputs[id(layer)] = (base_shape, base_coords, out_names, layer_name)
                 layer_idx += 1
@@ -275,7 +307,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 out_coords = list(np.ndindex(h_out, w_out, c))
                 out_names = [f"{layer_name}_{i}_{j}_{k}" for i, j, k in out_coords]
                 for oname in out_names:
-                    G.add_node(oname)
+                    add_node(oname)
 
                 pad_top = pad_h // 2
                 pad_left = pad_w // 2
@@ -288,7 +320,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                             jj = j * sw + dj - pad_left
                             if 0 <= ii < h_in and 0 <= jj < w_in:
                                 iname = f"{in_name}_{ii}_{jj}_{k}"
-                                G.add_edge(iname, out_name)
+                                add_edge(iname, out_name)
                 layer_outputs[id(layer)] = ((h_out, w_out, c), out_coords, out_names, layer_name)
                 layer_idx += 1
 
@@ -303,14 +335,14 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
                 # NOTE: for compatibility with SNN toolbox, we gotta keep the width and height idxs...
                 out_names = [f"{layer_name}_0_0_{i}" for i in range(c)]
                 for name in out_names:
-                    G.add_node(name)
+                    add_node(name)
 
                 for i in range(c):
                     out_name = f"{layer_name}_0_0_{i}"
                     for h_idx in range(h):
                         for w_idx in range(w):
                             in_name_full = f"{in_name}_{h_idx}_{w_idx}_{i}"
-                            G.add_edge(in_name_full, out_name)
+                            add_edge(in_name_full, out_name)
 
                 layer_outputs[id(layer)] = ((c,), out_coords, out_names, layer_name)
                 layer_idx += 1
@@ -346,8 +378,13 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False) -
             else:
                 print(f"WARNING: unrecognized layer type ({type(layer)}) for layer {layer.name}...")
                 continue
+        
+        print("Current graph size:", nodes, "nodes", edges, "edges...")
 
     print("Graph generation complete!")
+    if directly_to_file:
+        G.write("</graph></graphml>")
+        G.close()
     return G
 
 # Example usage:

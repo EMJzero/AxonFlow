@@ -404,6 +404,8 @@ True hierarchical partitioning as in hMETIS.
 """
 @core
 def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int, multistarts: int = 3, seed : Optional[int] = None) -> list[int]:
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+
     """
     Source: "Multilevel Hypergraph Partitioning: Applications in VLSI Domain" by George Karypis
     """
@@ -464,17 +466,19 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
             inbound_he_ids = next_inbound_he_ids
 
             result.append((current_hg, coarsenings))
+            timerPrint(f"Coarsening: {current_hg.nodes} > {target_coarse_nodes}...")
         
         return result, partition_sizes, inbound_he_ids
 
     """
-    Source: "Multilevel Hypergraph Partitioning: Applications in VLSI Domain" by George Karypis
+    Source: "Multilevel k-way Hypergraph Partitioning" by George Karypis
     Updates the candidate 'partitioning' in place!
     """
     def greedy_FM_refinement(hg: HyperGraph, partitioning: list[int], partition_sizes : list[int], inbound_he_ids : list[Counter[int]], max_nodes: int, max_inbound_edges: int, seed : Optional[int] = None) -> None:
         rng = np.random.default_rng(seed)
         nodes = np.arange(hg.nodes)
         rng.shuffle(nodes)
+        # TODO: should iterate until no more moves occur? Likely yes, but put a cap on the number of iterations (e.g. 8)...
         for n in nodes:
             connectivity_w_partitions = defaultdict(lambda : 0) # partition -> sum of spike frequency of connections
             for he in hg.getTouchingHyperedges(n):
@@ -525,6 +529,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
             for n in c:
                 new_partitioning[n] = p
         partitioning = new_partitioning
+        timerPrint(f"Refining: {i + 1} levels left...")
     greedy_FM_refinement(hg, partitioning, partition_sizes, inbound_he_ids, max_nodes, max_inbound_edges, seed)
     force_array_of_contigous_integers(partitioning)
     return partitioning

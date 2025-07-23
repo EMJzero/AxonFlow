@@ -102,9 +102,9 @@ class HyperGraph(Iterable):
     hyperedges : list[HyperEdge]
     
     # pointers to hyperedges leaving a node
-    _outbound : list[list[HyperEdge]]
+    _outbound : list[tuple[HyperEdge, ...]]
     # pointers to hyperedges entering a node
-    _inbound : list[list[HyperEdge]]
+    _inbound : list[tuple[HyperEdge, ...]]
     
     def __init__(self, nodes : int, hyperedges : list[Union[HyperEdge, tuple[int, ...]]], spike_frequencies : Optional[list[float]] = None, no_checks : bool = False):
         self.nodes = nodes
@@ -115,8 +115,8 @@ class HyperGraph(Iterable):
         elif all(isinstance(he, tuple) and len(he) >= 2 for he in hyperedges) and spike_frequencies and len(spike_frequencies) == len(hyperedges):
             self.hyperedges = [HyperEdge(he[0], he[1:], spike_frequencies[i]) for i, he in enumerate(hyperedges)]
         else:
-            raise Exception("""Failed to build hypergraph. Hyperedges shall be provided either as an empty list, a list of HyperEdge instances, or a list of tuples of at least two entries each.
-                               In the latter case, spike_frequencies must also be a list of the same lenght, while the first entry in each tuple specifies the source node for that hyperedge.""")
+            raise Exception(("Failed to build hypergraph. Hyperedges shall be provided either as an empty list, a list of HyperEdge instances, or a list of tuples of at least two entries each."
+                             "In the latter case, spike_frequencies must also be a list of the same lenght, while the first entry in each tuple specifies the source node for that hyperedge."))
         if not no_checks and any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
             raise Exception("Invalid hyperedges, all node indices must be in the range [0, nodes).")
         
@@ -127,6 +127,8 @@ class HyperGraph(Iterable):
             self._outbound[he.source()].append(he)
             for d in he.destinations():
                 self._inbound[d].append(he)
+        map(tuple, self._outbound)
+        map(tuple, self._inbound)
 
     """
     Generate a random hypergraph with 'n' nodes, where each node is the source
@@ -240,7 +242,7 @@ class HyperGraph(Iterable):
     Given a node's index, returns the list of hyperedges inbound for that node.
     Throws an exception if the node's index is invalid.
     """
-    def getInboundHyperedges(self, node : int) -> list[HyperEdge]:
+    def getInboundHyperedges(self, node : int) -> tuple[HyperEdge, ...]:
         if node < 0 or node >= self.nodes:
             raise Exception("Invalid node.")
         return self._inbound[node]
@@ -249,7 +251,7 @@ class HyperGraph(Iterable):
     Given a node's index, returns the list of hyperedges touching that node.
     Throws an exception if the node's index is invalid.
     """
-    def getTouchingHyperedges(self, node : int) -> list[HyperEdge]:
+    def getTouchingHyperedges(self, node : int) -> tuple[HyperEdge, ...]:
         if node < 0 or node >= self.nodes:
             raise Exception("Invalid node.")
         return self._outbound[node] + self._inbound[node]
@@ -276,9 +278,9 @@ class HyperGraph(Iterable):
         else:
             self.nodes = max(self.nodes, max(hyperedge))
         self.hyperedges.append(hyperedge)
-        self._outbound[hyperedge.source()].append(hyperedge)
+        self._outbound[hyperedge.source()] += (hyperedge,)
         for node in hyperedge.destinations():
-            self._inbound[node].append(hyperedge)
+            self._inbound[node] += (hyperedge,)
     
     """
     Any pair of HyperEdges that share the same source and destinations are fused in
