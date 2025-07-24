@@ -1,13 +1,10 @@
-from typing import TypeVar, Union, Any, Callable
+from typing import TypeVar, Union, Any
 from types import FrameType
 
 import traceback
-import textwrap
-import inspect
 import signal
 import code
 import time
-import ast
 import sys
 import os
 
@@ -17,6 +14,7 @@ from load_store import *
 from settings import *
 from placer import *
 from prints import *
+from utils import *
 from model import *
 from snn import *
 
@@ -44,54 +42,6 @@ def signal_handler(signal: int, frame: Optional[FrameType]) -> None:
         in_interactive_mode = False
 
 T = TypeVar('T')
-
-# NOTE: this is TERRIBLE code design, as it runs code line by line...
-class ExceptionSwallowTransformer(ast.NodeTransformer):
-    def __init__(self, allowed_exceptions : tuple[type, ...]):
-        self.allowed_exceptions = allowed_exceptions
-
-    def visit_FunctionDef(self, node):
-        new_body = []
-        for stmt in node.body:
-            try_stmt = ast.Try(
-                body = [stmt],
-                handlers = [
-                    ast.ExceptHandler(
-                        type=ast.Tuple(elts = [ast.Name(exc.__name__, ctx = ast.Load()) for exc in self.allowed_exceptions], ctx = ast.Load()),
-                        name='e',
-                        body=[
-                            ast.Expr(ast.Call(
-                                func = ast.Name(id='print', ctx = ast.Load()),
-                                args = [ast.Constant(f"Swallowed: {ast.unparse(stmt).strip()}"), ast.Name(id = 'e', ctx = ast.Load())],
-                                keywords = []
-                            ))
-                        ]
-                    )
-                ],
-                orelse = [],
-                finalbody = []
-            )
-            new_body.append(try_stmt)
-        node.body = new_body
-        return node
-
-"""
-Runs the given function line by line.
-Any line that results in an exception is skipped.
-"""
-def make_swallowing_wrapper(func : Callable, allowed_exceptions : tuple[type, ...] = (AttributeError, TypeError, UnboundLocalError, TimeoutError)) -> dict[str, Any]:
-    src = inspect.getsource(func)
-    src = textwrap.dedent(src)
-
-    mod_ast = ast.parse(src)
-    mod_ast = ExceptionSwallowTransformer(allowed_exceptions).visit(mod_ast)
-    ast.fix_missing_locations(mod_ast)
-
-    # preserve the closure context
-    code = compile(mod_ast, filename = "<ast>", mode = "exec")
-    func_globals = func.__globals__.copy()
-    exec(code, func_globals)
-    return func_globals[func.__name__]
 
 """
 Searchs and removes flags from 'sys.argv'.
@@ -147,6 +97,9 @@ def help_options() -> None:
 
 
 if __name__ == "__main__":
+    if os.name != "posix":
+        print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
+
     signal.signal(signal.SIGINT, signal_handler)
 
     options = parse_options()

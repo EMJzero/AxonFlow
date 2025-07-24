@@ -69,6 +69,9 @@ class HyperEdge(Iterable):
     def __iter__(self) -> Iterator[int]:
         return iter(self.nodes)
     
+    def __len__(self) -> int:
+        return len(self.nodes)
+    
     def __eq__(self, other : Self) -> bool:
         return self.nodes == other.nodes and self.spike_frequency == other.spike_frequency
     
@@ -319,6 +322,13 @@ class HyperGraph(Iterable):
         for he in self.hyperedges:
             result += he.__str__() + ', '
         return result[:-2] + ']'
+    
+    """
+    Returns the number of connections in the hypergraph.
+    That is, the total nodes touched across hyperedges.
+    """
+    def totalConnections(self) -> int:
+        return sum(len(he) for he in self.hyperedges)
     
     """
     Save the present hypergraph to 'path'.

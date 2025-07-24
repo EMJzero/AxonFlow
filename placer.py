@@ -172,6 +172,8 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
     forces : dict[Coord2D, dict[Coord2D, float]] = defaultdict(lambda : {d : 0.0 for d in directions}, {coords : model.getForces(hg, placement, node, directions) for node, coords in enumerate(placement)})
     new_placement = BiMap({coords : node for node, coords in enumerate(placement)}, default_factory = lambda : -1)
 
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+
     candidates = []
     for coords in iter_major_diagonals(min_x, max_x, min_y, max_y, end_included = True):
         for d_pos, d_neg in zip(directions[:2], directions[2:]):
@@ -183,7 +185,7 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
     
     prev_moves_counts = [0, 0]
     while len(candidates) > 0:
-        print("FD remaining candidates", len(candidates))
+        timerPrint(f"FD remaining candidates {len(candidates)}")
         moves = 0
         one_candidate = len(candidates) == 1
         affected : set[Coord2D] = set()
@@ -288,9 +290,11 @@ def particleSwarmPlacement(hg: HyperGraph, model : HardwareModel, num_particles:
             gbest_cost = c
             gbest_pos = pos.copy()
 
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+
     # Main PSO loop
     for it in range(num_iterations):
-        print("PSO iteration:", it, "best cost:", gbest_cost)
+        timerPrint(f"PSO iteration: {it}, best cost: {gbest_cost}")
         for i in range(num_particles):
             # Random coefficients per node and dimension
             r1 = np.random.rand(n_nodes, 2)

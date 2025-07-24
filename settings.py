@@ -21,10 +21,10 @@ class Settings(metaclass = MetaSettings):
     # Default print interval in seconds for timer-controller prints
     PRINT_INTERVAL = 60
     # If True, 'spawn_process' spawns a new process, otherwise it runs sequentially
-    MULTIPROCESSING = True
-    # Maximum execution time allowed for processes, after which they are killed with an exception
+    MULTIPROCESSING = False
+    # Maximum execution time allowed for core functions / processes, after which they are killed with an exception
     # => set to a number of seconds or 'None' to execute until completion
-    MULTIPROCESSING_TIMEOUT = None
+    CORE_TIMEOUT = None
     # Timeout in seconds for the join or the spawning of processes.
     MULTIPROCESSING_SPINNING_INTERVAL = 0.5
     # Sets the maximum number of processes that will be used concurrently

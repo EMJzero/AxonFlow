@@ -26,7 +26,7 @@ def hijack_print(prefix):
             end = kwargs.get('end', '\n')
             lines = sep.join(str(arg) for arg in args).split('\n')
             first_prefix = f"[{prefix}]" if not Settings.MULTIPROCESSING else f"[{prefix}@{current_process().name}]"
-            other_prefix = ' '*len(first_prefix) + '└▶'
+            other_prefix = ' '*(len(first_prefix) - 2) + '└▶'
             for i, line in enumerate(lines):
                 original_print(colored(first_prefix if i == 0 else other_prefix, Settings.VERBOSE_COLOR), line, end = end if i == len(lines) - 1 else '\n')
     builtins.print = custom_print
@@ -70,7 +70,7 @@ Arguments:
 - interval: imposed interval between prints in seconds.
 - condition: condition to be satisfied for the print to occur.
 """
-def getTimerPrinter(interval : int, condition : Callable = lambda : True):
+def getTimerPrinter(interval : int, condition : Callable[..., bool] = lambda : True):
     last_print_time = time.monotonic()
     def printer(string : str):
         nonlocal last_print_time

@@ -5,10 +5,13 @@ from collections.abc import MutableMapping
 from collections import defaultdict
 import multiprocessing
 import itertools
+import textwrap
+import inspect
 import hashlib
 import signal
 import random
 import math
+import ast
 import re
 
 from settings import *
@@ -18,6 +21,13 @@ T = TypeVar('T')
 U = TypeVar('U')
 
 # MULTIPROCESSING:
+
+# Patch 'signal' on platforms that don't support the alarm signal
+if not hasattr(signal, "alarm"):
+    def _no_alarm(_):
+        pass
+    signal.alarm = _no_alarm
+    signal.SIGALRM = 22 # "22" is SIGABRT, the true SIGALRM would be "14"
 
 """
 Spawns and immediately starts a new process to run 'func'.
@@ -31,7 +41,15 @@ class Worker():
     def __init__(self, func : Callable[..., Any], *args : tuple[Any, ...], **kwargs : dict[str, Any]):
         self.queue = multiprocessing.Queue()
         if not Settings.MULTIPROCESSING:
-            self._wrapper(func, None, args, kwargs)
+            signal.signal(signal.SIGALRM, self._timeout_handler)
+            try:
+                signal.alarm(Settings.CORE_TIMEOUT)
+                result = func(*args, **kwargs)
+                self.queue.put(result)
+            except (TimeoutError, KeyboardInterrupt) as e:
+                self.queue.put(e)
+            finally:
+                signal.alarm(0)
         else:
             pid = next(self._process_counter)
             while len(multiprocessing.active_children()) >= Settings.PROCESSES_COUNT:
@@ -39,7 +57,11 @@ class Worker():
             self.process = multiprocessing.Process(target = self._wrapper, args = (func, next(self._colors_generator), args, kwargs), name = f"{pid}")
             self.process.start()
     
+    """
+    Wraps and runs the function passed to Worker inside another process.
+    """
     def _wrapper(self, func : Callable[..., Any], color : Optional[tuple[int, int, int]], args : tuple[Any, ...], kwargs : dict[str, Any]) -> None:
+        signal.signal(signal.SIGINT, signal.SIG_IGN)
         try:
             if color:
                 Settings.VERBOSE_COLOR = color
@@ -48,30 +70,84 @@ class Worker():
         except KeyboardInterrupt as e:
             self.queue.put(e)
 
+    def _timeout_handler(signum : int, _) -> None:
+        raise TimeoutError(f"Function exceeded the timeout of {Settings.CORE_TIMEOUT} seconds and was terminated!")
+
     """
     Gets the latest result from the process.
     Raises an exception if the process's execution time limit is exceeded.
     This method is blocking.
     """
-    def get(self):
+    def get(self) -> Any:
         if not Settings.MULTIPROCESSING:
             return self.queue.get()
 
         # NOTE: starting up processes takes a ton of time, so one may be able to finish in more than
-        #       'Settings.MULTIPROCESSING_TIMEOUT' simply because the CPU was busy and could not kill it...
+        #       'Settings.CORE_TIMEOUT' simply because the CPU was busy and could not kill it...
         start = time.perf_counter()
         while self.process.is_alive():
             elapsed = time.perf_counter() - start
-            if Settings.MULTIPROCESSING_TIMEOUT and elapsed >= Settings.MULTIPROCESSING_TIMEOUT:
+            if Settings.CORE_TIMEOUT and elapsed >= Settings.CORE_TIMEOUT:
                 self.process.terminate()
                 self.process.join()
-                raise TimeoutError(f"Process {self.process.name} exceeded the timeout of {Settings.MULTIPROCESSING_TIMEOUT} seconds and was terminated.")
-            self.process.join(timeout = min(Settings.MULTIPROCESSING_SPINNING_INTERVAL, Settings.MULTIPROCESSING_TIMEOUT - elapsed) if Settings.MULTIPROCESSING_TIMEOUT else Settings.MULTIPROCESSING_SPINNING_INTERVAL)
+                raise TimeoutError(f"Process {self.process.name} exceeded the timeout of {Settings.CORE_TIMEOUT} seconds and was terminated.")
+            self.process.join(timeout = min(Settings.MULTIPROCESSING_SPINNING_INTERVAL, Settings.CORE_TIMEOUT - elapsed) if Settings.CORE_TIMEOUT else Settings.MULTIPROCESSING_SPINNING_INTERVAL)
         
         result = self.queue.get()
         if isinstance(result, Exception):
             raise result
         return result
+
+"""
+Wraps each instruction in an exception handler (try-except) that swallows the 'allowed_exceptions'.
+"""
+# NOTE: this is TERRIBLE code design, as it runs code line by line...
+class ExceptionSwallowTransformer(ast.NodeTransformer):
+    def __init__(self, allowed_exceptions : tuple[type, ...]):
+        self.allowed_exceptions = allowed_exceptions
+
+    def visit_FunctionDef(self, node : ast.FunctionDef) -> ast.FunctionDef:
+        new_body = []
+        for stmt in node.body:
+            try_stmt = ast.Try(
+                body = [stmt],
+                handlers = [
+                    ast.ExceptHandler(
+                        type=ast.Tuple(elts = [ast.Name(exc.__name__, ctx = ast.Load()) for exc in self.allowed_exceptions], ctx = ast.Load()),
+                        name='e',
+                        body=[
+                            ast.Expr(ast.Call(
+                                func = ast.Name(id='print', ctx = ast.Load()),
+                                args = [ast.Constant(f"Swallowed: {ast.unparse(stmt).strip()}"), ast.Name(id = 'e', ctx = ast.Load())],
+                                keywords = []
+                            ))
+                        ]
+                    )
+                ],
+                orelse = [],
+                finalbody = []
+            )
+            new_body.append(try_stmt)
+        node.body = new_body
+        return node
+
+"""
+Runs the given function line by line.
+Any line that results in an exception is skipped.
+"""
+def make_swallowing_wrapper(func : Callable[..., Any], allowed_exceptions : tuple[type, ...] = (AttributeError, TypeError, UnboundLocalError, TimeoutError)) -> dict[str, Any]:
+    src = inspect.getsource(func)
+    src = textwrap.dedent(src)
+
+    mod_ast = ast.parse(src)
+    mod_ast = ExceptionSwallowTransformer(allowed_exceptions).visit(mod_ast)
+    ast.fix_missing_locations(mod_ast)
+
+    # preserve the closure context
+    code = compile(mod_ast, filename = "<ast>", mode = "exec")
+    func_globals = func.__globals__.copy()
+    exec(code, func_globals)
+    return func_globals[func.__name__]
 
 # CLASSES:
 
