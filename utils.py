@@ -56,6 +56,7 @@ class Worker():
                 time.sleep(Settings.MULTIPROCESSING_SPINNING_INTERVAL)
             self.process = multiprocessing.Process(target = self._wrapper, args = (func, next(self._colors_generator), args, kwargs), name = f"{pid}")
             self.process.start()
+            self._start = time.perf_counter()
     
     """
     Wraps and runs the function passed to Worker inside another process.
@@ -67,7 +68,7 @@ class Worker():
                 Settings.VERBOSE_COLOR = color
             result = func(*args, **kwargs)
             self.queue.put(result)
-        except KeyboardInterrupt as e:
+        except Exception as e:
             self.queue.put(e)
 
     def _timeout_handler(signum : int, _) -> None:
@@ -84,9 +85,8 @@ class Worker():
 
         # NOTE: starting up processes takes a ton of time, so one may be able to finish in more than
         #       'Settings.CORE_TIMEOUT' simply because the CPU was busy and could not kill it...
-        start = time.perf_counter()
         while self.process.is_alive():
-            elapsed = time.perf_counter() - start
+            elapsed = time.perf_counter() - self._start
             if Settings.CORE_TIMEOUT and elapsed >= Settings.CORE_TIMEOUT:
                 self.process.terminate()
                 self.process.join()

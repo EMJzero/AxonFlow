@@ -171,7 +171,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     table.border = False
     table.preserve_internal_border = True
     nodenames_regex = re.compile(r'^(\d+(?:_[a-zA-Z][a-zA-Z0-9]+)+)')
-    layernames_regex = re.compile(r'(\d\d)([\w\d]+)_[\dx]*')
+    layernames_regex = re.compile(r'(\d+)([\w\d]+)_[\dx]*')
     input_frequencies = np.array(input['arr_0'], dtype = object)
     spiketrains = np.array(data["spiketrains_n_b_l_t"], dtype = object)
     print("Recognized layers in SNN logs:")
@@ -246,63 +246,3 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     
     # return data, g # test with 'd, g = loadSNNcomposite("./snn_models/mnist_cnn_0.npz", "./snn_models/mnist_cnn_input.npz", "./snn_models/mnist_cnn.graphml")'
     return HyperGraph(len(nodes), [HyperEdge(nodes[k], tuple(map(lambda n : nodes[n], v)), spike_frequencies[k]) for k, v in hyperedges.items()], no_checks = True)
-
-"""
-FAILURE
-
-Given a path relative to this script or absolute pointing to a NumPy array file
-that has been generated as a "spiketrains var_log" from "SNN toolbox", loads it
-and returns it as an hypergraph.
-
-NOTE: if multiple paths are provided, they must refer to multiple batches ran on
-      the same network.
-
-@core
-def loadSNNnpz(paths : list[str]) -> HyperGraph:
-    paths = [os.path.abspath(path) for path in paths]
-    data = {} # path -> data
-    
-    for path in paths:
-        if not os.path.exists(path):
-            raise Exception(f"The provided path does not exist: {path}")
-        elif not os.path.isfile(path):
-            raise Exception(f"The provided path is not a file: {path}")
-        elif path.split('.')[-1] != "npz":
-            print(f"WARNING: the '{path}' file does not have the '.npz' extension. Are you sure it is a report from \"SNN toolbox\"?")
-        
-        print("Loading SNN log from:", path)
-    
-        data[path] = np.load(path, allow_pickle = True)
-
-        table = PrettyTable(["Array Name", "Shape", "Data Type"])
-        table.border = False
-        table.preserve_internal_border = True
-        print(f"Arrays in file '{os.path.basename(path)}':")
-        for array_name in data[path].files:
-            array = data[path][array_name]
-            table.add_row([array_name, array.shape, array.dtype])
-        print(table)
-
-        if "spiketrains_n_b_l_t" not in data[path].files:
-            raise Exception(f"The '{path}' file does not contain an 'spiketrains_n_b_l_t' array.")
-
-    # get the network data from the first file, then ensure it matches with the others
-    spiketrains : np.ndarray = data[paths[0]]["spiketrains_n_b_l_t"]
-    print(f"Network information:\n\tlayers count: {spiketrains.shape[0]}\n\tbatch size: {spiketrains[0][0].shape[0]}\n\tbatches: {len(paths)}\n\ttime steps: {spiketrains[0][0].shape[-1]}")
-    if not all(v["spiketrains_n_b_l_t"].shape == spiketrains.shape for k, v in data.items() if k != paths[0]) \
-        or not all(all(v["spiketrains_n_b_l_t"][l][1] == spiketrains[l][1] for l in range(spiketrains.shape[0])) for k, v in data.items() if k != paths[0]) \
-        or not all(all(v["spiketrains_n_b_l_t"][l][0].shape[1:] == spiketrains[l][0].shape[1:] for l in range(spiketrains.shape[0])) for k, v in data.items() if k != paths[0]):
-            raise Exception("Missmatch between network shapes and/or layer names across the provided files.")
-
-    print(f"INFO: for now, we ignore the input layer (and thus how spikes are supplied to input neurons), as that only occurs on one tick out of 50 or more.\nFor reference, the input shape is: {data[paths[0]]['input_image_b_l'].shape}")
-
-    print("Parsing network layers:")
-    table = PrettyTable(["Layer Name", "Shape", "Neurons"])
-    table.border = False
-    table.preserve_internal_border = True
-    for layer_spiketrains, layer_name in spiketrains:
-        table.add_row([layer_name, layer_spiketrains.shape, "..."])
-
-    return data
-    #return HyperGraph(len(nodes), [HyperEdge(nodes[k], tuple(map(lambda n : nodes[n], v)), nodes_spike_frequencies[k]) for k, v in hyperedges.items()])
-"""

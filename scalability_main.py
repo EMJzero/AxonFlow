@@ -181,7 +181,7 @@ def run_sequential_hilbert_fd(hg : HyperGraph, hw : HardwareModel, seed : int) -
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
     topological_order, masked_edges = topologicalOrder(part_snn, break_cycles = True)
     plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
-    plac = forceDirectedRefinement(part_snn, plac, hw)
+    plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
@@ -262,7 +262,7 @@ def run_hmetis_hilbert_ps(hg : HyperGraph, hw : HardwareModel, seed : int) -> Re
     return res
 
 def run_hmetis_spectral_fd(hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
-    res = Result("hmets-spectral-fd")
+    res = Result("hmetis-spectral-fd")
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
@@ -325,7 +325,7 @@ if __name__ == "__main__":
             {"nodes_count": 1024*16, "nodes_per_edge_mean": 48, "nodes_per_edge_variation": 24,
              "neurons_per_core": 128, "synapses_per_core" : 512, "cores_per_chip_1d": 64},
             {"nodes_count": 1024*32, "nodes_per_edge_mean": 64, "nodes_per_edge_variation": 32,
-             "neurons_per_core": 128, "synapses_per_core" : 512, "cores_per_chip_1d": 64},
+             "neurons_per_core": 192, "synapses_per_core" : 768, "cores_per_chip_1d": 64},
             {"nodes_count": 1024*64, "nodes_per_edge_mean": 96, "nodes_per_edge_variation": 48,
              "neurons_per_core": 256, "synapses_per_core" : 1024, "cores_per_chip_1d": 64}
         ]
@@ -367,9 +367,9 @@ if __name__ == "__main__":
             for worker in workers:
                 try:
                     res : Result = worker.get()
-                except TimeoutError:
+                except Exception as e:
                     res = Result("N/A")
-                    res.setNote("Failed...")
+                    res.setNote("Failed. Exception: " + str(e))
                 res.toFile(options["output"])
                 print("\n---------------")
                 prettyPrintDict(res.__dict__)
@@ -382,5 +382,5 @@ if __name__ == "__main__":
     if options["interactive"]:
         print("\n------ interactive mode ------")
         in_interactive_mode = True
-        code.interact(local=globals())
+        code.interact(local = globals())
         in_interactive_mode = False

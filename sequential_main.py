@@ -241,5 +241,5 @@ if __name__ == "__main__":
     if options["interactive"]:
         print("\n------ interactive mode ------")
         in_interactive_mode = True
-        code.interact(local=globals())
+        code.interact(local = globals())
         in_interactive_mode = False

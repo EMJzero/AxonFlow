@@ -162,9 +162,10 @@ Force-directed placement refinement method from Ouwen Jin's paper.
 Using a potential function of the placement that considers a potential for each
 connection among the partitioned SNN's nodes weighted by the distance between
 the placements for the connected nodes. This is an heuristic to minimize such potential.
+If 'fixes' is True, all forces are updated after every batch, preventing suboptimal moves (slow).
 """
 @core
-def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : HardwareModel, batch : int = 16) -> list[Coord2D]:
+def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : HardwareModel, batch : int = 16, fixes : bool = True) -> list[Coord2D]:
     if hg.nodes != len(placement):
         raise Exception("The provided placement does not have an entry for each HyperGraph node.")
     min_x, max_x, min_y, max_y = reduce(lambda m, c : (c.x if c.x < m[0] else m[0], c.x if c.x > m[1] else m[1], c.y if c.y < m[2] else m[2], c.y if c.y > m[3] else m[3]), placement, (placement[0].x, placement[0].x, placement[0].y, placement[0].y))
@@ -205,8 +206,9 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                                 if other_node != node:
                                     affected.add(new_placement.inv[other_node])
         # ISSUES: in the original version forces are never rebuilt for all nodes, only swapped ones (the following 'for' was missing)
-        for coords in affected:
-            forces[coords] = model.getForces(hg, new_placement.inv, new_placement[coords], directions)
+        if fixes:
+            for coords in affected:
+                forces[coords] = model.getForces(hg, new_placement.inv, new_placement[coords], directions)
 
         deduplicate = set()
         for i in range(0, len(candidates), -1):
@@ -231,7 +233,7 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
         heapq.heapify(candidates)
         # ISSUE: unless we stop using batches when candidates are few, we might have endless loops due to lazy updates
         # ALTERNATIVE FIX: do NOT rebuild forces for all nodes (see above "ISSUE")
-        if all(m == moves for m in prev_moves_counts) and not one_candidate:
+        if fixes and all(m == moves for m in prev_moves_counts) and not one_candidate:
             batch = max(min(moves - 1, batch), 1)
         prev_moves_counts.pop(0)
         prev_moves_counts.append(moves)
@@ -252,7 +254,7 @@ Arguments:
 - initial_layout): optional seed layout used to initialize the first particle.
 """
 @core
-def particleSwarmPlacement(hg: HyperGraph, model : HardwareModel, num_particles: int = 30, num_iterations: int = 200, w: float = 0.72, c1: float = 1.49, c2: float = 1.49, initial_layout: Optional[list[Coord2D]] = None) -> list[Coord2D]:
+def particleSwarmPlacement(hg : HyperGraph, model : HardwareModel, num_particles : int = 30, num_iterations : int = 200, w : float = 0.72, c1 : float = 1.49, c2 : float = 1.49, initial_layout : Optional[list[Coord2D]] = None) -> list[Coord2D]:
     n_nodes = hg.nodes
     # Initialize particle positions and velocities
     particles_pos = []  # List of numpy arrays shape (n_nodes,2)

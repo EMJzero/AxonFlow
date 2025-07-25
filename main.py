@@ -256,7 +256,7 @@ if __name__ == "__main__":
             # These are the complete approaches plus FD algorithm
             # > placement
             spectral_placement_fd = Worker(forceDirectedRefinement, part_snn_mmr, spectral_placement, hardware) # 1/2 NEW IDEA!
-            hsc_placement_fd = Worker(forceDirectedRefinement, topological_order_seq, hsc_placement, hardware) # This is the full approach from Ouwen Jin's paper.
+            hsc_placement_fd = Worker(forceDirectedRefinement, topological_order_seq, hsc_placement, hardware, fixes = False) # This is the full approach from Ouwen Jin's paper.
             spectral_placement_fd = spectral_placement_fd.get()
             hsc_placement_fd = hsc_placement_fd.get()
             # > print metrics
@@ -277,5 +277,5 @@ if __name__ == "__main__":
     if options["interactive"]:
         print("\n------ interactive mode ------")
         in_interactive_mode = True
-        code.interact(local=globals())
+        code.interact(local = globals())
         in_interactive_mode = False

@@ -430,3 +430,48 @@ if __name__ == "__main__":
     model_name = 'mnist_cnn'
     keras.models.save_model(model, os.path.join(path_wd, model_name + '.h5'))
     nx.write_graphml(extract_neuron_graph(model), os.path.join(path_wd, model_name + '.graphml'))
+
+"""
+Save model weights in a fully pickle-free way, guaranteed to be readable
+by older NumPy/TensorFlow versions.
+"""
+def save_weights_compat(model : Model, filepath : str = "weights.npz") -> None:
+    arrays = {}
+    for layer in model.layers:
+        weights = layer.get_weights()
+        for idx, w in enumerate(weights):
+            # Force standard float32 arrays (to avoid automatic pickling)
+            arrays[f"{layer.name}__{idx}"] = np.asarray(w, dtype = np.float32)
+    # Save all arrays to a .npz file (extension forcibly added)
+    np.savez_compressed(filepath, **arrays)
+    print(f"Saved weights to {filepath} with {len(arrays)} arrays.")
+
+"""
+Load weights stored by 'save_weights_compat' into a Keras model.
+"""
+def load_weights_compat(model : Model, filepath : str = "weights.npz", strict : bool = True) -> None:
+    data = np.load(filepath)  # no pickled data here
+    layer_map = {layer.name: layer for layer in model.layers}
+    
+    missing_layers = []
+    for layer in model.layers:
+        weights = layer.get_weights()
+        if not weights:
+            continue
+        new_weights = []
+        for idx, w in enumerate(weights):
+            key = f"{layer.name}__{idx}"
+            if key not in data:
+                missing_layers.append(layer.name)
+                break
+            arr = data[key]
+            if arr.shape != w.shape:
+                raise ValueError(f"Shape mismatch in layer {layer.name}: {arr.shape} vs {w.shape}")
+            new_weights.append(arr.astype(w.dtype))
+        if new_weights:
+            layer.set_weights(new_weights)
+
+    if strict and missing_layers:
+        raise ValueError(f"Missing weights for layers: {missing_layers}")
+
+    print(f"Loaded weights from {filepath}.")

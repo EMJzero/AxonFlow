@@ -335,6 +335,21 @@ loihi = HardwareModel(
     latency_per_wire = 5.3
 )
 
+# Source: tables 2 and 3 in "Mapping Very Large Scale Spiking Neuron Network to Neuromorphic Hardware".
+loihi_jin = HardwareModel(
+    neurons_per_core = 4096,
+    synapses_per_core = 1024*64,
+    cores_per_chip_x = 84,
+    cores_per_chip_y = 84,
+    chips_per_system_x = 1,
+    chips_per_system_y = 1,
+    energy_per_routing = 1.0,
+    energy_per_wire = 0.1,
+    latency_per_routing = 1.0,
+    latency_per_wire = 0.01
+)
+
+# Source: section V.A in "TrueNorth: Design and Tool Flow of a 65 mW 1 Million Neuron Programmable Neurosynaptic Chip".
 truenorth = HardwareModel(
     neurons_per_core = 256,
     synapses_per_core = 256,
