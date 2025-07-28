@@ -170,8 +170,8 @@ class Result:
         with open(filename, 'w', encoding = 'utf-8') as f:
             json.dump(data, f, indent = 4)
 
-def run_sequential_hilbert_fd(hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
-    res = Result("sequential-hilbert-fd")
+def run_sequential_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
@@ -186,8 +186,8 @@ def run_sequential_hilbert_fd(hg : HyperGraph, hw : HardwareModel, seed : int) -
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
 
-def run_swap_particleswarm(hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
-    res = Result("swap-particleswarm")
+def run_swap_particleswarm(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
@@ -200,8 +200,8 @@ def run_swap_particleswarm(hg : HyperGraph, hw : HardwareModel, seed : int) -> R
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
 
-def run_multistart_truenorth(hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
-    res = Result("multistart-truenorth")
+def run_multistart_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
@@ -215,8 +215,23 @@ def run_multistart_truenorth(hg : HyperGraph, hw : HardwareModel, seed : int) ->
     res.setPlac(**hw.getAllMetrics(topological_order, plac))
     return res
 
-def run_multistart_spectral_fd(hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
-    res = Result("multistart-spectral-fd")
+def run_sequential_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.startTime()
+    part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part, keep_self_cycles = True)
+    part_snn.squishHyperedges()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    topological_order, masked_edges = topologicalOrder(part_snn, break_cycles = True)
+    plac = trueNorthPlacement(topological_order, masked_edges, hw)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(topological_order, plac))
+    return res
+
+def run_multistart_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
@@ -230,8 +245,8 @@ def run_multistart_spectral_fd(hg : HyperGraph, hw : HardwareModel, seed : int) 
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
 
-def run_setlist_spectral_fd(hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
-    res = Result("setlist-spectral-fd")
+def run_setlist_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.startTime()
@@ -245,8 +260,8 @@ def run_setlist_spectral_fd(hg : HyperGraph, hw : HardwareModel, seed : int) -> 
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
 
-def run_hmetis_hilbert_ps(hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
-    res = Result("hmetis-hilbert-ps")
+def run_hmetis_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
@@ -261,8 +276,8 @@ def run_hmetis_hilbert_ps(hg : HyperGraph, hw : HardwareModel, seed : int) -> Re
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
 
-def run_hmetis_spectral_fd(hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
-    res = Result("hmetis-spectral-fd")
+def run_hmetis_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
@@ -309,39 +324,49 @@ if __name__ == "__main__":
     # MAIN CODE:
     try:
         seed = 192 #79
-        sizes = [
-            {"nodes_count": 256, "nodes_per_edge_mean": 4, "nodes_per_edge_variation": 2,
-             "neurons_per_core": 16, "synapses_per_core" : 64, "cores_per_chip_1d": 64},
-            {"nodes_count": 512, "nodes_per_edge_mean": 6, "nodes_per_edge_variation": 3,
-             "neurons_per_core": 24, "synapses_per_core" : 96, "cores_per_chip_1d": 64},
-            {"nodes_count": 1024, "nodes_per_edge_mean": 8, "nodes_per_edge_variation": 4,
-             "neurons_per_core": 32, "synapses_per_core" : 128, "cores_per_chip_1d": 64},
-            {"nodes_count": 1024*2, "nodes_per_edge_mean": 12, "nodes_per_edge_variation": 6,
-             "neurons_per_core": 64, "synapses_per_core" : 256, "cores_per_chip_1d": 64},
-            {"nodes_count": 1024*4, "nodes_per_edge_mean": 24, "nodes_per_edge_variation": 12,
-             "neurons_per_core": 96, "synapses_per_core" : 384, "cores_per_chip_1d": 64},
-            {"nodes_count": 1024*8, "nodes_per_edge_mean": 32, "nodes_per_edge_variation": 16,
-             "neurons_per_core": 96, "synapses_per_core" : 384, "cores_per_chip_1d": 64},
-            {"nodes_count": 1024*16, "nodes_per_edge_mean": 48, "nodes_per_edge_variation": 24,
-             "neurons_per_core": 128, "synapses_per_core" : 512, "cores_per_chip_1d": 64},
-            {"nodes_count": 1024*32, "nodes_per_edge_mean": 64, "nodes_per_edge_variation": 32,
-             "neurons_per_core": 192, "synapses_per_core" : 768, "cores_per_chip_1d": 64},
-            {"nodes_count": 1024*64, "nodes_per_edge_mean": 96, "nodes_per_edge_variation": 48,
-             "neurons_per_core": 256, "synapses_per_core" : 1024, "cores_per_chip_1d": 64}
-        ]
-        methods = [
-            run_sequential_hilbert_fd,
-            run_swap_particleswarm,
-            run_multistart_truenorth,
-            run_multistart_spectral_fd,
-            run_setlist_spectral_fd,
-            run_hmetis_hilbert_ps,
-            run_hmetis_spectral_fd
-        ]
+        sizes : dict[dict[str, int]] = {
+            "256":
+                {"nodes_count": 256, "nodes_per_edge_mean": 4, "nodes_per_edge_variation": 2,
+                "neurons_per_core": 16, "synapses_per_core" : 64, "cores_per_chip_1d": 64},
+            "512":
+                {"nodes_count": 512, "nodes_per_edge_mean": 6, "nodes_per_edge_variation": 3,
+                "neurons_per_core": 24, "synapses_per_core" : 96, "cores_per_chip_1d": 64},
+            "1024":
+                {"nodes_count": 1024, "nodes_per_edge_mean": 8, "nodes_per_edge_variation": 4,
+                "neurons_per_core": 32, "synapses_per_core" : 128, "cores_per_chip_1d": 64},
+            f"{1024*2}":
+                {"nodes_count": 1024*2, "nodes_per_edge_mean": 12, "nodes_per_edge_variation": 6,
+                "neurons_per_core": 64, "synapses_per_core" : 256, "cores_per_chip_1d": 64},
+            f"{1024*4}":
+                {"nodes_count": 1024*4, "nodes_per_edge_mean": 24, "nodes_per_edge_variation": 12,
+                "neurons_per_core": 96, "synapses_per_core" : 384, "cores_per_chip_1d": 64},
+            f"{1024*8}":
+                {"nodes_count": 1024*8, "nodes_per_edge_mean": 32, "nodes_per_edge_variation": 16,
+                "neurons_per_core": 96, "synapses_per_core" : 384, "cores_per_chip_1d": 64},
+            f"{1024*16}":
+                {"nodes_count": 1024*16, "nodes_per_edge_mean": 48, "nodes_per_edge_variation": 24,
+                "neurons_per_core": 128, "synapses_per_core" : 512, "cores_per_chip_1d": 64},
+            f"{1024*32}":
+                {"nodes_count": 1024*32, "nodes_per_edge_mean": 64, "nodes_per_edge_variation": 32,
+                "neurons_per_core": 192, "synapses_per_core" : 768, "cores_per_chip_1d": 64},
+            f"{1024*64}":
+                {"nodes_count": 1024*64, "nodes_per_edge_mean": 96, "nodes_per_edge_variation": 48,
+                "neurons_per_core": 256, "synapses_per_core" : 1024, "cores_per_chip_1d": 64}
+        }
+        methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
+            "sequential-hilbert-fd": run_sequential_hilbert_fd,
+            "swap-particleswarm": run_swap_particleswarm,
+            "multistart-truenorth": run_multistart_truenorth,
+            "sequential-truenorth": run_sequential_truenorth,
+            "multistart-spectral-fd": run_multistart_spectral_fd,
+            "setlist-spectral-fd": run_setlist_spectral_fd,
+            "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
+            "hmetis-spectral-fd": run_hmetis_spectral_fd
+        }
         
-        for size in sizes:
+        for experiment, size in sizes.items():
             print("\n------------------------------")
-            print("Working on configuration:")
+            print("Preparing configuration:")
             prettyPrintDict(size, 1)
             hardware = HardwareModel(
                 neurons_per_core = size["neurons_per_core"],
@@ -360,15 +385,16 @@ if __name__ == "__main__":
             if not hardware.checkSnnFit(hypergraph, verbose = True):
                 print("WARNING: the generated SNN may not fit on the given HW, change either's configuration or the seed.")
 
-            workers : list[Worker] = []
-            for method in methods:
-                workers.append(Worker(method, hypergraph, hardware, seed))
+            workers : dict[str, Worker] = {}
+            for name, method in methods.items():
+                full_name = experiment + '-' + name
+                workers[full_name] = Worker(method, full_name, hypergraph, hardware, seed)
             
-            for worker in workers:
+            for name, worker in workers.items():
                 try:
                     res : Result = worker.get()
                 except Exception as e:
-                    res = Result("N/A")
+                    res = Result(name)
                     res.setNote("Failed. Exception: " + str(e))
                 res.toFile(options["output"])
                 print("\n---------------")

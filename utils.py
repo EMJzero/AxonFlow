@@ -5,11 +5,14 @@ from collections.abc import MutableMapping
 from collections import defaultdict
 import multiprocessing
 import itertools
+import threading
+import traceback
 import textwrap
 import inspect
 import hashlib
 import signal
 import random
+import xxhash
 import math
 import ast
 import re
@@ -30,7 +33,20 @@ if not hasattr(signal, "alarm"):
     signal.SIGALRM = 22 # "22" is SIGABRT, the true SIGALRM would be "14"
 
 """
+Defer polling operations to a thread.
+As soon as 'condition' is satisfied, 'func' is called with the provided arguments.
+"""
+def wait_and_retry(func : Callable, condition : Callable[[], bool], check_interval : int, *args : tuple[Any, ...], **kwargs : dict[str, Any]) -> None:
+    def check():
+        if condition():
+            func(*args, **kwargs)
+        else:
+            threading.Timer(check_interval, check).start()
+    check()
+
+"""
 Spawns and immediately starts a new process to run 'func'.
+Constructing this is non-blocking, the process will start as soon as an instance is available.
 """
 class Worker():
     # global counter for assigning custom process IDs
@@ -52,11 +68,15 @@ class Worker():
                 signal.alarm(0)
         else:
             pid = next(self._process_counter)
-            while len(multiprocessing.active_children()) >= Settings.PROCESSES_COUNT:
-                time.sleep(Settings.MULTIPROCESSING_SPINNING_INTERVAL)
             self.process = multiprocessing.Process(target = self._wrapper, args = (func, next(self._colors_generator), args, kwargs), name = f"{pid}")
-            self.process.start()
-            self._start = time.perf_counter()
+            wait_and_retry(lambda : self._start(), lambda : len(multiprocessing.active_children()) < Settings.PROCESSES_COUNT, Settings.MULTIPROCESSING_SPINNING_INTERVAL)
+    
+    """
+    Start the parallel process.
+    """
+    def _start(self) -> None:
+        self.process.start()
+        self._start = time.perf_counter()
     
     """
     Wraps and runs the function passed to Worker inside another process.
@@ -72,7 +92,9 @@ class Worker():
             self.queue.put(e)
 
     def _timeout_handler(signum : int, _) -> None:
-        raise TimeoutError(f"Function exceeded the timeout of {Settings.CORE_TIMEOUT} seconds and was terminated!")
+        stack = traceback.extract_stack()
+        function_name = stack[-2].name
+        raise TimeoutError(f"Function (running '{function_name}') exceeded the timeout of {Settings.CORE_TIMEOUT} seconds and was terminated!")
 
     """
     Gets the latest result from the process.
@@ -87,7 +109,9 @@ class Worker():
         #       'Settings.CORE_TIMEOUT' simply because the CPU was busy and could not kill it...
         while self.process.is_alive():
             elapsed = time.perf_counter() - self._start
-            if Settings.CORE_TIMEOUT and elapsed >= Settings.CORE_TIMEOUT:
+            # NOTE: using 'is_alive' here prevents a call to 'get' that happened after 'CORE_TIMEOUT' time to raise an issue even if the process has finished.
+            #       This may lead to some processes using a bit more than 'CORE_TIMEOUT' time because there is not easy way to exactly track when they finish.
+            if Settings.CORE_TIMEOUT and self.process.is_alive() and elapsed >= Settings.CORE_TIMEOUT:
                 self.process.terminate()
                 self.process.join()
                 raise TimeoutError(f"Process {self.process.name} exceeded the timeout of {Settings.CORE_TIMEOUT} seconds and was terminated.")
@@ -589,8 +613,10 @@ class WeightedMinHashLSHForest(Generic[T]):
         self.num_perm = num_perm
         self.tree_count = tree_count
         self.hash_bytes = hash_bytes
+        assert self.hash_bytes <= 8, f"Maximum supported hash lenght is 16 bytes, {hash_bytes} bytes were requested."
         assert self.num_perm % self.tree_count == 0, f"The given 'num_perm' ({num_perm}) must be divisible by 'tree_count' ({tree_count})."
         self.tree_depth = self.num_perm // self.tree_count
+        self.total_hash_bytes = self.hash_bytes*self.tree_depth
         
         self.tables = [defaultdict(list) for _ in range(self.tree_count)] # usage: tables[tree_idx] -> dict[prefix] -> list of idx of entries with that prefix in the tree
         self.data : dict[int, WeightedMinHashLSH.Entry] = {} # usage: data[set_id] -> entry
@@ -601,14 +627,48 @@ class WeightedMinHashLSHForest(Generic[T]):
 
     """
     Computes the MinHash signature of a weighted set (dict element->weight).
-    Return a list of integers of length 'self.num_perm'.
+    Return a list of bytes of length 'self.num_perm'.
     """
     def _weighted_minhash_signature(self, weighted_set : dict[T, float]) -> tuple[bytes, ...]:
         # TODO: devise a good weighted implementation!!!!!
         # UNWEIGHTED: minimum among the hashes of the set's values.
         #return [min((int.from_bytes(hashlib.sha1(str((k, per)).encode()).digest()[:self.hash_bytes], 'big') for k in weighted_set.keys()), default = random.randbytes(20).hex()) for per in range(self.num_perm)]
         #return b''.join(min((hashlib.sha1(str((k, per)).encode()).digest()[:self.hash_bytes] for k in weighted_set.keys()), default = random.randbytes(self.hash_bytes)) for per in range(self.num_perm))
-        return tuple(b''.join(min((hashlib.sha1(str((k, p, t)).encode()).digest()[:self.hash_bytes] for k in weighted_set.keys()), default = random.randbytes(self.hash_bytes)) for p in range(self.tree_depth)) for t in range(self.tree_count))
+        #return tuple(b''.join(min((hashlib.sha1(str((k, p, t)).encode()).digest()[:self.hash_bytes] for k in weighted_set.keys()), default = random.randbytes(self.hash_bytes)) for p in range(self.tree_depth)) for t in range(self.tree_count))
+        
+        keys = [str(k) for k in weighted_set.keys()]
+        if len(keys) == 0:
+            return tuple(random.randbytes(self.total_hash_bytes) for _ in range(self.tree_count))
+
+        result = []
+        for t in range(self.tree_count):
+            # pre-compute hashes of the right lenght
+            # NOTE: we loose a bit of hash independence by using different chunks of the same longer hash for different tree depths...
+            key_digests = {}
+            for k in keys:
+                out = bytearray()
+                i = 0
+                while len(out) + 8 < self.total_hash_bytes:
+                    out.extend(xxhash.xxh128(f"{k}_{i}_{t}").digest())
+                    i += 1
+                if len(out) < self.total_hash_bytes:
+                    out.extend(xxhash.xxh64(f"{k}_{i}_{t}").digest())
+                key_digests[k] = bytes(out[:self.total_hash_bytes])
+
+            tree_result = bytearray()
+            for p in range(self.tree_depth):
+                min_digest = None
+                for k in keys:
+                    digest = key_digests[k]
+                    start = p * self.hash_bytes
+                    end = start + self.hash_bytes
+                    h = digest[start:end]
+                    if min_digest is None or h < min_digest:
+                        min_digest = h
+                tree_result.extend(min_digest)
+            result.append(bytes(tree_result))
+
+        return tuple(result)
 
     """
     Return the original set dictionary for a given ID.

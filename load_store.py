@@ -48,10 +48,12 @@ Given a path relative to this script or absolute pointing to a GraphML graph,
 manually parses it and returns its set of node names and a list of edges,
 each represented as a tuple '(src, dst)'.
 
-NOTE: 'log_interval' specifies the interval in seconds between read lines logs.
+NOTE: if the first line in the file says 'compact', then the graphml format is
+      ignored and lines shall contain either one node or two nodes separated
+      by ';' to represent edges.
 """
 @core
-def manualGraphMLparser(path : str, log_interval : int = 60) -> tuple[set[str], list[tuple[str, str]]]:
+def manualGraphMLparser(path : str) -> tuple[set[str], list[tuple[str, str]]]:
     path = os.path.abspath(path)
     if not os.path.exists(path):
         raise Exception(f"The provided path does not exist: {path}")
@@ -61,16 +63,23 @@ def manualGraphMLparser(path : str, log_interval : int = 60) -> tuple[set[str], 
         print("WARNING: the provided file does not have the '.graphml' extension. Are you sure it stores a graph?")
     
     total_size = os.path.getsize(path)
-    print("Manually parsing SNN from:", path, f"(size: {fileSizeString(total_size)})")
-    nodeline_regex = re.compile(r'<node id="(\w+)"\/>')
-    edgeline_regex = re.compile(r'<edge source="(\w+)" target="(\w+)"\/>')
-    weirdline_regex = re.compile(r'(?:<[\?\w\s\'\"\-\.\:\/\=]*>)*<node id="(\w+)"\/>')
     nodes = set()
     edges = []
     lines_count = 0
     total_bytes_read = 0
-    last_print_time = time.monotonic()
+    print("Manually parsing SNN from:", path, f"(size: {fileSizeString(total_size)})")
     with open(path) as file_in:
+        first_line = file_in.readline().strip()
+        if first_line == "compact":
+            nodeline_regex = re.compile(r'^(\w+)$')
+            edgeline_regex = re.compile(r'^(\w+);(\w+)$')
+        else:
+            if first_line != "<?xml version='1.0' encoding='utf-8'?>":
+                print(f"WARNING: the first line in the provided '.graphml' file reads \"{first_line}\" rather than the expected \"<?xml version='1.0' encoding='utf-8'?>\". Are you sure it stores a graph?")
+            nodeline_regex = re.compile(r'<node id="(\w+)"\/>')
+            edgeline_regex = re.compile(r'<edge source="(\w+)" target="(\w+)"\/>')
+        weirdline_regex = re.compile(r'(?:<[\?\w\s\'\"\-\.\:\/\=]*>)*<node id="(\w+)"\/>')
+        last_print_time = time.monotonic()
         for line in file_in:
             lines_count += 1
             total_bytes_read += len(line)

@@ -20,8 +20,9 @@ Nodes represent individual scalar activations, named as <layer_name>_coord.
 Supported layers: InputLayer, Dense, Conv2D, ZeroPadding2D, DepthwiseConv2D, Add, Concatenate, Multiply, AveragePooling2D, MaxPooling2D, GlobalAveragePooling2D, BatchNormalization, Flatten, Reshape, Dropout, Activation.
 Batch size must be 1.
 If 'directly_to_file' is provided, networkx is NOT used and the graph is directly written in graphml format on the provided path.
+If 'compact' is True, then the graphml format is ignored and lines contain either one node or two nodes separated by ';' to represent edges.
 """
-def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, directly_to_file : Optional[str] = None) -> Optional[nx.DiGraph]:
+def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, directly_to_file : Optional[str] = None, compact : bool = False) -> Optional[nx.DiGraph]:
     print("Generating NN graph...")
 
     nodes = 0
@@ -30,12 +31,15 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, d
         G = nx.DiGraph()
     else:
         G = open(directly_to_file, 'w')
-        G.write(("<?xml version='1.0' encoding='utf-8'?>\n"
-                 "<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\""
-                 "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\""
-                 "xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns"
-                 "http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\">\n"
-                 "<graph edgedefault=\"directed\">\n"))
+        if not compact:
+            G.write(("<?xml version='1.0' encoding='utf-8'?>\n"
+                    "<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\""
+                    "xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\""
+                    "xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns"
+                    "http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\">\n"
+                    "<graph edgedefault=\"directed\">\n"))
+        else:
+            G.write("compact\n")
 
     layer_outputs = {} # id(layer) -> (shape, coordinate [valid neuron indices], node names, layer idx + name [when not creating nodes, this should be the name of the last layer that added nodes])
     layer_idx = 0 # increment only after handling layers that add nodes
@@ -46,7 +50,10 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, d
         if not directly_to_file:
             G.add_node(name)
         else:
-            G.write(f"<node id=\"{name}\"/>\n")
+            if not compact:
+                G.write(f"<node id=\"{name}\"/>\n")
+            else:
+                G.write(f"{name}\n")
 
     def add_edge(src : str, dst : str) -> None:
         nonlocal edges
@@ -54,7 +61,10 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, d
         if not directly_to_file:
             G.add_edge(src, dst)
         else:
-            G.write(f"<edge source=\"{src}\" target=\"{dst}\"/>\n")
+            if not compact:
+                G.write(f"<edge source=\"{src}\" target=\"{dst}\"/>\n")
+            else:
+                G.write(f"{src};{dst}\n")
 
     for layer in model.layers:
         print(f"Working on layer {layer.name} (type {type(layer).__name__})...")
@@ -363,14 +373,7 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, d
                 # NOTE: this "+= 1" is technically wrong, but exists to comply with SNN toolbox...
                 layer_idx += 1
 
-            elif isinstance(layer, tf.keras.layers.Dropout):
-                if len(inputs) != 1:
-                    print(f"WARNING: while stitching together input-to-output of layer {layer.name}, the layer had multiple inputs...")
-                layer_outputs[id(layer)] = inputs[0]
-                # NOTE: this "+= 1" is technically wrong, but exists to comply with SNN toolbox...
-                layer_idx += 1
-
-            elif isinstance(layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.Activation, tf.keras.layers.ReLU)):
+            elif isinstance(layer, (tf.keras.layers.BatchNormalization, tf.keras.layers.Dropout, tf.keras.layers.Activation, tf.keras.layers.ReLU)):
                 if len(inputs) != 1:
                     print(f"WARNING: while stitching together input-to-output of layer {layer.name}, the layer had multiple inputs...")
                 layer_outputs[id(layer)] = inputs[0]
@@ -383,7 +386,8 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, d
 
     print("Graph generation complete!")
     if directly_to_file:
-        G.write("</graph></graphml>")
+        if not compact:
+            G.write("</graph></graphml>")
         G.close()
     return G
 
