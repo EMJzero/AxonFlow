@@ -53,12 +53,14 @@ def core(func):
             print(colored(f"[function call: {name}]", Settings.VERBOSE_COLOR))
             if Settings.TIMING:
                 start = time.perf_counter()
-        with hijack_print(func.__name__):
-            result = func(*args, **kwargs)
-        if Settings.VERBOSE and Settings.TIMING:
-            end = time.perf_counter()
-            elapsed = end - start
-            print(colored(f"[{name}]", Settings.VERBOSE_COLOR), f"finished in {elapsed:.6f} seconds")
+        try:
+            with hijack_print(func.__name__):
+                result = func(*args, **kwargs)
+        finally:
+            if Settings.VERBOSE and Settings.TIMING:
+                end = time.perf_counter()
+                elapsed = end - start
+                print(colored(f"[{name}]", Settings.VERBOSE_COLOR), f"finished in {elapsed:.6f} seconds")
         return result
     return wrapper
 

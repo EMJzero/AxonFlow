@@ -48,12 +48,13 @@ Given a path relative to this script or absolute pointing to a GraphML graph,
 manually parses it and returns its set of node names and a list of edges,
 each represented as a tuple '(src, dst)'.
 
+NOTE: edges are stored as [src1, dst1, src2, dst2, ...] to minimize overhead!
 NOTE: if the first line in the file says 'compact', then the graphml format is
       ignored and lines shall contain either one node or two nodes separated
       by ';' to represent edges.
 """
 @core
-def manualGraphMLparser(path : str) -> tuple[set[str], list[tuple[str, str]]]:
+def manualGraphMLparser(path : str) -> tuple[set[str], list[str]]:
     path = os.path.abspath(path)
     if not os.path.exists(path):
         raise Exception(f"The provided path does not exist: {path}")
@@ -93,11 +94,15 @@ def manualGraphMLparser(path : str) -> tuple[set[str], list[tuple[str, str]]]:
             # assume line starts with the pattern
             match = nodeline_regex.match(line)
             if match:
+                # MAYBE: internalize all node names to save memory
+                #node = sys.intern(match.group(1))
+                #nodes.add(node)
                 nodes.add(match.group(1))
                 continue
             match = edgeline_regex.match(line)
             if match:
-                edges.append((match.group(1), match.group(2)))
+                edges.append(match.group(1))
+                edges.append(match.group(2))
                 continue
             # fall back on the weirdline regex
             match = weirdline_regex.search(line)
@@ -169,7 +174,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     #if not isinstance(g, networkx.DiGraph) and not isinstance(g, networkx.MultiDiGraph):
     #    raise Exception(f"The provided graph does not get loaded as neither a DiGraph nor a MultiDiGraph instance by NetworkX. Its current class is {type(g)}.")
     class GraphContainer:
-        def __init__(self, nodes : set[str], edges : list[tuple[str, str]]):
+        def __init__(self, nodes : set[str], edges : list[str]):
             self.nodes = nodes
             self.edges = edges
     g = GraphContainer(*manualGraphMLparser(graphml_path))
@@ -249,8 +254,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     print("Building HyperGraph...")
     nodes = {n : i for i, n in enumerate(g.nodes)} # node id -> node index
     hyperedges = defaultdict(list) # source node id -> list of destinations ids
-    for edge in g.edges:
-        src, dst = edge
+    for src, dst in zip(g.edges[::2], g.edges[1::2]):
         hyperedges[src].append(dst)
     
     # return data, g # test with 'd, g = loadSNNcomposite("./snn_models/mnist_cnn_0.npz", "./snn_models/mnist_cnn_input.npz", "./snn_models/mnist_cnn.graphml")'

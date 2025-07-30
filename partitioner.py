@@ -420,6 +420,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
         while current_hg.nodes > target_coarse_nodes and coarsened:
             coarsened = False
             coarsenings = []
+            # TODO: remove those and update the originals in place by making them dictionaries.
             next_partition_sizes = []
             next_inbound_he_ids = []
             
@@ -723,6 +724,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     # 16, 4 is fast and works decently
     # 32, 8 takes double the time, but is akin to a round of FM
     # 64, 16 is slow but beats one round of FM
+    # higher 'top_k' costs slightly more time for slightly better results (e.g. 2% on both when doubled)
     lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 32, tree_count = 16)
     
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)

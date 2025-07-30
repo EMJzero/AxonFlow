@@ -621,7 +621,7 @@ class WeightedMinHashLSHForest(Generic[T]):
         self.tables = [defaultdict(list) for _ in range(self.tree_count)] # usage: tables[tree_idx] -> dict[prefix] -> list of idx of entries with that prefix in the tree
         self.data : dict[int, WeightedMinHashLSH.Entry] = {} # usage: data[set_id] -> entry
         # sorted array implementation for the prefix trees
-        self.sorted_tables = [[] for _ in range(self.tree_count)] # usage: sorted_hashtables[tree_idx] -> sorted list of prefixes in the tree
+        self.sorted_tables = [[] for _ in range(self.tree_count)] # usage: sorted_tables[tree_idx] -> sorted list of prefixes in the tree
         self.sorted = [True for _ in range(self.tree_count)]
         self.id_counter = 0
 
@@ -746,7 +746,7 @@ class WeightedMinHashLSHForest(Generic[T]):
             for k, v in wset.items():
                 # WARNING, options are:
                 # 1) adding weights: unfair if the set entry was generated from the same hyperedge, as it would count twice;
-                # 2) taking the maximum: underplays the relevance of sharing synapses multiple times, but arguably that shouldn't be a reason pick which merge;
+                # 2) taking the maximum: underplays the relevance of sharing synapses multiple times, but arguably that shouldn't be a reason to pick which merge to do;
                 # 3) computing the average: costly to track.
                 merged[k] = max(merged.get(k, 0), v)
         for sid in set_ids:
