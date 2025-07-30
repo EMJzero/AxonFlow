@@ -8,6 +8,7 @@ import random
 import heapq
 import math
 
+from datastructures import *
 from settings import *
 from prints import *
 from utils import *
@@ -725,7 +726,8 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     # 32, 8 takes double the time, but is akin to a round of FM
     # 64, 16 is slow but beats one round of FM
     # higher 'top_k' costs slightly more time for slightly better results (e.g. 2% on both when doubled)
-    lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 32, tree_count = 16)
+    #lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 32, tree_count = 16)
+    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32, tree_count = 4, hash_bytes = 2)
     
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
     
@@ -753,18 +755,21 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     assignments = DisjointSet(i for i in range(hg.nodes))
     merged = True
 
-    cluster : WeightedMinHashLSHForest.Entry = None
-    def valid(other_cluster : WeightedMinHashLSHForest.Entry):
+    cluster : LSHEntry = None
+    def valid(other_cluster : LSHEntry):
         # Checks:
         # 1) Total count of merged original nodes
         # 2) Exact inbound hyperedges union‐size check via intersection count
         return other_cluster.merge_count + cluster.merge_count <= N and len(set(other_cluster.weighted_set.keys()) | set(cluster.weighted_set.keys())) <= M
 
     while merged:
+        skip = set()
         merged = False
         unmerged = []
         while queue:
             i = queue.pop(0)
+            if i in skip:
+                continue
             cluster = lhs.get(i)
 
             # TODO: fine tune "count_invalid ="!
@@ -783,10 +788,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
             if best_cid is not None and best_jacc >= threshold * (len(lhs) / hg.nodes)**2:
                 assignments.union(i, best_cid)
                 lhs.merge([i, best_cid], merged_set_id = best_cid)
-                try:
-                    queue.remove(best_cid)
-                except:
-                    pass
+                skip.add(best_cid)
                 merged = True
             else:
                 unmerged.append(i)

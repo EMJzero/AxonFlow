@@ -3,6 +3,7 @@ from typing import Union
 from collections import Counter
 
 from partitioner import partitionSequential
+from datastructures import Coord2D
 from utils import *
 from snn import *
 
