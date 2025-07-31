@@ -187,7 +187,9 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     nodenames_regex = re.compile(r'^(\d+(?:_[a-zA-Z][a-zA-Z0-9]+)+)')
     layernames_regex = re.compile(r'(\d+)([\w\d]+)_[\dx]*')
     input_frequencies = np.array(input['arr_0'], dtype = object)
+    del input # save memory wherever possible
     spiketrains = np.array(data["spiketrains_n_b_l_t"], dtype = object)
+    del data # save memory wherever possible
     print("Recognized layers in SNN logs:")
     prettyPrintIterable(["input"] + list(spiketrains[:, 1]))
     print("Recognized layers in SNN graph:")
@@ -211,6 +213,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
             raise Exception(f"Could not find node {nodename} in the graph.")
         # directly use the input's value as mean spike frequency
         spike_frequencies[nodename] += input_frequencies[index]
+    del input_frequencies
     # average over the batch size
     for k in spike_frequencies.keys():
         spike_frequencies[k] /= input_shape[0]
@@ -250,12 +253,14 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
             neurons_count += 1
         table.add_row([layer_name, layer_spiketrains.shape, neurons_count, tot_spike_freq / neurons_count])
     print(table)
+    del spiketrains
 
     print("Building HyperGraph...")
     nodes = {n : i for i, n in enumerate(g.nodes)} # node id -> node index
     hyperedges = defaultdict(list) # source node id -> list of destinations ids
     for src, dst in zip(g.edges[::2], g.edges[1::2]):
         hyperedges[src].append(dst)
+    del g
     
     # return data, g # test with 'd, g = loadSNNcomposite("./snn_models/mnist_cnn_0.npz", "./snn_models/mnist_cnn_input.npz", "./snn_models/mnist_cnn.graphml")'
     return HyperGraph(len(nodes), [HyperEdge(nodes[k], tuple(map(lambda n : nodes[n], v)), spike_frequencies[k]) for k, v in hyperedges.items()], no_checks = True)

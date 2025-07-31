@@ -1,4 +1,4 @@
-from typing import TypeVar, Union, Any
+from typing import TypeVar, Any, Optional
 from types import FrameType
 
 import traceback
@@ -41,37 +41,6 @@ def signal_handler(signal: int, frame: Optional[FrameType]) -> None:
 
 T = TypeVar('T')
 
-"""
-Searchs and removes flags from 'sys.argv'.
-If 'with_value' is False, the return values is either True or False depending on the presence or absence of the option.
-If 'with_value' is True, the return value is the value assigned with the option, if present, otherwise it is False if
-the option is not present and None if no valid argument was provided.
-Optionally, 'value_type' can be used to parse the desired value when 'with_value' is True.
-Optionally, use 'flags_tag' to override the flags marker if not using '-'.
-"""
-def args_match_and_remove(flags: Union[str, list[str]], with_value: bool = False, value_type: type[T] = str, flags_tag : str = '-') -> Union[bool, T, None]:
-    if isinstance(flags, str):
-        flags = [flags]
-    for flag in flags:
-        try:
-            idx = sys.argv.index(flag)
-            sys.argv.pop(idx)
-
-            if with_value:
-                if idx >= len(sys.argv) or sys.argv[idx].startswith(flags_tag):
-                    return None  # flag present, value is missing or looks like another flag
-                try:
-                    value = value_type(sys.argv[idx])
-                    sys.argv.pop(idx)
-                    return value
-                except Exception:
-                    return None  # flag present, value couldn't be parsed
-            else:
-                return True  # flag present, no value expected
-        except ValueError:
-            continue
-    return False  # no matching of the flags found
-
 def parse_options() -> dict[str, Any]:
     options = {
         "help": args_match_and_remove(["-h", "--help"]),
@@ -89,8 +58,8 @@ def help_options() -> None:
     print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print(("-l, --load <?path>\tLoads a true SNN graph instead of randomly generating one. If omitted, the default path is './snn_models/simple_cnn'.\n"
            "\t\t\tThe given path is concatenated with '_0.npz', '_input.npz', '.graphml', these are the three files expected to be found."))
-    print(("-s, --save <path>\tSaves the used SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'."))
-    print(("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load."))
+    print("-s, --save <path>\tSaves the used SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'.")
+    print("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load.")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 

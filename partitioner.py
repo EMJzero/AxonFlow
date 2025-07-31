@@ -409,6 +409,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
 
     """
     Source: "Multilevel Hypergraph Partitioning: Applications in VLSI Domain" by George Karypis
+    => "Edge Coarsening (EC)" technique!
     """
     def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int, seed : Optional[int] = None) -> tuple[list[tuple[HyperGraph, list[list[int]]]], list[int], list[Counter[int]]]:
         current_hg = hg
@@ -475,6 +476,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
     """
     Source: "Multilevel k-way Hypergraph Partitioning" by George Karypis
     Updates the candidate 'partitioning' in place!
+    => Basic version!
     """
     def greedy_FM_refinement(hg: HyperGraph, partitioning: list[int], partition_sizes : list[int], inbound_he_ids : list[Counter[int]], max_nodes: int, max_inbound_edges: int, seed : Optional[int] = None) -> None:
         rng = np.random.default_rng(seed)

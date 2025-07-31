@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TypeVar, Generator, Callable, Iterable, Optional, Any
+from typing import Generator, Callable, Iterable, Optional, Any, Union
 from collections import defaultdict
 import multiprocessing
 import itertools
@@ -10,6 +10,7 @@ import textwrap
 import inspect
 import signal
 import ast
+import sys
 import re
 
 from datastructures import *
@@ -180,6 +181,37 @@ def kill_all_children():
 
 
 # UTILITY FUNCTIONS:
+
+"""
+Searchs and removes flags from 'sys.argv'.
+If 'with_value' is False, the return values is either True or False depending on the presence or absence of the option.
+If 'with_value' is True, the return value is the value assigned with the option, if present, otherwise it is False if
+the option is not present and None if no valid argument was provided.
+Optionally, 'value_type' can be used to parse the desired value when 'with_value' is True.
+Optionally, use 'flags_tag' to override the flags marker if not using '-'.
+"""
+def args_match_and_remove(flags: Union[str, list[str]], with_value: bool = False, value_type: type[T] = str, flags_tag : str = '-') -> Union[bool, T, None]:
+    if isinstance(flags, str):
+        flags = [flags]
+    for flag in flags:
+        try:
+            idx = sys.argv.index(flag)
+            sys.argv.pop(idx)
+
+            if with_value:
+                if idx >= len(sys.argv) or sys.argv[idx].startswith(flags_tag):
+                    return None  # flag present, value is missing or looks like another flag
+                try:
+                    value = value_type(sys.argv[idx])
+                    sys.argv.pop(idx)
+                    return value
+                except Exception:
+                    return None  # flag present, value couldn't be parsed
+            else:
+                return True  # flag present, no value expected
+        except ValueError:
+            continue
+    return False  # no matching of the flags found
 
 """
 Compute the manhattan distance betwenn two points 'pt1' and 'pt2' in an n-dimensional lattice.
