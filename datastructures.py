@@ -7,6 +7,7 @@ from collections import defaultdict
 import hashlib
 import random
 import xxhash
+import heapq
 import math
 
 from datastructures import *
@@ -927,3 +928,84 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
     
     def __len__(self) -> int:
         return len(self.data)
+
+"""
+Priority queue with dictionary-like content addressability.
+Complexity:
+- insertion: O(log n) insertion
+- max extraction: O(log n)
+- deletion by key (via lazy removal): O(1)
+
+Arguments:
+- get_value: a function that given a 'key' of this data structure returns its corresponding value used for ordering.
+"""
+class AddressableMaxPQ(MutableMapping[T, U]):
+    def __init__(self, get_value : Callable[[U], float]):
+        self._heap : list[tuple[float, int, T]] = []  # list of entries as tuples of (-value, counter, key)
+        self._entry_finder : dict[T, U] = {}  # maps keys to entries
+        self._REMOVED = object()  # unique marker for removed keys
+        self._counter = 0  # unique sequence count to break ties
+        self.get_value = get_value
+
+    """
+    Remove and return (key, value) with highest value.
+    """
+    def extract_max(self) -> T:
+        while self._heap:
+            _, _, key = heapq.heappop(self._heap)
+            if key is not self._REMOVED:
+                del self._entry_finder[key]
+                return key
+        raise KeyError("Empty priority queue.")
+
+    """
+    Return (key, value) of max item without removing it.
+    """
+    def peek_max(self) -> T:
+        while self._heap:
+            _, _, key = self._heap[0]
+            if key is self._REMOVED:
+                heapq.heappop(self._heap)
+            else:
+                return key
+        raise KeyError("Empty priority queue.")
+
+    """
+    Force heap rebuild, removing all lazily deleted entries.
+    """
+    def compact(self) -> None:
+        self._heap = [(self.get_value(v), i, v)for i, (k, v) in enumerate(self._entry_finder.items())]
+        self._counter = len(self._heap)
+        heapq.heapify(self._heap)
+
+    """
+    Mark an existing entry as removed (lazy deletion).
+    """
+    def _mark_removed(self, key : T) -> None:
+        entry = self._entry_finder.pop(key)
+        removed_entry = (entry[0], entry[1], self._REMOVED)
+        heapq.heappush(self._heap, removed_entry)
+
+    def __getitem__(self, key : T) -> U:
+        return self._entry_finder.get(key)
+
+    def __setitem__(self, key : T, value : U) -> None:
+        if key in self._entry_finder:
+            self._mark_removed(key)
+        entry = (-self.get_value(value), self._counter, key)
+        self._entry_finder[key] = value
+        heapq.heappush(self._heap, entry)
+        self._counter += 1
+
+    def __delitem__(self, key : T) -> None:
+        self._entry_finder.pop(key)
+        self._mark_removed(key)
+
+    def __contains__(self, key : T) -> bool:
+        return key in self._entry_finder and self._entry_finder[key][2] is not self._REMOVED
+
+    def __iter__(self) -> Iterator[T]:
+        return iter(self._entry_finder)
+
+    def __len__(self) -> int:
+        return len(self._entry_finder)

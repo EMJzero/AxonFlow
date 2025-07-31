@@ -165,6 +165,7 @@ class HyperGraph(Iterable):
     Lower the HyperGraph into a directed Graph.
     If 'collaps_overlapping_edges' is True, resulting edges with the same source and destination will
     be merged and their spike frequencies added together.
+    Complexity: O(e*h) where 'h' are the mean hedges per node.
     """
     def toGraph(self, collapse_overlapping_edges : bool = False) -> Graph:
         if not collapse_overlapping_edges:
@@ -184,6 +185,7 @@ class HyperGraph(Iterable):
     """
     Returns the hypegraph that arises between partitions of the present hypergraph,
     in which nodes are the partitions and only hyperedges between partitions are kept.
+    Complexity: O(e*h) where 'h' are the mean hedges per node.
     
     Args:
     - partitions: list of partitions indices, one per node in the graph, in order.
@@ -272,6 +274,7 @@ class HyperGraph(Iterable):
     If the HyperEdge uses node indices that are not valid, an exception is thrown.
     If 'add_missing_nodes' is True, using a node index beyond those existing in the
     HyperGraph will result in all nodes up to, and including, that one, being created.
+    Complexity: O(h) where 'h' are the mean hedges per node.
     """
     def addHyperedge(self, hyperedge : HyperEdge, add_missing_nodes : bool = False) -> None:
         if any(node < 0 for node in hyperedge):
@@ -286,27 +289,144 @@ class HyperGraph(Iterable):
             self._inbound[node] += (hyperedge,)
     
     """
+    Adds a sequence of HyperEdges to the HyperGraph.
+    DANGER: hyperedges are NOT checked for validity, ensure that all their nodes
+    are valid hypergraph nodes for this HyperGraph instance!
+    Complexity: O(h) where 'h' are the mean hedges per node.
+    """
+    def addHyperedges(self, hyperedges : Iterable[HyperEdge]) -> None:
+        for he in hyperedges:
+            self.hyperedges.append(he)
+            self._outbound[he.source()] += (he,)
+        for node in he.destinations():
+            self._inbound[node] += (he,)
+    
+    """
     Any pair of HyperEdges that share the same source and destinations are fused in
     a single new HyperEdge having for spike frequency the sum of the originals'.
+    Complexity: O(n*h^2) where 'h' are the mean hedges per node.
     """
     @core
     def squishHyperedges(self) -> None:
-        to_delete = {} # keys will be deleted because they are identical to their value
-        for he_idx1 in range(len(self.hyperedges)):
-            for he_idx2 in range(he_idx1):
-                if he_idx1 != he_idx2 and self.hyperedges[he_idx1].sameNodes(self.hyperedges[he_idx2]):
-                    # at this point, he_idx1 should never be in to_delete yet
-                    while he_idx2 in to_delete:
-                        he_idx2 = to_delete[he_idx2]
-                    to_delete[he_idx1] = he_idx2
-                    self.hyperedges[he_idx2].spike_frequency += self.hyperedges[he_idx1].spike_frequency
-                    break
-        for he_idx in list(to_delete.keys())[::-1]:
-            self.hyperedges.pop(he_idx)
+        to_delete = set()
+        # NOTE: this exploits the fact that an hyperedge has a single source
+        for src in range(self.nodes):
+            hedges = self._outbound[src]
+            disjoint_set = {} # usage: disjoint_set[idx] -> parent_idx (where 'parent' is an identical he that accumulated the spike frequency)
+            for he_idx1 in range(1, len(hedges)):
+                # search for an he identical to the one in he_idx1
+                for he_idx2 in range(he_idx1):
+                    if self.hyperedges[he_idx1].sameNodes(self.hyperedges[he_idx2]):
+                        # at this point, he_idx1 is never in disjoint_set
+                        while he_idx2 in disjoint_set:
+                            he_idx2 = disjoint_set[he_idx2]
+                        disjoint_set[he_idx1] = he_idx2
+                        self.hyperedges[he_idx2].spike_frequency += self.hyperedges[he_idx1].spike_frequency
+                        break
+            self._outbound[src] = tuple(he for he in self._outbound[src] if he not in disjoint_set)
+            to_delete.update(disjoint_set)
+        self.hyperedges = [he for he in self.hyperedges if he not in to_delete]
+        for dst in range(self.nodes):
+            self._inbound[dst] = tuple(he for he in self._inbound[dst] if he not in to_delete)
+        
+        # NOTE: general case variant (when the one-source HP does not hold)
+        #seen = defaultdict(list) # usage: seen[hedge_xor] -> list of distinct hedges with the same xor
+        #to_delete = set()
+        #for he in self.hyperedges:
+        #    # needs: from functools import reduce
+        #    he_xor = reduce(lambda x, y : x ^ y, he) ^ 0xff51afd7ed558ccd # seed
+        #    if he_xor in seen:
+        #        found = False
+        #        for seen_he in seen[he_xor]:
+        #            if he.sameNodes(seen_he):
+        #                found = True
+        #                to_delete.add(he)
+        #                break
+        #        if not found:
+        #            seen[he_xor].append(he)
+        #    else:
+        #        seen[he_xor].append(he)
+        #self.hyperedges = [he for he in self.hyperedges if he not in to_delete]
+        #for node in range(self.nodes):
+        #    self._inbound[node] = tuple(he for he in self._inbound[node] if he not in to_delete)
+        #    self._outbound[node] = tuple(he for he in self._outbound[node] if he not in to_delete)
+    
+    """
+    Removes and returns the 'fraction*100'% of hyperedges with the lowest spike frequency.
+    To reinstate removed hyperedges, use 'addHyperedges'.
+    This method can remove part of an hyperedge, as such, after reinstating hyperedges,
+    it is recommended to call 'squishHyperedges'.
+    Also returns the count of removed connections and removed spike frequency.
+    Complexity: O(e*d+n*h).
+    """
+    @core
+    def removeHyperEdgesFraction(self, fraction : float) -> tuple[list[HyperEdge], int, float]:
+        self.hyperedges.sort(key = lambda he : he.spike_frequency)
+        
+        total_conn = sum(he.connections() for he in self.hyperedges)
+        target_conn = int(total_conn * fraction)
+        removed = set()
+        removed_sf = 0
+        removed_conn = 0
+        kept = []
+        for he in self.hyperedges:
+            if removed_conn + he.connections() <= target_conn:
+                removed.add(he)
+                connections = he.connections()
+                removed_sf += he.spike_frequency*connections
+                removed_conn += connections
+            elif removed_conn < target_conn:
+                edges_to_remove = target_conn - removed_conn
+                removed.add(HyperEdge(he.source(), he.destinations()[:edges_to_remove], spike_frequency = he.spike_frequency))
+                kept.append(HyperEdge(he.source(), he.destinations()[edges_to_remove:], spike_frequency = he.spike_frequency))
+                removed_sf += he.spike_frequency*edges_to_remove
+                removed_conn += edges_to_remove
+            else:
+                kept.append(he)
+        self.hyperedges = kept
+        for node in range(self.nodes):
+            self._inbound[node] = tuple(he for he in self._inbound[node] if he not in removed)
+            self._outbound[node] = tuple(he for he in self._outbound[node] if he not in removed)
+        return removed, removed_conn, removed_sf
+    
+    """
+    Same as 'removeEdgesFraction' but 'fraction' indicates the fraction of total
+    spike frequency to remove, instead of the fraction of hyperedges.
+    """
+    @core
+    def removeSpikeFrequencyFraction(self, fraction : float) -> tuple[set[HyperEdge], int, float]:
+        self.hyperedges.sort(key = lambda he : he.spike_frequency)
+        
+        total_sf = self.totalSpikeFrequency()
+        target_sf = total_sf * fraction
+        removed = set()
+        removed_sf = 0
+        removed_conn = 0
+        kept = []
+        for he in self.hyperedges:
+            if removed_sf + he.spike_frequency*he.connections() <= target_sf:
+                removed.add(he)
+                connections = he.connections()
+                removed_sf += he.spike_frequency*connections
+                removed_conn += connections
+            elif removed_sf + he.spike_frequency <= target_sf:
+                edges_to_remove = int((target_sf - removed_sf) // he.spike_frequency)
+                removed.add(HyperEdge(he.source(), he.destinations()[:edges_to_remove], spike_frequency = he.spike_frequency))
+                kept.append(HyperEdge(he.source(), he.destinations()[edges_to_remove:], spike_frequency = he.spike_frequency))
+                removed_sf += he.spike_frequency*edges_to_remove
+                removed_conn += edges_to_remove
+            else:
+                kept.append(he)
+        self.hyperedges = kept
+        for node in range(self.nodes):
+            self._inbound[node] = tuple(he for he in self._inbound[node] if he not in removed)
+            self._outbound[node] = tuple(he for he in self._outbound[node] if he not in removed)
+        return removed, removed_conn, removed_sf
     
     """
     Returns the total spike frequency on the hypergraph's connections.
     Each hyperedge is treated as (connected_nodes - 1) connections.
+    Complexity: O(e).
     """
     def totalSpikeFrequency(self) -> float:
         result = 0

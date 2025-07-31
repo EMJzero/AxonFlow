@@ -128,6 +128,7 @@ if __name__ == "__main__":
             nodes_per_edge_mean, nodes_per_edge_variation = 48, 24
             print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
             snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
+        print()
         
         values_array = [
             # NOTE: ADD EXTRA DATA HERE FOR OVERLAPPED PLOTS!

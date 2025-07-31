@@ -50,6 +50,7 @@ def parse_options() -> dict[str, Any]:
         "load": args_match_and_remove(["-l", "--load"], with_value = True),
         "save": args_match_and_remove(["-s", "--save"], with_value = True),
         "reload": args_match_and_remove(["-r", "--reload"], with_value = True),
+        "fraction": args_match_and_remove(["-f", "--fraction"], with_value = True, value_type = float),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
@@ -62,6 +63,7 @@ def help_options() -> None:
            "\t\t\tThe given path is concatenated with '_0.npz', '_input.npz', '.graphml', these are the three files expected to be found."))
     print("-s, --save <path>\tSaves the used SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'.")
     print("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load.")
+    print("-f, --fraction <num>\tFraction of the lowest-spike-frequency hyperedges to ignore (still count for costs), let it be a number in [0, 1].")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -143,6 +145,17 @@ if __name__ == "__main__":
         
         def line_by_line():
             print("\n-------- partitioning --------")
+            # > remove lowest-spike-frequency hyperedges
+            if options["fraction"]:
+                # SOLUTION: each partitioning algorithm should handle the removal of hyperedges internally!
+                print("DANGER: known issue, partitioning w/out some hyperedges can result in severe constraints violations once those are added back!!!")
+                fraction = options["fraction"]
+                total_connections = sum(he.connections() for he in snn)
+                removed_hes, removed_connections, removed_spike_frequency = snn.removeHyperEdgesFraction(fraction)
+                total_spike_frequency = snn.totalSpikeFrequency()
+                print(f"Ignored lowest {100*fraction:.1f}% of hyperedges by spike frequency:")
+                prettyPrintDict({"ignored count": f"{removed_connections}/{total_connections}",
+                                 "ignored total spike frequency": f"{removed_spike_frequency:.3f}/{total_spike_frequency:.3f} ({100*removed_spike_frequency/total_spike_frequency:.3g}%)"}, 1)
             # > partition
             partitioning_multilevel_multistart_refined = Worker(partitionGreedyMultilevelRefinedMultistart, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
             partitioning_setlist = Worker(partitionSetlistMiniHashWeightsForest, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
@@ -156,6 +169,9 @@ if __name__ == "__main__":
             partitioning_sequential = partitioning_sequential.get()
             #partitioning_swap = partitioning_swap.get()
             partitioning_hmetis = partitioning_hmetis.get()
+            # > reinstate lowest-spike-frequency hyperedges
+            if options["fraction"]:
+                snn.addHyperedges(removed_hes)
             # > compute partitioned hypergraphs, remove redundant hyperedges, topologically order their nodes
             part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
             part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist, keep_self_cycles = True)
@@ -186,6 +202,7 @@ if __name__ == "__main__":
             prettyPrintDict({'valid': hardware.checkPartitionValidity(snn, partitioning_hmetis), 'tot_hyperedges_spike_frequency': part_snn_hmetis.totalSpikeFrequency()}, 1)
 
             print("\n----------- layout -----------")
+            # TODO: should we exclude lowest-spike-frequency hyperedges here too?
             # These are complete approaches, novel or from previous works
             # > placement
             spectral_placement = Worker(spectralPlacement, part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY()) # NEW IDEA!
