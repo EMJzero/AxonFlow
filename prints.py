@@ -83,30 +83,30 @@ def getTimerPrinter(interval : int, condition : Callable[..., bool] = lambda : T
 """
 Returns a string with a pretty textual representation of the provided dictionary.
 """
-def prettyFormatDict(dictionary : dict, indent_level : int = 0) -> str:
+def prettyFormatDict(dictionary : dict, indent_level : int = 0, formatter : Callable[[Any], str] = lambda v : str(v)) -> str:
     string = ""
     for key, value in (dictionary.items() if isinstance(dictionary, dict) else zip(["" for i in dictionary], dictionary)):
         string += '    '*indent_level + (f"{key}: " if key != "" else "- ")
         if isinstance(value, dict):
-            string += "\n" + prettyFormatDict(value, indent_level + 1)
+            string += "\n" + prettyFormatDict(value, indent_level + 1, formatter = formatter)
         elif isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict):
-            string += "\n" + prettyFormatDict(value, indent_level + 1)
+            string += "\n" + prettyFormatDict(value, indent_level + 1, formatter = formatter)
         else:
-            string += str(value)
+            string += formatter(value)
         string += "\n"
     return string.rstrip()
 
 """
 Prints a nicely formatted textual representation of the provided dictionary.
 """
-def prettyPrintDict(dictionary : dict, indent_level : int = 0) -> None:
-    print(prettyFormatDict(dictionary, indent_level))
+def prettyPrintDict(dictionary : dict, indent_level : int = 0, formatter : Callable[[Any], str] = lambda v : str(v)) -> None:
+    print(prettyFormatDict(dictionary, indent_level, formatter))
 
 """
 Given an iterable, prints its elements in an equi-spaced grid with each row having
 'elem_per_row' (default is 4) elements.
 """
-def prettyPrintIterable(iterable : Iterable, elem_per_row : int = 4) -> None:
+def prettyPrintIterable(iterable : Iterable, elem_per_row : int = 4, left_aligned : bool = False) -> None:
     def iter_in_chunks(iterable : Iterable[T], chunk_size : int) -> Generator[None, list[T], None]:
         it = iter(iterable)
         while True:
@@ -118,6 +118,9 @@ def prettyPrintIterable(iterable : Iterable, elem_per_row : int = 4) -> None:
     table = PrettyTable([i for i in range(elem_per_row)])
     table.header = False
     table.border = False
+    if left_aligned:
+        for col in table.field_names:
+            table.align[col] = 'l'
     for chunk in iter_in_chunks(iterable, elem_per_row):
         table.add_row(chunk + ['' for _ in range(elem_per_row - len(chunk))])
     print(table)

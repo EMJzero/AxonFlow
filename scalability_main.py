@@ -330,23 +330,27 @@ def run_hmetis(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> R
 
 
 if __name__ == "__main__":
-    if os.name != "posix":
-        print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
-
     signal.signal(signal.SIGINT, signal_handler)
 
     options = parse_options()
-
-    if options["quiet"]:
-        Settings.VERBOSE = False
-
-    Settings.CORE_TIMEOUT = 3600*8
 
     if options["help"]:
         print("------------ HELP ------------")
         help_options()
         print("------------------------------")
         sys.exit(0)
+
+    if options["quiet"]:
+        Settings.VERBOSE = False
+    else:
+        print("---Axon---  /\\__/\\  ----------")
+        print("---------- ( o .o ) ----------")
+        print("----------  >  ^ <  ---Flow---\n")
+
+    Settings.CORE_TIMEOUT = 3600*8
+
+    if os.name != "posix":
+        print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
 
     if not options["output"]:
         options["output"] = "scalability_results.json"
@@ -419,6 +423,12 @@ if __name__ == "__main__":
             "setlist": run_setlist,
             "hmetis": run_hmetis,
         }
+        
+        print("\n------ experiment setup ------")
+        print("Random graph sizes to test:")
+        prettyPrintIterable(sizes.keys(), 6, left_aligned = True)
+        print("Methods to test:")
+        prettyPrintIterable(methods.keys(), 3, left_aligned = True)
         
         workers : dict[str, Worker] = {}
         for experiment, size in sizes.items():

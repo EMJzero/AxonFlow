@@ -690,7 +690,7 @@ def partitionSetlistMiniHashWeights(hg: HyperGraph, N: int, M: int, K: int, thre
                     continue
 
                 # Exact union‐size check via intersection count
-                if len(set(cl.weighted_set.keys()) | set(cluster.weighted_set.keys())) <= M:
+                if len(cl.weighted_set.keys() | cluster.weighted_set.keys()) <= M:
                     best_cid, best_jacc = cid, d
 
             # merge into the chosen cluster
@@ -762,7 +762,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
         # Checks:
         # 1) Total count of merged original nodes
         # 2) Exact inbound hyperedges union‐size check via intersection count
-        return other_cluster.merge_count + cluster.merge_count <= N and len(set(other_cluster.weighted_set.keys()) | set(cluster.weighted_set.keys())) <= M
+        return other_cluster.merge_count + cluster.merge_count <= N and len(other_cluster.weighted_set.keys() | cluster.weighted_set.keys()) <= M
 
     while merged:
         skip = set()

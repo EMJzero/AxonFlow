@@ -68,9 +68,6 @@ def help_options() -> None:
 
 
 if __name__ == "__main__":
-    if os.name != "posix":
-        print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
-
     signal.signal(signal.SIGINT, signal_handler)
 
     options = parse_options()
@@ -83,6 +80,16 @@ if __name__ == "__main__":
 
     if options["quiet"]:
         Settings.VERBOSE = False
+    else:
+        #print("----------^----V----^---------")
+        #print("--------- Axon . Flow --------")
+        #print("------------- ~~~ ------------\n")
+        print("--~~~~~~~~~~~~----------------")
+        print("------~~~ Axon ~ Flow ~~~-----")
+        print("----------------~~~~~~~~~~~~--\n")
+
+    if os.name != "posix":
+        print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
 
     if Settings.MULTIPROCESSING:
         multiprocessing.current_process().name = '0'
@@ -90,6 +97,8 @@ if __name__ == "__main__":
     # MAIN CODE:
     try:
         seed = 192 #79
+        print("seed:", seed)
+        
         if options["reload"]:
             print("\n------- reloading graph ------")
             path = options["reload"]
@@ -97,21 +106,26 @@ if __name__ == "__main__":
                 raise Exception(f"The provided path does not exist: {path}")
             print("Reloading model from:", path)
             snn = HyperGraph.load(path)
-            print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}\nSeed: {seed}")
+            snn_stats = snn.getStatistics()
         elif options["load"] or options["load"] is None:
             print("\n-------- loading graph -------")
             path = options["load"] if options["load"] else "./snn_models/simple_cnn"
             #snn = loadSNNGraphML(f"{path}.graphml")
             snn = loadSNNcomposite(f"{path}_0.npz", f"{path}_input.npz", f"{path}.graphml")
-            print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}\nSeed: {seed}")
+            snn_stats = snn.getStatistics()
         else:
             print("\n------ generating graph ------")
             nodes_count = 1024
             nodes_per_edge_mean, nodes_per_edge_variation = 8, 4
-            print(f"Nodes count: {nodes_count}\nNodes per edge mean: {nodes_per_edge_mean}\nNodes per edge variation: {nodes_per_edge_variation}\nSeed: {seed}")
             snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
+            snn_stats = snn.getStatistics()
+            snn_stats["nodes_per_edge_mean"] = nodes_per_edge_mean
+            snn_stats["nodes_per_edge_variation"] = nodes_per_edge_variation
             #acyclic_snn = makeAcyclic(snn)
+        prettyPrintDict(snn.getStatistics(), formatter = lambda v : f"{v:.3f}")
+        
         if options["save"]:
+            print("\n-------- saving graph --------")
             path = os.path.abspath(options["save"])
             os.makedirs(os.path.dirname(path), exist_ok = True)
             print("Saving model to:", path)

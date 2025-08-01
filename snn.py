@@ -451,6 +451,21 @@ class HyperGraph(Iterable):
         return sum(len(he) for he in self.hyperedges)
     
     """
+    Returns a summary of the hypergraph's statistics.
+    """
+    def getStatistics(self) -> dict[str, float]:
+        connections = self.totalConnections()
+        return {
+            'nodes_count': self.nodes,
+            'edges_count': len(self.hyperedges),
+            'nodes_per_edge_mean': connections/len(self.hyperedges),
+            'edges_per_node_mean': connections/self.nodes,
+            'outbound_edges_per_node_mean': sum(len(node_hes) for node_hes in self._outbound)/self.nodes,
+            'inbound_edges_per_node_mean': sum(len(node_hes) for node_hes in self._inbound)/self.nodes,
+            'spike_frequency_mean': self.totalSpikeFrequency()/len(self.hyperedges),
+        }
+    
+    """
     Save the present hypergraph to 'path'.
     """
     def save(self, path: str) -> None:

@@ -56,7 +56,7 @@ class Worker():
                 signal.alarm(Settings.CORE_TIMEOUT)
                 result = func(*args, **kwargs)
                 self.queue.put(result)
-            except (TimeoutError, KeyboardInterrupt) as e:
+            except (TimeoutError) as e:
                 self.queue.put(e)
             finally:
                 signal.alarm(0)
@@ -302,76 +302,6 @@ def can_distribute(nums : list[int], N : int, M : int) -> bool:
     return backtrack(0)
 
 """
-Given N buckets all of size M and a list of sets of integers 'sets_list', this algorithm
-checks if there exists a way to distribute the sets of the list among buckets such that
-the count [or sum] of integers in each bucket is <=M and the number of sets added to a
-bucket does not exceed K. However, each bucket is itself a set, as such, duplicate
-elements do not count towards M.
-
-NOTE: stupidly slow.
-
-Args:
-- sets_list: list of sets to distribute among buckets
-- N: number of buckets
-- if sum_not_count == False:
-    - M: maximum number of distinct elements per bucket
-  else:
-    - M: maximum sum of distinct elements per bucket
-- K: maximum number of sets per bucket
-"""
-def can_distribute_sets(sets_list : list[set[int]], N : int, M : int, K : int, sum_not_count : bool = False) -> bool:
-    # Convert each set into a bitmask
-    def set_to_bitmask(s):
-        mask = 0
-        for x in s:
-            mask |= 1 << x
-        return mask
-
-    def bitcount(x):
-        return bin(x).count('1')
-    
-    def bitvalue(x):
-        value = 0
-        for i, b in enumerate(bin(x)[:1:-1]):
-            if b == 1:
-                value += i
-        return value
-
-    bitsets = sorted([set_to_bitmask(s) for s in sets_list], key=bitcount, reverse=True)
-
-    # Quick fail: total unique elements must fit
-    total_union = 0
-    for b in bitsets:
-        total_union |= b
-    if bitcount(total_union) > N * M or len(bitsets) > N * K:
-        return False
-
-    # Each bucket: (bitmask of elements, count of sets)
-    initial_state = [(0, 0) for _ in range(N)]
-    stack = [(0, initial_state)]
-
-    while stack:
-        index, buckets = stack.pop()
-        if index == len(bitsets):
-            return True  # All sets placed
-
-        current = bitsets[index]
-
-        for i in range(N):
-            bits, count = buckets[i]
-            if count >= K:
-                continue
-            merged = bits | current
-            if (not sum_not_count and bitcount(merged) <= M) or (sum_not_count and bitvalue(merged) <= M):
-                new_buckets = list(buckets)
-                new_buckets[i] = (merged, count + 1)
-                stack.append((index + 1, new_buckets))
-            if count == 0:
-                break  # symmetry breaking
-
-    return False
-
-"""
 Generate 'num_points' approximately equi-spaced points on a 2D lattice based on Manhattan distance.
 
 Parameters:
@@ -428,3 +358,13 @@ def force_array_of_contigous_integers(arr : list[int]) -> None:
     value_map = {val: idx for idx, val in enumerate(unique_vals)}
     for i in range(len(arr)):
         arr[i] = value_map[arr[i]]
+
+"""
+Returns the count of distinct entries in two iterables.
+"""
+def length_of_union(d1 : Iterable[T], d2 : Iterable[T]) -> int:
+    count = len(d1)
+    for k in d2:
+        if k not in d1:
+            count += 1
+    return count
