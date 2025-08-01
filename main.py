@@ -81,9 +81,6 @@ if __name__ == "__main__":
     if options["quiet"]:
         Settings.VERBOSE = False
     else:
-        #print("----------^----V----^---------")
-        #print("--------- Axon . Flow --------")
-        #print("------------- ~~~ ------------\n")
         print("--~~~~~~~~~~~~----------------")
         print("------~~~ Axon ~ Flow ~~~-----")
         print("----------------~~~~~~~~~~~~--\n")
