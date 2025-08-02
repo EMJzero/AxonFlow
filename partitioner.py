@@ -411,12 +411,13 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
     Source: "Multilevel Hypergraph Partitioning: Applications in VLSI Domain" by George Karypis
     => "Edge Coarsening (EC)" technique!
     """
-    def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int, seed : Optional[int] = None) -> tuple[list[tuple[HyperGraph, list[list[int]]]], list[int], list[Counter[int]]]:
+    def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int, seed : Optional[int] = None) -> tuple[list[tuple[HyperGraph, list[list[int]]]], list[list[int]], list[Counter[int]]]:
         current_hg = hg
         partition_sizes = [1 for _ in range(hg.nodes)] # size of each partition (node) in current_hg
         inbound_he_ids = [Counter(hash(he) for he in hg.getInboundHyperedges(n)) for n in range(hg.nodes)] # inbound hyperedges IDs for each partition (node) in current_hg
 
-        result = []
+        nodes_in_node : list[list[int]]  = [] # tracks at each level of coarsening, how many original nodes ended up inside each present node, in other words, tracks 'partition_sizes'
+        result : list[tuple[HyperGraph, list[list[int]]]] = [] # tracks successively coarser hypergraphs and the pair of nodes that were coarsened together
 
         coarsened = True
         while current_hg.nodes > target_coarse_nodes and coarsened:
@@ -464,21 +465,22 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
                 next_inbound_he_ids.append(inbound_he_ids[u])
                 next_part_idx += 1
             
-            current_hg = current_hg.getPartitionsHypergraph(partitions, squish_hyperedges = True)
+            current_hg = current_hg.getPartitionsHypergraph(partitions, keep_self_cycles = True, squish_hyperedges = True)
             partition_sizes = next_partition_sizes
             inbound_he_ids = next_inbound_he_ids
 
+            nodes_in_node.append(partition_sizes)
             result.append((current_hg, coarsenings))
-            timerPrint(f"Coarsening: {current_hg.nodes} > {target_coarse_nodes}...")
+            timerPrint(f"Coarsening: {current_hg.nodes} > {target_coarse_nodes} remaining nodes...")
         
-        return result, partition_sizes, inbound_he_ids
+        return result, nodes_in_node, inbound_he_ids
 
     """
     Source: "Multilevel k-way Hypergraph Partitioning" by George Karypis
     Updates the candidate 'partitioning' in place!
     => Basic version!
     """
-    def greedy_FM_refinement(hg: HyperGraph, partitioning: list[int], partition_sizes : list[int], inbound_he_ids : list[Counter[int]], max_nodes: int, max_inbound_edges: int, seed : Optional[int] = None) -> None:
+    def greedy_FM_refinement(hg: HyperGraph, partitioning: list[int], partition_sizes : list[int], nodes_in_node : list[int], inbound_he_ids : list[Counter[int]], max_nodes: int, max_inbound_edges: int, seed : Optional[int] = None) -> None:
         rng = np.random.default_rng(seed)
         nodes = np.arange(hg.nodes)
         rng.shuffle(nodes)
@@ -495,23 +497,21 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
                 best_partition = max(connectivity_w_partitions, key = connectivity_w_partitions.get)
                 if connectivity_w_partitions[best_partition] - loss < 0:
                     break
-                elif partition_sizes[best_partition] + 1 <= max_nodes and len(best_inbound := inbound_he_ids[best_partition] + (my_inbound := Counter(map(hash, hg.getInboundHyperedges(n))))) <= max_inbound_edges:
+                elif partition_sizes[best_partition] + nodes_in_node[n] <= max_nodes and len(best_inbound := inbound_he_ids[best_partition] + (my_inbound := Counter(map(hash, hg.getInboundHyperedges(n))))) <= max_inbound_edges:
                     partitioning[n] = best_partition
-                    partition_sizes[best_partition] += 1
-                    partition_sizes[my_partition] -= 1
+                    partition_sizes[best_partition] += nodes_in_node[n]
+                    partition_sizes[my_partition] -= nodes_in_node[n]
                     inbound_he_ids[best_partition] = best_inbound
                     inbound_he_ids[my_partition] -= my_inbound
                     break
                 connectivity_w_partitions.pop(best_partition)
 
     # TODO: multistart!!!!!!!
-    # !!!!!
-    # !!!!!
     # =>=> Add a cost estimation for partitions feature in the model!
     # =>=> Extract a random seed for each start by using the initial seed!
     
     # hierarchically coarsened hypergraphs, from less to most coarsened
-    coarsening_levels, partition_sizes, inbound_he_ids = coarsen_hypergraph(hg, min(max_partitions, hg.nodes // max_nodes), max_nodes, max_inbound_edges, seed)
+    coarsening_levels, nodes_in_node, inbound_he_ids = coarsen_hypergraph(hg, min(max_partitions, hg.nodes // max_nodes), max_nodes, max_inbound_edges, seed)
     if len(coarsening_levels) == 0:
         if hg.nodes > max_partitions:
             raise Exception("Cannot coarsen the hypergraph.")
@@ -520,21 +520,22 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
             return [i for i in range(hg.nodes)]
     # NOTE: partitioning = initialPartitionig( ... )
     # => no need since we coarsen up to the point of having the right number of partitions
+    partition_sizes = nodes_in_node[-1]
     partitions_count = coarsening_levels[-1][0].nodes
     if partitions_count > max_partitions:
         raise Exception("Cannot coarsen up until reaching a sufficiently low number of partitions.")
     partitioning = [i for i in range(coarsening_levels[-1][0].nodes)]
     for i in range(len(coarsening_levels) - 1, -1, -1):
         cl_hg, cl_coarsenings = coarsening_levels[i]
-        greedy_FM_refinement(cl_hg, partitioning, partition_sizes, inbound_he_ids, max_nodes, max_inbound_edges, seed)
+        greedy_FM_refinement(cl_hg, partitioning, partition_sizes, nodes_in_node[i], inbound_he_ids, max_nodes, max_inbound_edges, seed)
         # undo the coarsening
         new_partitioning = [-1 for _ in range(coarsening_levels[i - 1][0].nodes if i > 0 else hg.nodes)]
         for p, c in zip(partitioning, cl_coarsenings):
             for n in c:
                 new_partitioning[n] = p
         partitioning = new_partitioning
-        timerPrint(f"Refining: {i + 1} levels left...")
-    greedy_FM_refinement(hg, partitioning, partition_sizes, inbound_he_ids, max_nodes, max_inbound_edges, seed)
+        timerPrint(f"Refining: {i + 1}/{len(coarsening_levels)} levels left...")
+    greedy_FM_refinement(hg, partitioning, partition_sizes, [1 for _ in range(hg.nodes)], inbound_he_ids, max_nodes, max_inbound_edges, seed)
     force_array_of_contigous_integers(partitioning)
     return partitioning
 
@@ -729,7 +730,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     # 64, 16 is slow but beats one round of FM
     # higher 'top_k' costs slightly more time for slightly better results (e.g. 2% on both when doubled)
     #lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 32, tree_count = 16)
-    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32, tree_count = 4, hash_bytes = 2)
+    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32, tree_count = 4, hash_bytes = 4)
     
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
     

@@ -950,7 +950,7 @@ class AddressableMaxPQ(MutableMapping[T, U]):
     """
     Remove and return (key, value) with highest value.
     """
-    def extract_max(self) -> T:
+    def maxExtract(self) -> T:
         while self._heap:
             _, _, key = heapq.heappop(self._heap)
             if key is not self._REMOVED:
@@ -961,7 +961,7 @@ class AddressableMaxPQ(MutableMapping[T, U]):
     """
     Return (key, value) of max item without removing it.
     """
-    def peek_max(self) -> T:
+    def maxPeek(self) -> T:
         while self._heap:
             _, _, key = self._heap[0]
             if key is self._REMOVED:

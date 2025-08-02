@@ -368,3 +368,10 @@ def length_of_union(d1 : Iterable[T], d2 : Iterable[T]) -> int:
         if k not in d1:
             count += 1
     return count
+
+"""
+Removes all duplicates from an iterable while preserving its order.
+"""
+def deduplicate_preserve_order(seq : Iterable[T]) -> list[T]:
+    seen = set()
+    return [x for x in seq if not (x in seen or seen.add(x))]

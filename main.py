@@ -184,12 +184,12 @@ if __name__ == "__main__":
             if options["fraction"]:
                 snn.addHyperedges(removed_hes)
             # > compute partitioned hypergraphs, remove redundant hyperedges, topologically order their nodes
-            part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
-            part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist, keep_self_cycles = True)
-            part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy, keep_self_cycles = True)
-            part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential, keep_self_cycles = True)
-            #part_snn_swap = snn.getPartitionsHypergraph(partitioning_swap, keep_self_cycles = True)
-            part_snn_hmetis = snn.getPartitionsHypergraph(partitioning_hmetis, keep_self_cycles = True)
+            part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined)
+            part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist)
+            part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy)
+            part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential)
+            part_snn_swap = snn.getPartitionsHypergraph(partitioning_swap)
+            part_snn_hmetis = snn.getPartitionsHypergraph(partitioning_hmetis)
             part_snn_mmr.squishHyperedges()
             part_snn_setlist.squishHyperedges()
             part_snn_greedy.squishHyperedges()
