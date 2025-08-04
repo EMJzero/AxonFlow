@@ -170,22 +170,22 @@ if __name__ == "__main__":
 
         print("\n----------- layout -----------")
         # These are complete approaches, novel or from previous works
-       # spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY()) # NEW IDEA!
-       # hsc_placement = hilbertPlacement(topological_order_seq.nodes, hardware.coresAlongX(), hardware.coresAlongY()) # Ouwen Jin's paper.
+        spectral_placement = spectralPlacement(part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY()) # NEW IDEA!
+        hsc_placement = hilbertPlacement(topological_order_seq.nodes, hardware.coresAlongX(), hardware.coresAlongY()) # Ouwen Jin's paper.
         #pso_placement = particleSwarmPlacement(part_snn_swap, hardware, num_iterations = 20) # This is the full approach from DFSynthesizer's paper.
-       # truenorth_placement = trueNorthPlacement(topological_order_mmr, masked_edges_mmr, hardware) # TrueNorth's placement algorithm
-       # metrics_spectral = hardware.getAllMetrics(part_snn_mmr, spectral_placement)
-       # metrics_hsc = hardware.getAllMetrics(topological_order_seq, hsc_placement)
+        truenorth_placement = trueNorthPlacement(topological_order_mmr, hardware, masked_edges_mmr) # TrueNorth's placement algorithm
+        metrics_spectral = hardware.getAllMetrics(part_snn_mmr, spectral_placement)
+        metrics_hsc = hardware.getAllMetrics(topological_order_seq, hsc_placement)
         #metrics_pso = hardware.getAllMetrics(part_snn_swap, pso_placement)
-       # metrics_truenorth = hardware.getAllMetrics(topological_order_mmr, truenorth_placement)
-       # print("Metrics spectral layout (canon version - multilevel multistart refined partitioning):")
-       # prettyPrintDict(metrics_spectral, 1)
-       # print("Metrics HSC layout (canon version - sequential partitioning):")
-       # prettyPrintDict(metrics_hsc, 1)
+        metrics_truenorth = hardware.getAllMetrics(topological_order_mmr, truenorth_placement)
+        print("Metrics spectral layout (canon version - multilevel multistart refined partitioning):")
+        prettyPrintDict(metrics_spectral, 1)
+        print("Metrics HSC layout (canon version - sequential partitioning):")
+        prettyPrintDict(metrics_hsc, 1)
         #print("Metrics PSO layout (canon version - swap partitioning):")
         #prettyPrintDict(metrics_pso, 1)
-       # print("Metrics TrueNorth layout (not-so-much canon version - multilevel multistart refined partitioning):")
-       # prettyPrintDict(metrics_truenorth, 1)
+        print("Metrics TrueNorth layout (not-so-much canon version - multilevel multistart refined partitioning):")
+        prettyPrintDict(metrics_truenorth, 1)
         # These are crossbreeds obtained by mixing placement and partitioning algorithms
         #spectral_placement_variant = spectralPlacement(part_snn_seq.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY())
         #hsc_placement_variant = hilbertPlacement(topological_order_mmr.nodes, hardware.coresAlongX(), hardware.coresAlongY())
@@ -196,12 +196,12 @@ if __name__ == "__main__":
         #print("Metrics HSC layout (crossbreed - multilevel multistart refined partitioning):")
         #prettyPrintDict(metrics_hsc_variant, 1)
         # these are the complete approaches plus FD algorithm
-       # spectral_placement_fd = forceDirectedRefinement(part_snn_mmr, spectral_placement, hardware) # 1/2 NEW IDEA!
-        #hsc_placement_fd = forceDirectedRefinement(topological_order_seq, hsc_placement, hardware) # This is the full approach from Ouwen Jin's paper.
-       # metrics_spectral_fd = hardware.getAllMetrics(part_snn_mmr, spectral_placement_fd)
+        spectral_placement_fd = forceDirectedRefinement(part_snn_mmr, spectral_placement, hardware) # 1/2 NEW IDEA!
+        #hsc_placement_fd = forceDirectedRefinement(topological_order_seq, hsc_placement, hardware, fixes = False) # This is the full approach from Ouwen Jin's paper.
+        metrics_spectral_fd = hardware.getAllMetrics(part_snn_mmr, spectral_placement_fd)
         #metrics_hsc_fd = hardware.getAllMetrics(topological_order_seq, hsc_placement_fd)
-       # print("Metrics spectral layout (canon version - refined with force-directed algorithm):")
-       # prettyPrintDict(metrics_spectral_fd, 1)
+        print("Metrics spectral layout (canon version - refined with force-directed algorithm):")
+        prettyPrintDict(metrics_spectral_fd, 1)
         #print("Metrics HSC layout (canon version - refined with force-directed algorithm):")
         #prettyPrintDict(metrics_hsc_fd, 1)
     except Exception:

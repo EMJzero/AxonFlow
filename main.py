@@ -188,7 +188,7 @@ if __name__ == "__main__":
             part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist)
             part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy)
             part_snn_seq = snn.getPartitionsHypergraph(partitioning_sequential)
-            part_snn_swap = snn.getPartitionsHypergraph(partitioning_swap)
+            #part_snn_swap = snn.getPartitionsHypergraph(partitioning_swap)
             part_snn_hmetis = snn.getPartitionsHypergraph(partitioning_hmetis)
             part_snn_mmr.squishHyperedges()
             part_snn_setlist.squishHyperedges()
@@ -219,7 +219,7 @@ if __name__ == "__main__":
             spectral_placement = Worker(spectralPlacement, part_snn_mmr.toGraph().toNxGraph(), hardware.coresAlongX(), hardware.coresAlongY()) # NEW IDEA!
             hsc_placement = Worker(hilbertPlacement, topological_order_seq.nodes, hardware.coresAlongX(), hardware.coresAlongY()) # Ouwen Jin's paper.
             #pso_placement = Worker(particleSwarmPlacement, part_snn_swap, hardware, num_iterations = 20) # This is the full approach from DFSynthesizer's paper.
-            truenorth_placement = Worker(trueNorthPlacement, topological_order_mmr, masked_edges_mmr, hardware) # TrueNorth's placement algorithm
+            truenorth_placement = Worker(trueNorthPlacement, topological_order_mmr, hardware, masked_edges_mmr) # TrueNorth's placement algorithm
             spectral_placement = spectral_placement.get()
             hsc_placement = hsc_placement.get()
             #pso_placement = pso_placement.get()

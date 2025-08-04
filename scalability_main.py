@@ -147,6 +147,7 @@ if __name__ == "__main__":
                 "neurons_per_core": 1024, "synapses_per_core" : 12288, "cores_per_chip_1d": 64}
         }
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
+            #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
             "sequential-hilbert-fd": run_sequential_hilbert_fd,
             "swap-particleswarm": run_swap_particleswarm,
             "multistart-truenorth": run_multistart_truenorth,
@@ -194,16 +195,20 @@ if __name__ == "__main__":
             for name, method in methods.items():
                 full_name = experiment + '-' + name
                 workers[full_name] = Worker(method, full_name, hypergraph, hardware, seed)
-            
-        for name, worker in workers.items():
-            try:
-                res : Result = worker.get()
-            except Exception as e:
-                res = Result(name)
-                res.setNote("Failed. Exception: " + str(e))
-            res.toFile(options["output"])
-            print("\n---------------")
-            prettyPrintDict(res.__dict__)
+        
+        while len(workers) > 0:
+            for name, worker in list(workers.items()):
+                try:
+                    outcome, res = worker.try_get()
+                except Exception as e:
+                    outcome = True
+                    res = Result(name)
+                    res.setNote("Failed. Exception: " + str(e))
+                if outcome:
+                    res.toFile(options["output"])
+                    print("\n---------------")
+                    prettyPrintDict(res.__dict__)
+                    del workers[name]
         
     except Exception:
         print(traceback.format_exc())

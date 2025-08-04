@@ -257,17 +257,54 @@ Arguments:
 @core
 def particleSwarmPlacement(hg : HyperGraph, model : HardwareModel, num_particles : int = 30, num_iterations : int = 200, w : float = 0.72, c1 : float = 1.49, c2 : float = 1.49, initial_layout : Optional[list[Coord2D]] = None) -> list[Coord2D]:
     n_nodes = hg.nodes
-    # Initialize particle positions and velocities
-    particles_pos = []  # List of numpy arrays shape (n_nodes,2)
-    particles_vel = []  # Same shape
-    pbest_pos = []
-    pbest_cost = []
-
     lattice_width = model.coresAlongX()
     lattice_height = model.coresAlongY()
 
+    """
+    Round continuous 2D coordinates to the nearest integer grid point,
+    resolving any collisions by finding the nearest available position
+    using spiral_search. Ensures a one-to-one mapping from nodes to lattice points.
+    """
+    def round_and_deduplicate(pos):
+        rounded = []
+        used = set()
+
+        """
+        Search outward from (x0, y0) in a square spiral pattern to find the
+        closest unoccupied lattice coordinate. Respects grid bounds and
+        prioritizes minimal displacement from the original point.
+        """
+        def spiral_search(x0, y0):
+            for radius in range(max(lattice_width, lattice_height)):
+                for dx in range(-radius, radius + 1):
+                    for dy in range(-radius, radius + 1):
+                        if abs(dx) != radius and abs(dy) != radius:
+                            continue  # Skip inner square
+                        x, y = x0 + dx, y0 + dy
+                        if 0 <= x < lattice_width and 0 <= y < lattice_height:
+                            coord = Coord2D(x, y)
+                            if coord not in used:
+                                return coord
+            raise RuntimeError("Could not find free lattice coordinate (should never happen - this is a bug)!")
+
+        for x, y in pos:
+            x_i = min(max(0, int(round(x))), lattice_width - 1)
+            y_i = min(max(0, int(round(y))), lattice_height - 1)
+            coord = Coord2D(x_i, y_i)
+            if coord in used:
+                coord = spiral_search(x_i, y_i)
+            used.add(coord)
+            rounded.append(coord)
+        return rounded
+
+    # Initialize particle positions and velocities
+    particles_pos = [] # list of numpy arrays of shape (n_nodes, 2)
+    particles_vel = [] # same as above
+    pbest_pos = []
+    pbest_cost = []
+
     gbest_pos = None
-    gbest_cost = float('inf')
+    gbest_cost = math.inf
 
     for i in range(num_particles):
         if initial_layout is not None and i == 0:
@@ -275,16 +312,22 @@ def particleSwarmPlacement(hg : HyperGraph, model : HardwareModel, num_particles
             pos = np.array([(pt.x, pt.y) for pt in initial_layout], dtype=float)
         else:
             # Random integer positions in lattice
-            xs = np.random.randint(0, lattice_width, size=n_nodes)
-            ys = np.random.randint(0, lattice_height, size=n_nodes)
-            pos = np.column_stack((xs, ys)).astype(float)
+            seen = set()
+            coords = []
+            while len(coords) < n_nodes:
+                x = np.random.randint(0, lattice_width)
+                y = np.random.randint(0, lattice_height)
+                coord = (x, y)
+                if coord not in seen:
+                    seen.add(coord)
+                    coords.append(coord)
+            pos = np.array(coords, dtype=float)
         vel = np.zeros((n_nodes, 2), dtype=float)
-
         particles_pos.append(pos)
         particles_vel.append(vel)
 
         # Evaluate initial cost
-        rounded = [Coord2D(int(round(x)), int(round(y))) for x, y in pos]
+        rounded = round_and_deduplicate(pos)
         c = model.getCompoundMetric(hg, rounded)
         pbest_pos.append(pos.copy())
         pbest_cost.append(c)
@@ -297,44 +340,35 @@ def particleSwarmPlacement(hg : HyperGraph, model : HardwareModel, num_particles
 
     # Main PSO loop
     for it in range(num_iterations):
-        timerPrint(f"PSO iteration: {it}, best cost: {gbest_cost}")
+        timerPrint(f"PSO iteration: {it+1}/{num_iterations}, best cost: {gbest_cost}")
         for i in range(num_particles):
             # Random coefficients per node and dimension
             r1 = np.random.rand(n_nodes, 2)
             r2 = np.random.rand(n_nodes, 2)
-
             # Velocity update
             particles_vel[i] = (
                 w * particles_vel[i]
                 + c1 * r1 * (pbest_pos[i] - particles_pos[i])
                 + c2 * r2 * (gbest_pos - particles_pos[i])
             )
-
             # Position update
             particles_pos[i] += particles_vel[i]
             # Enforce lattice bounds
             particles_pos[i][:, 0] = np.clip(particles_pos[i][:, 0], 0, lattice_width - 1)
             particles_pos[i][:, 1] = np.clip(particles_pos[i][:, 1], 0, lattice_height - 1)
-
-            # Evaluate
-            rounded = [Coord2D(int(round(x)), int(round(y))) for x, y in particles_pos[i]]
+            # Enforce one node per lattice point
+            rounded = round_and_deduplicate(particles_pos[i])
+            # Evaluate placement
             c = model.getCompoundMetric(hg, rounded)
-
-            # Update personal best
             if c < pbest_cost[i]:
                 pbest_cost[i] = c
                 pbest_pos[i] = particles_pos[i].copy()
-
-                # Update global best
                 if c < gbest_cost:
                     gbest_cost = c
                     gbest_pos = particles_pos[i].copy()
-
-        # Optional: progress log
-        # print(f"Iter {it+1}/{num_iterations} best cost={gbest_cost}")
-
+    
     # Convert continuous global best to integer lattice coordinates
-    best_placement = [Coord2D(int(round(x)), int(round(y))) for x, y in gbest_pos]
+    best_placement = round_and_deduplicate(gbest_pos)
     return best_placement
 
 """
@@ -348,12 +382,12 @@ Arguments:
 - model: neuromorphic hardware model.
 """
 @core
-def trueNorthPlacement(hg : HyperGraph, masked_edges : list[tuple[int, int]], model : HardwareModel) -> list[Coord2D]:
+def trueNorthPlacement(hg : HyperGraph, model : HardwareModel, masked_edges : Optional[list[tuple[int, int]]] = None) -> list[Coord2D]:
     nodes_layers = [set()]
     for node in range(hg.nodes):
         for he in hg.getInboundHyperedges(node):
             if he.source() in nodes_layers[-1]:
-                if (he.source(), node) in masked_edges:
+                if masked_edges and (he.source(), node) in masked_edges:
                     continue
                 nodes_layers.append(set())
                 break

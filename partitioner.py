@@ -690,7 +690,7 @@ def partitionSetlistMiniHashWeights(hg: HyperGraph, N: int, M: int, K: int, thre
                 if d <= best_jacc:
                     continue
 
-                # Exact union‐size check via intersection count
+                # exact union‐size check via intersection count
                 if len(cl.weighted_set.keys() | cluster.weighted_set.keys()) <= M:
                     best_cid, best_jacc = cid, d
 

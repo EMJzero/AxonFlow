@@ -47,6 +47,7 @@ class Worker():
     # start from 1, since 0 is reserved for main
     _process_counter = itertools.count(1)
     _colors_generator = color_generator()
+    _start_time = None
 
     def __init__(self, func : Callable[..., Any], *args : tuple[Any, ...], **kwargs : dict[str, Any]):
         self.queue = multiprocessing.Queue()
@@ -70,7 +71,7 @@ class Worker():
     """
     def _start(self) -> None:
         self.process.start()
-        self._start = time.perf_counter()
+        self._start_time = time.time()
     
     """
     Wraps and runs the function passed to Worker inside another process.
@@ -98,14 +99,16 @@ class Worker():
     def get(self) -> Any:
         if not Settings.MULTIPROCESSING:
             return self.queue.get()
-
+        
+        while not self._start_time:
+            time.sleep(Settings.MULTIPROCESSING_SPINNING_INTERVAL)
+        
         # NOTE: starting up processes takes a ton of time, so one may be able to finish in more than
         #       'Settings.CORE_TIMEOUT' simply because the CPU was busy and could not kill it...
+        self.process.join(timeout = Settings.MULTIPROCESSING_SPINNING_INTERVAL)
         while self.process.is_alive():
-            elapsed = time.perf_counter() - self._start
-            # NOTE: using 'is_alive' here prevents a call to 'get' that happened after 'CORE_TIMEOUT' time to raise an issue even if the process has finished.
-            #       This may lead to some processes using a bit more than 'CORE_TIMEOUT' time because there is not easy way to exactly track when they finish.
-            if Settings.CORE_TIMEOUT and self.process.is_alive() and elapsed >= Settings.CORE_TIMEOUT:
+            elapsed = time.time() - self._start_time
+            if Settings.CORE_TIMEOUT and elapsed >= Settings.CORE_TIMEOUT:
                 self.process.terminate()
                 self.process.join()
                 raise TimeoutError(f"Process {self.process.name} exceeded the timeout of {Settings.CORE_TIMEOUT} seconds and was terminated.")
@@ -115,6 +118,38 @@ class Worker():
         if isinstance(result, Exception):
             raise result
         return result
+
+    """
+    Tries to get the latest result from the process.
+    Raises an exception if the process's execution time limit is exceeded.
+    This method is NOT blocking, its first return value is True/False
+    depending on whether the process was joined or not.
+    """
+    def try_get(self) -> tuple[bool, Any]:
+        if not Settings.MULTIPROCESSING:
+            return True, self.queue.get()
+        
+        if not self._start_time:
+            return False, None
+        
+        elapsed = time.time() - self._start_time
+        if Settings.CORE_TIMEOUT and self.process.is_alive() and elapsed >= Settings.CORE_TIMEOUT:
+            self.process.terminate()
+            self.process.join()
+            raise TimeoutError(f"Process {self.process.name} exceeded the timeout of {Settings.CORE_TIMEOUT} seconds and was terminated.")
+        self.process.join(timeout = min(Settings.MULTIPROCESSING_SPINNING_INTERVAL, Settings.CORE_TIMEOUT - elapsed) if Settings.CORE_TIMEOUT else Settings.MULTIPROCESSING_SPINNING_INTERVAL)
+        
+        if not self.process.is_alive():
+            result = self.queue.get()
+            self.process.join()
+            if isinstance(result, Exception):
+                raise result
+            return True, result
+        else:
+            return False, None
+    
+    def is_alive(self) -> bool:
+        return self.process.is_alive()
 
 """
 Wraps each instruction in an exception handler (try-except) that swallows the 'allowed_exceptions'.

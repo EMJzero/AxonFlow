@@ -147,17 +147,21 @@ class HardwareModel:
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     The coordinates assigne the specific partition to a core in on the hardware.
     """
-    def checkPlacementValidity(self, part_snn : HyperGraph, placement : list[Coord2D]) -> bool:
+    def checkPlacementValidity(self, part_snn : HyperGraph, placement : list[Coord2D], verbose : bool = False) -> bool:
         if len(placement) != part_snn.nodes:
             raise Exception("Each partition must be assigned to a core.")
         seen_cores = set()
         for core in placement:
             if core[0] < 0 or core[0] >= self.coresAlongX() or core[1] < 0 or core[1] >= self.coresAlongY():
-                return False # a core's coordinates are out of the hardware's range
+                if verbose:
+                    print("INVALID PLACEMENT: a core's coordinates are out of the hardware's range")
+                return False
             if core not in seen_cores:
                 seen_cores.add(core)
             else:
-                return False # a core is used more than once
+                if verbose:
+                    print("INVALID PLACEMENT: a core is used more than once")
+                return False
         return True
     
     """
