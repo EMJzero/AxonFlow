@@ -196,13 +196,13 @@ class DisjointSet(Generic[T]):
     - y: an element in the second set.
     """
     def union(self, x: T, y: T) -> None:
-        self.size -= 1
         x_root = self.find(x)
         y_root = self.find(y)
 
         if x_root == y_root:
             return  # Already in the same set
 
+        self.size -= 1
         if self.rank[x_root] < self.rank[y_root]:
             self.parent[x_root] = y_root
         else:
@@ -341,10 +341,11 @@ class WeightedMinHashLSH(Generic[T]):
 
     """
     Delete a set from the index.
+    Returns True if the element was present and thus deleted.
     """
-    def delete(self, set_id : int) -> None:
+    def delete(self, set_id : int) -> bool:
         if set_id not in self.data:
-            return
+            return False
 
         signature = self.data[set_id].signature
         for i in range(self.num_bands):
@@ -353,6 +354,7 @@ class WeightedMinHashLSH(Generic[T]):
             self.index[i][band_hash].discard(set_id)
 
         del self.data[set_id]
+        return True
 
     """
     Merge multiple sets already stored in the structure and insert the merged version.
@@ -547,10 +549,11 @@ class WeightedMinHashLSHForest(Generic[T]):
 
     """
     Delete a set from the index.
+    Returns True if the element was present and thus deleted.
     """
-    def delete(self, set_id : int) -> None:
+    def delete(self, set_id : int) -> bool:
         if set_id not in self.data:
-            return
+            return False
 
         signature = self.data[set_id].signature
         for t, prefix, table, sorted_table in zip(range(self.tree_count), signature, self.tables, self.sorted_tables):
@@ -566,6 +569,7 @@ class WeightedMinHashLSHForest(Generic[T]):
                 sorted_table.remove(prefix)
 
         del self.data[set_id]
+        return True
 
     """
     Merge multiple sets already stored in the structure and insert the merged version.
@@ -804,11 +808,28 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
         return set_id
 
     """
-    Delete a set from the index.
+    Like 'insert', but takes directly an 'LSHEntry'.
     """
-    def delete(self, set_id : int) -> None:
+    def insertEntry(self, entry : LSHEntry, set_id : Optional[int] = None) -> int:
+        if set_id is None:
+            set_id = self.id_counter
+            self.id_counter += 1
+
+        self.data[set_id] = entry
+
+        for prefix, table, sorted_table in zip(entry.signature, self.tables, self.sorted_tables):
+            table[prefix].append(set_id)
+            sorted_table.add(prefix)
+
+        return set_id
+
+    """
+    Delete a set from the index.
+    Returns True if the element was present and thus deleted.
+    """
+    def delete(self, set_id : int) -> bool:
         if set_id not in self.data:
-            return
+            return False
 
         signature = self.data[set_id].signature
         for prefix, table, sorted_table in zip(signature, self.tables, self.sorted_tables):
@@ -819,6 +840,7 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
             sorted_table.discard(prefix)
 
         del self.data[set_id]
+        return True
 
     """
     Merge multiple sets already stored in the structure and insert the merged version.

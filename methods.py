@@ -197,6 +197,22 @@ def run_setlist_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, see
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
 
+def run_setlist_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.startTime()
+    part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part)
+    part_snn.squishHyperedges()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    topological_order = feedForwardOrder(part_snn)
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(part_snn, plac))
+    return res
+
 def run_hmetis_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())

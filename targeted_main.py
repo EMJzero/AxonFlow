@@ -165,19 +165,21 @@ if __name__ == "__main__":
         
         print("\n------ experiment setup ------")
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
+            # TODO: add missing cases, hilbert with fd, spectral with ps, setlist and hmetis with truenorth, etc...
             #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
             "sequential-hilbert-fd": run_sequential_hilbert_fd,
-            "swap-particleswarm": run_swap_particleswarm,
-            "multistart-truenorth": run_multistart_truenorth,
             "sequential-truenorth": run_sequential_truenorth,
-            "multistart-spectral-fd": run_multistart_spectral_fd,
+            #"swap-particleswarm": run_swap_particleswarm,
+            #"multistart-truenorth": run_multistart_truenorth,
+            #"multistart-spectral-fd": run_multistart_spectral_fd,
             "setlist-spectral-fd": run_setlist_spectral_fd,
+            "setlist-hilbert-ps": run_setlist_hilbert_ps,
             "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
             "hmetis-spectral-fd": run_hmetis_spectral_fd
         } if not options["partitioning"] else {
             "sequential": run_sequential,
             "swap": run_swap,
-            "multistart": run_multistart,
+            #"multistart": run_multistart,
             "setlist": run_setlist,
             "hmetis": run_hmetis,
         }

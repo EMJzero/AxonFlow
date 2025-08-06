@@ -92,6 +92,8 @@ font = {'family' : 'sans-serif',
 matplotlib.rc('font', **font)
 
 
+# MAIN:
+
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, signal_handler)
 

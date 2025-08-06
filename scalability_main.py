@@ -147,19 +147,23 @@ if __name__ == "__main__":
                 "neurons_per_core": 1024, "synapses_per_core" : 12288, "cores_per_chip_1d": 64}
         }
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
+            # TODO: add missing cases, hilbert with fd, spectral with ps, setlist and hmetis with truenorth, etc...
             #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
             "sequential-hilbert-fd": run_sequential_hilbert_fd,
             "swap-particleswarm": run_swap_particleswarm,
             "multistart-truenorth": run_multistart_truenorth,
             "sequential-truenorth": run_sequential_truenorth,
-            "multistart-spectral-fd": run_multistart_spectral_fd,
+            #"swap-particleswarm": run_swap_particleswarm,
+            #"multistart-truenorth": run_multistart_truenorth,
+            #"multistart-spectral-fd": run_multistart_spectral_fd,
             "setlist-spectral-fd": run_setlist_spectral_fd,
+            "setlist-hilbert-ps": run_setlist_hilbert_ps,
             "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
             "hmetis-spectral-fd": run_hmetis_spectral_fd
         } if not options["partitioning"] else {
             "sequential": run_sequential,
-            "swap": run_swap,
-            "multistart": run_multistart,
+            #"swap": run_swap,
+            #"multistart": run_multistart,
             "setlist": run_setlist,
             "hmetis": run_hmetis,
         }
@@ -170,7 +174,6 @@ if __name__ == "__main__":
         print("Methods to test:")
         prettyPrintIterable(methods.keys(), 3, left_aligned = True)
         
-        workers : dict[str, Worker] = {}
         for experiment, size in sizes.items():
             print("\n------------------------------")
             print("Preparing configuration:")
@@ -192,23 +195,24 @@ if __name__ == "__main__":
             if not hardware.checkSnnFit(hypergraph, verbose = True):
                 print(f"WARNING: the generated SNN of experiment '{experiment}' may not fit on the given HW, change either's configuration or the seed.")
 
+            workers : dict[str, Worker] = {}
             for name, method in methods.items():
                 full_name = experiment + '-' + name
                 workers[full_name] = Worker(method, full_name, hypergraph, hardware, seed)
         
-        while len(workers) > 0:
-            for name, worker in list(workers.items()):
-                try:
-                    outcome, res = worker.try_get()
-                except Exception as e:
-                    outcome = True
-                    res = Result(name)
-                    res.setNote("Failed. Exception: " + str(e))
-                if outcome:
-                    res.toFile(options["output"])
-                    print("\n---------------")
-                    prettyPrintDict(res.__dict__)
-                    del workers[name]
+            while len(workers) > 0:
+                for name, worker in list(workers.items()):
+                    try:
+                        outcome, res = worker.try_get()
+                    except Exception as e:
+                        outcome = True
+                        res = Result(name)
+                        res.setNote("Failed. Exception: " + str(e))
+                    if outcome:
+                        res.toFile(options["output"])
+                        print("\n---------------")
+                        prettyPrintDict(res.__dict__)
+                        del workers[name]
         
     except Exception:
         print(traceback.format_exc())

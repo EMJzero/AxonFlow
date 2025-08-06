@@ -863,7 +863,7 @@ def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 
         current_partition = 0
         nodes = list(range(hg.nodes))
         random.shuffle(nodes)
-        # same logic as 'partitionSequential', but the order of nodes is randomized
+        # initial partitioning: same logic as 'partitionSequential', but the order of nodes is randomized
         for node in nodes:
             current_inbound = hg.getInboundHyperedges(node)
             inbound_edges[-1].update(current_inbound)
@@ -877,18 +877,16 @@ def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 
             assigned_nodes[-1] += 1
             partitioning[node] = current_partition
         
-        def cost(hg : HyperGraph, partitions : list[int]) -> float:
-            result = 0
-            for he in hg:
-                connections = set()
-                for n in he.destinations():
-                    connections.add(partitions[n])
-                result += he.spike_frequency*len(connections)
-            return result
-        
         cnt = 0
         delta = math.inf
-        current_cost = cost(hg, partitioning)
+        current_cost = 0
+        # initial cost
+        for he in hg:
+            connections = set()
+            for n in he.destinations():
+                connections.add(partitioning[n])
+            current_cost += he.spike_frequency*len(connections)
+        # improve cost by swapping nodes
         while delta > min_delta:
             print("Swap iteration:", cnt, "delta:", delta)
             cnt += 1
@@ -900,16 +898,45 @@ def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 
                     edges_m = Counter(hg.getInboundHyperedges(m))
                     if part_n != part_m:
                         # it's a swap, assigned nodes will always be fine
-                        if len(inbound_edges[part_n] - edges_n + edges_m) <= M and len(inbound_edges[part_m] - edges_m + edges_n) <= M:
+                        if len(in_n := (inbound_edges[part_n] - edges_n + edges_m)) <= M and len(in_m := (inbound_edges[part_m] - edges_m + edges_n)) <= M:
                             partitioning[n], partitioning[m] = partitioning[m], partitioning[n]
-                            new_cost = cost(hg, partitioning)
+                            new_cost = current_cost
+                            # differential cost update
+                            for he in hg.getInboundHyperedges(n):
+                                src_part = partitioning[he.source()]
+                                if src_part != partitioning[n] and src_part == partitioning[m]:
+                                    new_cost += he.spike_frequency
+                                elif src_part == partitioning[n] and src_part != partitioning[m]:
+                                    new_cost -= he.spike_frequency
+                            for he in hg.getInboundHyperedges(m):
+                                src_part = partitioning[he.source()]
+                                if src_part != partitioning[m] and src_part == partitioning[n]:
+                                    new_cost += he.spike_frequency
+                                elif src_part == partitioning[m] and src_part != partitioning[n]:
+                                    new_cost -= he.spike_frequency
+                            for he in hg.getOutboundHyperedges(n):
+                                for dst in he.destinations():
+                                    dst_part = partitioning[dst]
+                                    if dst_part != partitioning[n] and dst_part == partitioning[m]:
+                                        new_cost += he.spike_frequency
+                                    elif dst_part == partitioning[n] and dst_part != partitioning[m]:
+                                        new_cost -= he.spike_frequency
+                            for he in hg.getOutboundHyperedges(m):
+                                for dst in he.destinations():
+                                    dst_part = partitioning[dst]
+                                    if dst_part != partitioning[m] and dst_part == partitioning[n]:
+                                        new_cost += he.spike_frequency
+                                    elif dst_part == partitioning[m] and dst_part != partitioning[n]:
+                                        new_cost -= he.spike_frequency
+                            
                             if new_cost >= current_cost:
                                 partitioning[n], partitioning[m] = partitioning[m], partitioning[n]
                             else:
                                 delta = current_cost - new_cost
                                 current_cost = new_cost
-                            inbound_edges[part_n].subtract(edges_n) ; inbound_edges[part_n].update(edges_m)
-                            inbound_edges[part_m].subtract(edges_m) ; inbound_edges[part_m].update(edges_n)
+                            
+                            inbound_edges[part_n] = in_n
+                            inbound_edges[part_m] = in_m
         
         if current_cost < best_cost:
             best_partitioning = partitioning
