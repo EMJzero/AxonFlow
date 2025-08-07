@@ -7,6 +7,7 @@ from collections import defaultdict
 import hashlib
 import random
 import xxhash
+import struct
 import heapq
 import math
 
@@ -237,7 +238,7 @@ class DisjointSet(Generic[T]):
 Struct for one entry in an LSH data structure.
 """
 class LSHEntry:
-    def __init__(self, weighted_set : dict[T, float], signature : list[int], merge_count : int = 1):
+    def __init__(self, weighted_set : dict[T, float], signature : tuple[bytes], merge_count : int = 1):
         self.weighted_set = weighted_set
         self.signature = signature
         self.merge_count = merge_count
@@ -721,8 +722,14 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
         self.hash_bytes = hash_bytes
         assert self.hash_bytes <= 8, f"Maximum supported hash lenght is 16 bytes, {hash_bytes} bytes were requested."
         assert self.num_perm % self.tree_count == 0, f"The given 'num_perm' ({num_perm}) must be divisible by 'tree_count' ({tree_count})."
+        # pre-determine struct format for weighted minhash signature unpacking based on hash chunk size
+        fmt_lookup = {1: '>B', 2: '>H', 4: '>I', 8: '>Q'}
+        self.fmt = fmt_lookup.get(self.hash_bytes)
+        assert self.fmt is not None, f"Unsupported hash_bytes size: {self.hash_bytes}"
         self.tree_depth = self.num_perm // self.tree_count
         self.total_hash_bytes = self.hash_bytes*self.tree_depth
+        assert self.tree_count < 256, f"Excessive tree_count: {self.tree_count} > 256"
+        assert math.ceil(self.total_hash_bytes / 16) < 256, f"Excessive hash_bytes*tree_depth: {self.total_hash_bytes} > 256"
         
         self.tables = [defaultdict(list) for _ in range(self.tree_count)] # usage: tables[tree_idx] -> dict[prefix] -> list of idx of entries with that prefix in the tree
         self.data : dict[int, LSHEntry] = {} # usage: data[set_id] -> entry
@@ -736,42 +743,45 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
     """
     def _weighted_minhash_signature(self, weighted_set : dict[T, float]) -> tuple[bytes, ...]:
         # TODO: this is just a sketchy weighted implementation that makes the choice of "min hash" more likely for high-value set entries...
-        min_val = min(weighted_set.values())
-        max_val = max(weighted_set.values())
-        interval_min, interval_max = 1, 10
-        normalized_weighted_set = {str(k): interval_min + (interval_max - interval_min) * (v - min_val) / (max_val - min_val) if max_val != min_val else (interval_min + interval_min) / 2 for k, v in weighted_set.items()}
-        if len(normalized_weighted_set) == 0:
+        if not weighted_set:
             # TODO: not a great idea to use random for empty sets, should we use a default that makes them all identical?
             return tuple(random.randbytes(self.total_hash_bytes) for _ in range(self.tree_count))
 
+        min_val, max_val = min(weighted_set.values()), max(weighted_set.values())
+        span_val = max_val - min_val
+        interval_min, interval_max = 1, 10
+        interval_span = interval_max - interval_min
+        # normalize set weights
+        keys = tuple(weighted_set.keys())
+        weight_reciprocals = [1.0 / (interval_min + interval_span * (v - min_val) / span_val) for v in weighted_set.values()] if max_val != min_val else [2.0 / (interval_min + interval_max)] * len(weighted_set)
+
         result = []
         for t in range(self.tree_count):
-            # pre-compute hashes of the right lenght
+            # pre-compute hashes of the right lenght for all keys at this tree index
             # NOTE: we loose a bit of hash independence by using different chunks of the same longer hash for different tree depths...
-            key_digests : dict[str, bytes] = {}
-            for k in normalized_weighted_set:
+            key_digests = []
+            for k in keys:
                 out = bytearray()
                 i = 0
-                while len(out) + 8 < self.total_hash_bytes:
-                    out.extend(xxhash.xxh128(f"{k}_{i}_{t}").digest())
+                while len(out) + 16 <= self.total_hash_bytes:
+                    out.extend(xxhash.xxh128(struct.pack(">IBB", k, i, t)).digest())
                     i += 1
                 if len(out) < self.total_hash_bytes:
-                    out.extend(xxhash.xxh64(f"{k}_{i}_{t}").digest())
-                key_digests[k] = bytes(out[:self.total_hash_bytes])
-
+                    out.extend(xxhash.xxh64(struct.pack(">IBB", k, i, t)).digest())
+                key_digests.append(bytes(out[:self.total_hash_bytes]))
+            
             tree_result = bytearray()
             for p in range(self.tree_depth):
-                min_digest = None
+                offset = p * self.hash_bytes
                 min_score = None
-                for k in normalized_weighted_set:
-                    digest = key_digests[k]
-                    start = p * self.hash_bytes
-                    end = start + self.hash_bytes
-                    h = digest[start:end]
-                    s = int.from_bytes(h) / normalized_weighted_set[k]
-                    if min_digest is None or s < min_score:
-                        min_digest = h
-                        min_score = s
+                min_digest = None
+                for i in range(len(keys)):
+                    digest = key_digests[i]
+                    h_int = struct.unpack_from(self.fmt, digest, offset)[0]
+                    score = h_int * weight_reciprocals[i]
+                    if min_score is None or score < min_score:
+                        min_score = score
+                        min_digest = digest[offset:offset + self.hash_bytes]
                 tree_result.extend(min_digest)
             result.append(bytes(tree_result))
 
