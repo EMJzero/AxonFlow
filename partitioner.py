@@ -734,23 +734,24 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
     
+    # fill up LSH
     for n in range(hg.nodes):
         d = dict()
         inbound = hg.getInboundHyperedges(n)
-        #average_sf = 0
+        average_sf = 0
         for he in inbound:
             src = he.source()
-            #average_sf += he.spike_frequency
+            average_sf += he.spike_frequency
             if src not in d:
                 d[he.source()] = he.spike_frequency
             else:
                 d[he.source()] += he.spike_frequency
-        # NOTE: having oneself in the sources should push towards two nodes connected by an edge being together,
-        #       but this worsens performance since it consumes an inbound edge slot for a weakly shared hyperedge!
-        #if inbound:
-        #    d[n] = average_sf / len(inbound)
-        #else:
-        #    d[n] = 0.0
+        if inbound:
+            d[n] = average_sf / len(inbound)
+        else:
+            d[n] = 0.001
+            # default hyperedge for who has no inbound connections -> helps merge nodes that receive outside input
+            d[-1] = 0.1
         lhs.insert(d, set_id = n)
         timerPrint(f"Building LSH forest: {n}/{hg.nodes}...")
 
@@ -781,11 +782,13 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
             # pick the best mergeable cluster
             best_cid, best_jacc = None, 0.0
             for cid, sim in zip(cand_ids, cand_simils):
-                cl = lhs.get(cid)
+                #cl = lhs.get(cid)
                 # IDEA: to avoid putting together only the best nodes, punish merges between already large clusters!
-                s = sim / max(cluster.merge_count, cl.merge_count)
-                if s > best_jacc:
-                    best_cid, best_jacc = cid, s
+                #sim = sim / max(cluster.merge_count, cl.merge_count)
+                #cost = ((cluster.merge_count + cl.merge_count) / N + (len(cluster.weighted_set.keys() | cl.weighted_set.keys())) / M)
+                #sim = sim / cost
+                if sim > best_jacc:
+                    best_cid, best_jacc = cid, sim
 
             # merge into the chosen cluster
             if best_cid is not None and best_jacc >= threshold * (len(lhs) / hg.nodes)**2:

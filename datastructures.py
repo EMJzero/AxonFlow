@@ -735,17 +735,21 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
     Return a list of bytes of length 'self.num_perm'.
     """
     def _weighted_minhash_signature(self, weighted_set : dict[T, float]) -> tuple[bytes, ...]:
-        # TODO: devise a good weighted implementation!!!!!
-        keys = [str(k) for k in weighted_set.keys()]
-        if len(keys) == 0:
+        # TODO: this is just a sketchy weighted implementation that makes the choice of "min hash" more likely for high-value set entries...
+        min_val = min(weighted_set.values())
+        max_val = max(weighted_set.values())
+        interval_min, interval_max = 1, 10
+        normalized_weighted_set = {str(k): interval_min + (interval_max - interval_min) * (v - min_val) / (max_val - min_val) if max_val != min_val else (interval_min + interval_min) / 2 for k, v in weighted_set.items()}
+        if len(normalized_weighted_set) == 0:
+            # TODO: not a great idea to use random for empty sets, should we use a default that makes them all identical?
             return tuple(random.randbytes(self.total_hash_bytes) for _ in range(self.tree_count))
 
         result = []
         for t in range(self.tree_count):
             # pre-compute hashes of the right lenght
             # NOTE: we loose a bit of hash independence by using different chunks of the same longer hash for different tree depths...
-            key_digests = {}
-            for k in keys:
+            key_digests : dict[str, bytes] = {}
+            for k in normalized_weighted_set:
                 out = bytearray()
                 i = 0
                 while len(out) + 8 < self.total_hash_bytes:
@@ -758,13 +762,16 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
             tree_result = bytearray()
             for p in range(self.tree_depth):
                 min_digest = None
-                for k in keys:
+                min_score = None
+                for k in normalized_weighted_set:
                     digest = key_digests[k]
                     start = p * self.hash_bytes
                     end = start + self.hash_bytes
                     h = digest[start:end]
-                    if min_digest is None or h < min_digest:
+                    s = int.from_bytes(h) / normalized_weighted_set[k]
+                    if min_digest is None or s < min_score:
                         min_digest = h
+                        min_score = s
                 tree_result.extend(min_digest)
             result.append(bytes(tree_result))
 
