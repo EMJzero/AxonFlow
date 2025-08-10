@@ -141,17 +141,15 @@ if __name__ == "__main__":
                 "neurons_per_core": 512, "synapses_per_core" : 6144, "cores_per_chip_1d": 64},
             f"{1024*256}":
                 {"nodes_count": 1024*256, "nodes_per_edge_mean": 128, "nodes_per_edge_variation": 64,
-                "neurons_per_core": 768, "synapses_per_core" : 8192, "cores_per_chip_1d": 64},
+                "neurons_per_core": 768, "synapses_per_core" : 8192, "cores_per_chip_1d": 96},
             f"{1024*512}":
                 {"nodes_count": 1024*512, "nodes_per_edge_mean": 192, "nodes_per_edge_variation": 96,
-                "neurons_per_core": 1024, "synapses_per_core" : 12288, "cores_per_chip_1d": 64}
+                "neurons_per_core": 1024, "synapses_per_core" : 12288, "cores_per_chip_1d": 96}
         }
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
             # TODO: add missing cases, hilbert with fd, spectral with ps, setlist and hmetis with truenorth, etc...
             #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
             "sequential-hilbert-fd": run_sequential_hilbert_fd,
-            "swap-particleswarm": run_swap_particleswarm,
-            "multistart-truenorth": run_multistart_truenorth,
             "sequential-truenorth": run_sequential_truenorth,
             #"swap-particleswarm": run_swap_particleswarm,
             #"multistart-truenorth": run_multistart_truenorth,
@@ -161,6 +159,7 @@ if __name__ == "__main__":
             "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
             "hmetis-spectral-fd": run_hmetis_spectral_fd
         } if not options["partitioning"] else {
+            "unordered-sequential": run_unordered_sequential,
             "sequential": run_sequential,
             #"swap": run_swap,
             #"multistart": run_multistart,
@@ -194,12 +193,14 @@ if __name__ == "__main__":
             #acyclic_snn = makeAcyclic(snn)
             if not hardware.checkSnnFit(hypergraph, verbose = True):
                 print(f"WARNING: the generated SNN of experiment '{experiment}' may not fit on the given HW, change either's configuration or the seed.")
-
+            
             workers : dict[str, Worker] = {}
             for name, method in methods.items():
                 full_name = experiment + '-' + name
                 workers[full_name] = Worker(method, full_name, hypergraph, hardware, seed)
-        
+                if Settings.MULTIPROCESSING:
+                    print(f"Process {workers[full_name].getPid()} started for {full_name}...")
+            
             while len(workers) > 0:
                 for name, worker in list(workers.items()):
                     try:
@@ -207,6 +208,7 @@ if __name__ == "__main__":
                     except Exception as e:
                         outcome = True
                         res = Result(name)
+                        res.setApproxTime(time.time() - worker._start_time)
                         res.setNote("Failed. Exception: " + str(e))
                     if outcome:
                         res.toFile(options["output"])

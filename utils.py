@@ -48,6 +48,7 @@ class Worker():
     _process_counter = itertools.count(1)
     _colors_generator = color_generator()
     _start_time = None
+    _pid = None
 
     def __init__(self, func : Callable[..., Any], *args : tuple[Any, ...], **kwargs : dict[str, Any]):
         self.queue = multiprocessing.Queue()
@@ -62,8 +63,8 @@ class Worker():
             finally:
                 signal.alarm(0)
         else:
-            pid = next(self._process_counter)
-            self.process = multiprocessing.Process(target = self._wrapper, args = (func, next(self._colors_generator), args, kwargs), name = f"{pid}")
+            self._pid = next(self._process_counter)
+            self.process = multiprocessing.Process(target = self._wrapper, args = (func, next(self._colors_generator), args, kwargs), name = f"{self._pid}")
             wait_and_retry(lambda : self._start(), lambda : len(multiprocessing.active_children()) < Settings.PROCESSES_COUNT, Settings.MULTIPROCESSING_SPINNING_INTERVAL)
     
     """
@@ -150,6 +151,9 @@ class Worker():
     
     def is_alive(self) -> bool:
         return self.process.is_alive()
+    
+    def getPid(self) -> int:
+        return self._pid
 
 """
 Wraps each instruction in an exception handler (try-except) that swallows the 'allowed_exceptions'.

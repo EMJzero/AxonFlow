@@ -730,7 +730,13 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     # 64, 16 is slow but beats one round of FM
     # higher 'top_k' costs slightly more time for slightly better results (e.g. 2% on both when doubled)
     #lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 32, tree_count = 16)
-    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32, tree_count = 4, hash_bytes = 4)
+    # IDEA for 'size_multiplier': after 1024*16, increase by 1 every time you multiply by 16 the nodes in the hypergraph
+    # TODO: fine tune 'count_invalid'!
+    size_multiplier = math.ceil(math.log(max(hg.nodes / (1024*16), 1), 16)) + 1
+    count_invalid = 2
+    normalized_weigths_range = (1, 16)
+    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32*size_multiplier, tree_count = 4*size_multiplier, hash_bytes = 4)
+    print(f"Creating LSH forest with: {lhs.num_perm} perms, {lhs.tree_count} trees, {lhs.hash_bytes} hash bytes, {normalized_weigths_range} normalized weights range, {top_k} top-k and {count_invalid} count invalid queries.")
     
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
     
@@ -751,7 +757,8 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
         else:
             d[n] = 0.001
             # default hyperedge for who has no inbound connections -> helps merge nodes that receive outside input
-            d[-1] = 0.1
+            # NOTE: node ids must be positive...
+            d[-1 & 0xFFFFFFFF] = 0.1
         lhs.insert(d, set_id = n)
         timerPrint(f"Building LSH forest: {n}/{hg.nodes}...")
 
@@ -776,8 +783,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
                 continue
             cluster = lhs.get(i)
 
-            # TODO: fine tune "count_invalid ="!
-            cand_ids, cand_simils = lhs.query_by_id(i, valid, top_k, 2, True)
+            cand_ids, cand_simils = lhs.query_by_id(i, valid, top_k, count_invalid, True)
             
             # pick the best mergeable cluster
             best_cid, best_jacc = None, 0.0

@@ -716,7 +716,7 @@ class WeightedMinHashLSHForest(Generic[T]):
 Like 'WeightedMinHashLSHForest', but built via permanently sorted lists having O(log(n)) insert and delete complexity.
 """
 class WeightedMinHashLSHSortedForest(Generic[T]):
-    def __init__(self, num_perm : int = 256, tree_count : int = 8, hash_bytes : int = 4):
+    def __init__(self, num_perm : int = 256, tree_count : int = 8, hash_bytes : int = 4, normalized_weights_range : tuple[float, float] = (1, 256)):
         self.num_perm = num_perm
         self.tree_count = tree_count
         self.hash_bytes = hash_bytes
@@ -730,6 +730,8 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
         self.total_hash_bytes = self.hash_bytes*self.tree_depth
         assert self.tree_count < 256, f"Excessive tree_count: {self.tree_count} > 256"
         assert math.ceil(self.total_hash_bytes / 16) < 256, f"Excessive hash_bytes*tree_depth: {self.total_hash_bytes} > 256"
+        self.normalized_weights_range = normalized_weights_range
+        assert self.normalized_weights_range[0] <= self.normalized_weights_range[1], f"Empty weights range: [{self.normalized_weights_range[0]}, {self.normalized_weights_range[1]}]"
         
         self.tables = [defaultdict(list) for _ in range(self.tree_count)] # usage: tables[tree_idx] -> dict[prefix] -> list of idx of entries with that prefix in the tree
         self.data : dict[int, LSHEntry] = {} # usage: data[set_id] -> entry

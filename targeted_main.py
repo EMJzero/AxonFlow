@@ -156,7 +156,7 @@ if __name__ == "__main__":
         #    latency_per_routing = 1.0,
         #    latency_per_wire = 0.1
         #)
-        hardware = loihi_jin
+        hardware = loihi_jin_84
         print((f"Neurons per core: {hardware.neurons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
                f"Cores along x: {hardware.cores_per_chip_x}\tCores along y: {hardware.cores_per_chip_y}\n"
                f"Chips along x: {hardware.chips_per_system_x}\tChips along y: {hardware.chips_per_system_y}\n"
@@ -177,6 +177,7 @@ if __name__ == "__main__":
             "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
             "hmetis-spectral-fd": run_hmetis_spectral_fd
         } if not options["partitioning"] else {
+            "unordered-sequential": run_unordered_sequential,
             "sequential": run_sequential,
             "swap": run_swap,
             #"multistart": run_multistart,
@@ -195,6 +196,8 @@ if __name__ == "__main__":
         workers : dict[str, Worker] = {}
         for name, method in methods.items():
             workers[name] = Worker(method, name, snn, hardware, seed)
+            if Settings.MULTIPROCESSING:
+                print(f"Process {workers[name].getPid()} started for {name}...")
             
         while len(workers) > 0:
             for name, worker in list(workers.items()):
@@ -203,6 +206,7 @@ if __name__ == "__main__":
                 except Exception as e:
                     outcome = True
                     res = Result(name)
+                    res.setApproxTime(time.time() - worker._start_time)
                     res.setNote("Failed. Exception: " + str(e))
                 if outcome:
                     res.toFile(options["output"])

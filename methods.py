@@ -18,6 +18,7 @@ class Result:
     hw_cpc : int
     part_valid : bool
     part_cost : float # lower is better
+    part_count : int
     plac_valid : bool
     plac_energy : float
     plac_avg_lat : float
@@ -26,6 +27,7 @@ class Result:
     plac_max_cong : float
     note : str
     time : int
+    approx_time : int
 
     def __init__(self, name : str):
         self.name = name
@@ -40,9 +42,10 @@ class Result:
         self.hw_spc = spc
         self.hw_cpc = cpc
 
-    def setPart(self, valid : bool, cost : float) -> None:
+    def setPart(self, valid : bool, cost : float, count : int) -> None:
         self.part_valid = valid
         self.part_cost = cost
+        self.part_count = count
     
     def setPlac(self, valid : bool, energy : float, avg_latency : float, max_latency : float, avg_congestion : float, max_congestion : float) -> None:
         self.plac_valid = valid
@@ -55,12 +58,15 @@ class Result:
     def setNote(self, note : str) -> None:
         self.note = note
 
-    def startTime(self):
+    def startTime(self) -> None:
         self._start_time = time.time()
 
-    def endTime(self):
+    def endTime(self) -> None:
         self.time = time.time() - self._start_time
         del self._start_time
+
+    def setApproxTime(self, time : int) -> None:
+        self.approx_time = time
 
     def __str__(self) -> str:
         return str(self.__dict__)
@@ -93,10 +99,12 @@ def run_sequential_topo_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareMod
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
+    if not isTopologicallySorted(hg):
+        hg = feedForwardOrder(hg)
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     if isTopologicallySorted(part_snn):
         topological_order = part_snn
     else:
@@ -112,10 +120,12 @@ def run_sequential_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, s
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
+    if not isTopologicallySorted(hg):
+        hg = feedForwardOrder(hg)
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     topological_order = feedForwardOrder(part_snn)
     plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
@@ -131,7 +141,7 @@ def run_swap_particleswarm(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = swapPartitioner(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -145,7 +155,7 @@ def run_multistart_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, se
     part = partitionGreedyMultilevelRefinedMultistart(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     topological_order = feedForwardOrder(part_snn)
     plac = trueNorthPlacement(topological_order, hw)
     res.endTime()
@@ -157,10 +167,12 @@ def run_sequential_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, se
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
+    if not isTopologicallySorted(hg):
+        hg = feedForwardOrder(hg)
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     topological_order = feedForwardOrder(part_snn)
     plac = trueNorthPlacement(topological_order, hw)
     res.endTime()
@@ -175,7 +187,7 @@ def run_multistart_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, 
     part = partitionGreedyMultilevelRefinedMultistart(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
     plac = forceDirectedRefinement(part_snn, plac, hw)
     res.endTime()
@@ -190,7 +202,7 @@ def run_setlist_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, see
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
     plac = forceDirectedRefinement(part_snn, plac, hw)
     res.endTime()
@@ -205,7 +217,7 @@ def run_setlist_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     topological_order = feedForwardOrder(part_snn)
     plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
@@ -221,7 +233,7 @@ def run_hmetis_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed 
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     topological_order = feedForwardOrder(part_snn)
     plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
@@ -237,7 +249,7 @@ def run_hmetis_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
     plac = forceDirectedRefinement(part_snn, plac, hw)
     res.endTime()
@@ -247,7 +259,7 @@ def run_hmetis_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed
 
 # PARTITIONING:
 
-def run_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_unordered_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
@@ -255,7 +267,21 @@ def run_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) 
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.endTime()
+    return res
+
+def run_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.startTime()
+    if not isTopologicallySorted(hg):
+        hg = feedForwardOrder(hg)
+    part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part)
+    part_snn.squishHyperedges()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     res.endTime()
     return res
 
@@ -267,7 +293,7 @@ def run_swap(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Res
     part = swapPartitioner(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     res.endTime()
     return res
 
@@ -279,7 +305,7 @@ def run_multistart(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) 
     part = partitionGreedyMultilevelRefinedMultistart(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     res.endTime()
     return res
 
@@ -291,7 +317,7 @@ def run_setlist(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> 
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     res.endTime()
     return res
 
@@ -303,6 +329,6 @@ def run_hmetis(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> R
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency())
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     res.endTime()
     return res

@@ -326,6 +326,8 @@ class HardwareModel:
 
 # Library of existing neuromorphic systems:
 
+# TODO: replace "synapses_per_core" with "axons_per_core", and create the separate concept of "synapses_per_core"!!
+
 # Source: table 2 in "Loihi: A Neuromorphic Manycore Processor with On-Chip Learning", referring to data at 0.75V.
 loihi = HardwareModel(
     neurons_per_core = 1024,
@@ -341,11 +343,24 @@ loihi = HardwareModel(
 )
 
 # Source: tables 2 and 3 in "Mapping Very Large Scale Spiking Neuron Network to Neuromorphic Hardware".
-loihi_jin = HardwareModel(
+# => It is essentially 4x w.r.t. base Loihi.
+loihi_jin_84 = HardwareModel(
     neurons_per_core = 4096,
     synapses_per_core = 1024*64,
     cores_per_chip_x = 84,
     cores_per_chip_y = 84,
+    chips_per_system_x = 1,
+    chips_per_system_y = 1,
+    energy_per_routing = 1.0,
+    energy_per_wire = 0.1,
+    latency_per_routing = 1.0,
+    latency_per_wire = 0.01
+)
+loihi_jin_1024 = HardwareModel(
+    neurons_per_core = 4096,
+    synapses_per_core = 1024*64,
+    cores_per_chip_x = 1024,
+    cores_per_chip_y = 1024,
     chips_per_system_x = 1,
     chips_per_system_y = 1,
     energy_per_routing = 1.0,
