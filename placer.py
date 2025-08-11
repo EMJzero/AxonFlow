@@ -166,9 +166,11 @@ the placements for the connected nodes. This is an heuristic to minimize such po
 If 'fixes' is True, all forces are updated after every batch, preventing suboptimal moves (slow).
 """
 @core
-def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : HardwareModel, batch : int = 16, fixes : bool = True) -> list[Coord2D]:
+def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : HardwareModel, fixes : bool = True) -> list[Coord2D]:
     if hg.nodes != len(placement):
         raise Exception("The provided placement does not have an entry for each HyperGraph node.")
+    # IDEA for 'batch': after 1024, double every time you multiply by 16 the nodes in the hypergraph
+    batch = 16 * 2**math.ceil(math.log(max(hg.nodes / (1024), 1), 16))
     min_x, max_x, min_y, max_y = reduce(lambda m, c : (c.x if c.x < m[0] else m[0], c.x if c.x > m[1] else m[1], c.y if c.y < m[2] else m[2], c.y if c.y > m[3] else m[3]), placement, (placement[0].x, placement[0].x, placement[0].y, placement[0].y))
     directions = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1))
     forces : dict[Coord2D, dict[Coord2D, float]] = defaultdict(lambda : {d : 0.0 for d in directions}, {coords : model.getForces(hg, placement, node, directions) for node, coords in enumerate(placement)})
@@ -393,10 +395,10 @@ def trueNorthPlacement(hg : HyperGraph, model : HardwareModel, masked_edges : Op
                 break
         nodes_layers[-1].add(node)
     
-    inbound_sources = [{he.source() for he in hg.getInboundHyperedges(n)} for n in range(hg.nodes)]
+    inbound_sources = [{he.source() : he.spike_frequency for he in hg.getInboundHyperedges(n)} for n in range(hg.nodes)]
     
-    chips = defaultdict(set) # chip(x, y) -> set of nodes
-    placement = BiMap() # node idx -> placement
+    chips : dict[Coord2D, set[int]] = defaultdict(set) # chip(x, y) -> set of nodes
+    placement : BiMap[int, Coord2D] = BiMap() # node idx -> placement
     
     """
     Given a set of nodes, returns subset of N nodes with the highest
@@ -414,6 +416,23 @@ def trueNorthPlacement(hg : HyperGraph, model : HardwareModel, masked_edges : Op
             if iou > best_iou:
                 best, best_iou = subset, iou
         return best
+    
+    
+    """
+    Yield all coordinates adjacent to in_use within the rectangle [0,width) x [0,height).
+    """
+    def boundary_coords(in_use: set[Coord2D], min_x: int, min_y: int, width: int, height: int) -> Generator[Coord2D, None, None]:
+        max_x = min_x + width
+        max_y = min_y + height
+        seen = set()
+        for coord in in_use:
+            for dx, dy in ((0, 1), (0, -1), (-1, 0), (1, 0)): # 4-connected neighbors
+                nx, ny = coord.x + dx, coord.y + dy
+                if min_x <= nx < max_x and min_y <= ny < max_y:
+                    neighbor = Coord2D(nx, ny)
+                    if neighbor not in in_use and neighbor not in seen:
+                        seen.add(neighbor)
+                        yield neighbor
     
     input = nodes_layers.pop(0)
     input_per_chip = len(input)//model.chipsCount()
@@ -442,17 +461,16 @@ def trueNorthPlacement(hg : HyperGraph, model : HardwareModel, masked_edges : Op
                     best_chip_coords, best_intersection = chip_coords, intersection
             # select best core in chip based on minimum total manhattan distance
             best_placement, best_distance = None, math.inf
-            for x in range(model.cores_per_chip_x):
-                for y in range(model.cores_per_chip_y):
-                    coord = best_chip_coords + Coord2D(x, y)
-                    if coord in placement.inv:
-                        continue
-                    distance = 0
-                    for connected_node in inbound_sources[node]:
-                        if connected_node in placement:
-                            distance += manhattan(coord, placement[connected_node])
-                    if distance < best_distance:
-                        best_placement, best_distance = coord, distance
+            for c in boundary_coords(placement.inv, best_chip_coords.x, best_chip_coords.y, model.cores_per_chip_x, model.cores_per_chip_y):
+                coord = best_chip_coords + c
+                if coord in placement.inv:
+                    continue
+                distance = 0
+                for connected_node, sf in inbound_sources[node].items():
+                    if connected_node in placement:
+                        distance += manhattan(coord, placement[connected_node])*sf
+                if distance < best_distance:
+                    best_placement, best_distance = coord, distance
             placement[node] = best_placement
     
     return [placement[n] for n in range(hg.nodes)]

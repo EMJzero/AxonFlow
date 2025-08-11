@@ -1,9 +1,8 @@
 from typing import TypeVar, Any, Optional
 from types import FrameType
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-import numpy as np
+import matplotlib.axes
 import matplotlib
 import traceback
 import time
@@ -147,6 +146,7 @@ if __name__ == "__main__":
         # Prepare metric containers
         energy = defaultdict(list)
         latency = defaultdict(list)
+        congestion = defaultdict(list)
         times = defaultdict(list)
 
         for size in sorted_sizes:
@@ -156,58 +156,103 @@ if __name__ == "__main__":
                 if entry:
                     energy[technique].append(entry.get("plac_energy", None))
                     latency[technique].append(entry.get("plac_avg_lat", None))
+                    congestion[technique].append(entry.get("plac_avg_cong", None))
                     times[technique].append(entry.get("time", None))
                 else:
                     energy[technique].append(None)
                     latency[technique].append(None)
+                    congestion[technique].append(None)
                     times[technique].append(None)
 
         # Optional: normalize w.r.t. the best partitioning
+        energy_delay_product = {}
+        best_energy_delay_product = [min([energy[technique][i]*latency[technique][i] for technique in techniques if energy[technique][i] != None and latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        for technique in techniques:
+            energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None else None, zip(energy[technique], latency[technique], best_energy_delay_product)))
         best_energy = [min([energy[technique][i] for technique in techniques if energy[technique][i] != None], default = 0) for i in range(len(x_indices))]
         for technique in techniques:
             energy[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(energy[technique], best_energy)))
         best_latency = [min([latency[technique][i] for technique in techniques if latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
         for technique in techniques:
             latency[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(latency[technique], best_latency)))
+        best_congestion = [min([congestion[technique][i] for technique in techniques if congestion[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        for technique in techniques:
+            congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
 
         # Plotting
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True)
+        #fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize = (18, 6), sharex = True)
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True)
 
         # Energy plot
-        for technique in sorted(techniques):
-            ax1.plot(x_indices, energy[technique], marker = 'o', label = technique)
-        ax1.set_xticks(x_indices)
-        ax1.set_xticklabels(x_labels, rotation = 45)
-        ax1.set_xlabel("Problem Size (nodes)")
-        ax1.set_yscale('log', base = 10)
-        ax1.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
-        ax1.set_title("Energy vs Problem Size")
-        ax1.legend()
-        ax1.grid(True)
+        def energy_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, energy[technique], marker = 'o', label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
+            ax.set_title("Energy vs Problem Size")
+            ax.legend()
+            ax.grid(True)
 
         # Latency plot
-        for technique in sorted(techniques):
-            ax2.plot(x_indices, latency[technique], marker = 'o', label = technique)
-        ax2.set_xticks(x_indices)
-        ax2.set_xticklabels(x_labels, rotation = 45)
-        ax2.set_xlabel("Problem Size (nodes)")
-        ax2.set_yscale('log', base = 10)
-        ax2.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
-        ax2.set_title("Latency vs Problem Size")
-        ax2.legend()
-        ax2.grid(True)
+        def latency_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, latency[technique], marker = 'o', label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
+            ax.set_title("Latency vs Problem Size")
+            ax.legend()
+            ax.grid(True)
+
+        # Congestion plot
+        def congestion_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, congestion[technique], marker = 'o', label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Avg. congestion (normalized w.r.t. lowest)")
+            ax.set_title("Congestion vs Problem Size")
+            ax.legend()
+            ax.grid(True)
+
+        # TODO: does it even make sense to look at this? It is not like, the longer you run, the more you consume here...
+        # Energy x Delay Product plot
+        def edp_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, energy_delay_product[technique], marker = 'o', label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Placement Energy x Latency (normalized w.r.t. lowest)")
+            ax.set_title("Energy-Delay Product vs Problem Size")
+            ax.legend()
+            ax.grid(True)
 
         # Time plot
-        for technique in sorted(techniques):
-            ax3.plot(x_indices, times[technique], marker = 'o', label = technique)
-        ax3.set_xticks(x_indices)
-        ax3.set_xticklabels(x_labels, rotation = 45)
-        ax3.set_xlabel("Problem Size (nodes)")
-        ax3.set_yscale('log', base = 10)
-        ax3.set_ylabel("Time (s)")
-        ax3.set_title("Execution Time vs Problem Size")
-        ax3.legend()
-        ax3.grid(True)
+        def time_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, times[technique], marker = 'o', label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Time [s]")
+            ax.set_title("Execution Time vs Problem Size")
+            ax.legend()
+            ax.grid(True)
+        
+        energy_plot(ax1)
+        latency_plot(ax2)
+        edp_plot(ax3)
+        time_plot(ax4)
         
         # Show the plot
         plt.tight_layout()

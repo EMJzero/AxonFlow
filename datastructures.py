@@ -751,7 +751,7 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
 
         min_val, max_val = min(weighted_set.values()), max(weighted_set.values())
         span_val = max_val - min_val
-        interval_min, interval_max = 1, 10
+        interval_min, interval_max = self.normalized_weights_range
         interval_span = interval_max - interval_min
         # normalize set weights
         keys = tuple(weighted_set.keys())

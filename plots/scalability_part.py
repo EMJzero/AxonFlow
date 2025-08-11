@@ -1,9 +1,7 @@
 from typing import TypeVar, Any, Optional
 from types import FrameType
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
-import numpy as np
 import matplotlib
 import traceback
 import time
@@ -192,7 +190,7 @@ if __name__ == "__main__":
         ax2.set_xticklabels(x_labels, rotation = 45)
         ax2.set_xlabel("Problem size\n(nodes / edges)")
         ax2.set_yscale('log', base = 10)
-        ax2.set_ylabel("Time (s)")
+        ax2.set_ylabel("Time [s]")
         ax2.set_title("Execution Time vs Problem Size")
         ax2.legend()
         ax2.grid(True)

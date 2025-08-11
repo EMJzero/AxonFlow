@@ -189,7 +189,7 @@ def run_multistart_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, 
     part_snn.squishHyperedges()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
-    plac = forceDirectedRefinement(part_snn, plac, hw)
+    plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
@@ -204,7 +204,7 @@ def run_setlist_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, see
     part_snn.squishHyperedges()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
-    plac = forceDirectedRefinement(part_snn, plac, hw)
+    plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
@@ -251,7 +251,7 @@ def run_hmetis_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part_snn.squishHyperedges()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
-    plac = forceDirectedRefinement(part_snn, plac, hw)
+    plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
     return res
