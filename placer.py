@@ -169,8 +169,8 @@ If 'fixes' is True, all forces are updated after every batch, preventing subopti
 def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : HardwareModel, fixes : bool = True) -> list[Coord2D]:
     if hg.nodes != len(placement):
         raise Exception("The provided placement does not have an entry for each HyperGraph node.")
-    # IDEA for 'batch': after 1024, double every time you multiply by 16 the nodes in the hypergraph
-    batch = 16 * 2**math.ceil(math.log(max(hg.nodes / (1024), 1), 16))
+    # IDEA from Ouwen Jin's paper: let batches be 30% of the moves queue!
+    batch_ratio = 0.3
     min_x, max_x, min_y, max_y = reduce(lambda m, c : (c.x if c.x < m[0] else m[0], c.x if c.x > m[1] else m[1], c.y if c.y < m[2] else m[2], c.y if c.y > m[3] else m[3]), placement, (placement[0].x, placement[0].x, placement[0].y, placement[0].y))
     directions = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1))
     forces : dict[Coord2D, dict[Coord2D, float]] = defaultdict(lambda : {d : 0.0 for d in directions}, {coords : model.getForces(hg, placement, node, directions) for node, coords in enumerate(placement)})
@@ -179,7 +179,7 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
 
     candidates = []
-    for coords in iter_major_diagonals(min_x, max_x, min_y, max_y, end_included = True):
+    for coords in iter_major_diagonals(min_x, min_y, max_x, max_y, end_included = True):
         for d_pos, d_neg in zip(directions[:2], directions[2:]):
             other_coords = coords + d_pos
             if coords in forces or other_coords in forces:
@@ -188,12 +188,14 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                     heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
     
     prev_moves_counts = [0, 0]
+    batch_size = max(math.ceil(batch_ratio*len(candidates)), 1)
+    print(f"Starting FD refinement with: {batch_size} batch size, {fixes} fixes, {len(candidates)} initial candidates.")
     while len(candidates) > 0:
         timerPrint(f"FD remaining candidates {len(candidates)}")
         moves = 0
-        one_candidate = len(candidates) == 1
+        candidates_count = len(candidates)
         affected : set[Coord2D] = set()
-        while moves < batch and len(candidates) > 0:
+        while moves < batch_size and len(candidates) > 0:
             _, coords, other_coords = heapq.heappop(candidates)
             tension = forces[coords][other_coords - coords] + forces[other_coords][coords - other_coords]
             if tension > 0:
@@ -236,10 +238,13 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
         heapq.heapify(candidates)
         # ISSUE: unless we stop using batches when candidates are few, we might have endless loops due to lazy updates
         # ALTERNATIVE FIX: do NOT rebuild forces for all nodes (see above "ISSUE")
-        if fixes and all(m == moves for m in prev_moves_counts) and not one_candidate:
-            batch = max(min(moves - 1, batch), 1)
-        prev_moves_counts.pop(0)
-        prev_moves_counts.append(moves)
+        new_batch_size = max(math.ceil(batch_ratio*len(candidates)), 1)
+        if fixes:
+            if all(m == moves for m in prev_moves_counts) and not candidates_count == 1:
+                new_batch_size = max(min(moves - 1, new_batch_size), 1)
+            prev_moves_counts.pop(0)
+            prev_moves_counts.append(moves)
+        batch_size = new_batch_size
     
     return [new_placement.inv[node] for node in range(hg.nodes)]
 

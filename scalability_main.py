@@ -144,22 +144,33 @@ if __name__ == "__main__":
                 "neurons_per_core": 768, "synapses_per_core" : 8192*4, "cores_per_chip_1d": 96},
             f"{1024*512}":
                 {"nodes_count": 1024*512, "nodes_per_edge_mean": 192*8, "nodes_per_edge_variation": 96*4,
-                "neurons_per_core": 1024, "synapses_per_core" : 12288*8, "cores_per_chip_1d": 96}
+                "neurons_per_core": 1024, "synapses_per_core" : 12288*8, "cores_per_chip_1d": 96},
+            f"{1024**2}":
+                {"nodes_count": 1024**2, "nodes_per_edge_mean": 256*8, "nodes_per_edge_variation": 128*4,
+                "neurons_per_core": 1536, "synapses_per_core" : 16384*8, "cores_per_chip_1d": 128}
         }
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
-            # TODO: add missing cases, hilbert with fd, spectral with ps, setlist and hmetis with truenorth, etc...
             #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
             "sequential-hilbert-fd": run_sequential_hilbert_fd,
+            "sequential-hilbert-ps": run_sequential_hilbert_ps,
+            "sequential-spectral-fd": run_sequential_spectral_fd,
+            "sequential-spectral-ps": run_sequential_spectral_ps,
             "sequential-truenorth": run_sequential_truenorth,
             #"swap-particleswarm": run_swap_particleswarm,
             #"multistart-truenorth": run_multistart_truenorth,
             #"multistart-spectral-fd": run_multistart_spectral_fd,
-            "setlist-spectral-fd": run_setlist_spectral_fd,
+            "setlist-hilbert-fd": run_setlist_hilbert_fd,
             "setlist-hilbert-ps": run_setlist_hilbert_ps,
+            "setlist-spectral-fd": run_setlist_spectral_fd,
+            "setlist-spectral-ps": run_setlist_spectral_ps,
+            "setlist-truenorth": run_setlist_truenorth,
+            "hmetis-hilbert-fd": run_hmetis_hilbert_fd,
             "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
-            "hmetis-spectral-fd": run_hmetis_spectral_fd
+            "hmetis-spectral-fd": run_hmetis_spectral_fd,
+            "hmetis-spectral-ps": run_hmetis_spectral_ps,
+            "hmetis-truenorth": run_hmetis_truenorth
         } if not options["partitioning"] else {
-            "unordered-sequential": run_unordered_sequential,
+            #"unordered-sequential": run_unordered_sequential,
             "sequential": run_sequential,
             #"swap": run_swap,
             #"multistart": run_multistart,

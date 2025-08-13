@@ -716,7 +716,7 @@ class WeightedMinHashLSHForest(Generic[T]):
 Like 'WeightedMinHashLSHForest', but built via permanently sorted lists having O(log(n)) insert and delete complexity.
 """
 class WeightedMinHashLSHSortedForest(Generic[T]):
-    def __init__(self, num_perm : int = 256, tree_count : int = 8, hash_bytes : int = 4, normalized_weights_range : tuple[float, float] = (1, 256)):
+    def __init__(self, num_perm : int = 256, tree_count : int = 8, hash_bytes : int = 4, normalized_weights_range : tuple[float, float] = (1, 10)):
         self.num_perm = num_perm
         self.tree_count = tree_count
         self.hash_bytes = hash_bytes

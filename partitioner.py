@@ -734,9 +734,9 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     # TODO: fine tune 'count_invalid'!
     size_multiplier = math.ceil(math.log(max(hg.nodes / (1024*16), 1), 16)) + 1
     count_invalid = 2
-    normalized_weigths_range = (1, 16)
-    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32*size_multiplier, tree_count = 4*size_multiplier, hash_bytes = 4)
-    print(f"Creating LSH forest with: {lhs.num_perm} perms, {lhs.tree_count} trees, {lhs.hash_bytes} hash bytes, {normalized_weigths_range} normalized weights range, {top_k} top-k and {count_invalid} count invalid queries.")
+    normalized_weights_range = (1, 16) # (1, 10) is quite good
+    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32*size_multiplier, tree_count = 4*size_multiplier, hash_bytes = 4, normalized_weights_range = normalized_weights_range)
+    print(f"Creating LSH forest with: {lhs.num_perm} perms, {lhs.tree_count} trees, {lhs.hash_bytes} hash bytes, {normalized_weights_range} normalized weights range, {top_k} top-k and {count_invalid} count invalid queries.")
     
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
     

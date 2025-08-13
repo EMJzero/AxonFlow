@@ -1,4 +1,5 @@
 from typing import TypeVar, Any, Optional
+from functools import reduce
 from types import FrameType
 
 import matplotlib.pyplot as plt
@@ -9,6 +10,7 @@ import time
 import code
 import json
 import time
+import math
 import sys
 import os
 
@@ -144,10 +146,10 @@ if __name__ == "__main__":
         x_indices = list(range(len(sorted_sizes)))
 
         # Prepare metric containers
-        energy = defaultdict(list)
-        latency = defaultdict(list)
-        congestion = defaultdict(list)
-        times = defaultdict(list)
+        energy : dict[str, list[float]] = defaultdict(list)
+        latency : dict[str, list[float]] = defaultdict(list)
+        congestion : dict[str, list[float]] = defaultdict(list)
+        times : dict[str, list[float]] = defaultdict(list)
 
         for size in sorted_sizes:
             size_entries = entries_by_size[size]
@@ -165,7 +167,7 @@ if __name__ == "__main__":
                     times[technique].append(None)
 
         # Optional: normalize w.r.t. the best partitioning
-        energy_delay_product = {}
+        energy_delay_product : dict[str, list[float]] = {}
         best_energy_delay_product = [min([energy[technique][i]*latency[technique][i] for technique in techniques if energy[technique][i] != None and latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
         for technique in techniques:
             energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None else None, zip(energy[technique], latency[technique], best_energy_delay_product)))
@@ -179,9 +181,23 @@ if __name__ == "__main__":
         for technique in techniques:
             congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
 
+        # Optional: keep only the best placement for each partitioning technique
+        best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
+        for technique, edp in energy_delay_product.items():
+            partitioning_technique = technique.split('-', 1)[0]
+            for i in range(len(sizes)):
+                if all(edp[i] is not None and energy_delay_product[other_techinque][i] > edp[i] for other_techinque in best_techniques[partitioning_technique]):
+                    best_techniques[partitioning_technique].add(technique)
+        techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values())
+        energy = {k : v for k, v in energy.items() if k in techniques}
+        latency = {k : v for k, v in latency.items() if k in techniques}
+        congestion = {k : v for k, v in congestion.items() if k in techniques}
+        times = {k : v for k, v in times.items() if k in techniques}
+        energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
+
         # Plotting
         #fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize = (18, 6), sharex = True)
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True)
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True, tight_layout = True)
 
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):
@@ -193,7 +209,7 @@ if __name__ == "__main__":
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
             ax.set_title("Energy vs Problem Size")
-            ax.legend()
+            #ax.legend()
             ax.grid(True)
 
         # Latency plot
@@ -206,7 +222,7 @@ if __name__ == "__main__":
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
             ax.set_title("Latency vs Problem Size")
-            ax.legend()
+            #ax.legend()
             ax.grid(True)
 
         # Congestion plot
@@ -219,7 +235,7 @@ if __name__ == "__main__":
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Avg. congestion (normalized w.r.t. lowest)")
             ax.set_title("Congestion vs Problem Size")
-            ax.legend()
+            #ax.legend()
             ax.grid(True)
 
         # TODO: does it even make sense to look at this? It is not like, the longer you run, the more you consume here...
@@ -233,7 +249,7 @@ if __name__ == "__main__":
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Placement Energy x Latency (normalized w.r.t. lowest)")
             ax.set_title("Energy-Delay Product vs Problem Size")
-            ax.legend()
+            #ax.legend()
             ax.grid(True)
 
         # Time plot
@@ -246,7 +262,7 @@ if __name__ == "__main__":
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Time [s]")
             ax.set_title("Execution Time vs Problem Size")
-            ax.legend()
+            #ax.legend()
             ax.grid(True)
         
         energy_plot(ax1)
@@ -254,8 +270,14 @@ if __name__ == "__main__":
         edp_plot(ax3)
         time_plot(ax4)
         
+        max_legend_rows = 2
+        # HP: all axis have the same entries!
+        handles, labels = ax1.get_legend_handles_labels()
+        ncols = math.ceil(len(labels) / max_legend_rows)
+        fig.legend(handles, labels, loc = 'lower center', ncol = ncols)
+        
         # Show the plot
-        plt.tight_layout()
+        plt.tight_layout(rect = [0, 0.05, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
         if options["save"]:
             filename = options["save"]
             if not any(filename.endswith(ext) for ext in SUPPORTED_EXTENSIONS):
