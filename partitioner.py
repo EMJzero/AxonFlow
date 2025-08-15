@@ -24,6 +24,12 @@ from snn import *
 # - multilevel approach.
 # - multilevel, multistart, approach with refinement.
 # - KaHyPar hierarchical hypergraph partitioning (no good: it does not accept constraints on inbound edges).
+#
+# Variables for complexity:
+# - n : # nodes
+# - e : # hyperedges
+# - d : # connections per hyperedge
+# - h : # connections per node
 
 """
 Partition a directed hypergraph while minimizing the objective function given by the
@@ -1003,3 +1009,77 @@ def greedyEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max
         for node in partition:
             result[node] = i
     return result
+
+"""
+Novel idea derived from 'greedyEdgeHiding'.
+We bundle together hyperedges based on them being connected to the same nodes.
+
+General idea:
+- order hedges by descending spike frequency
+- pick the first hedge, iterate over all its connected nodes and their connected hedges (d*h)
+- select the first seen hedge by occurrencies weighted by its spike frequency
+- join all their nodes together in the current partition, if they are too many for the
+  constraints, start a new partition and continue from there
+- pick the next hyperedge by total spike frequency, and repeat
+- repeat for the next hedge in queue, omitting those already seen
+
+Complexity bound: O(e*d*h)
+"""
+@core
+def greedyHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+    partitions : list[int] = [-1 for _ in range(hg.nodes)]
+    sorted_hes = sorted(hg.hyperedges, key = lambda he : he.spike_frequency, reverse = True)
+
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+
+    seen_hes = set()
+    next_partition_idx = 0
+    for he in sorted_hes:
+        if he in seen_hes:
+            continue
+        seen_hes.add(he)
+        timerPrint(f"Working on hyperedge: {len(seen_hes)}/{len(sorted_hes)}...")
+       
+        # TODO: improve 'max' lookup efficiency!
+        ranking : dict[HyperEdge, float] = defaultdict(lambda : 0.0) # tracks the total spike frequency with which neighboring hedges appear
+        nodes_count = 0 # tracks nodes involved in the present partition
+        inbound_set = set() # tracks the inbound hyperedges to the present partition
+        for node in he:
+            if partitions[node] != -1:
+                continue
+            nodes_count += 1
+            partitions[node] = next_partition_idx
+            inbound_set.update(hg.getInboundHyperedges(node))
+            for other_he in hg.getTouchingHyperedges(node):
+                if other_he not in seen_hes:
+                    ranking[other_he] += other_he.spike_frequency
+        
+        if nodes_count == 0:
+            continue
+        
+        while ranking:
+            best_he = max(ranking, key = ranking.get)
+            seen_hes.add(best_he)
+            ranking.pop(best_he)
+            timerPrint(f"Working on hyperedge: {len(seen_hes)}/{len(sorted_hes)}...")
+            for node in best_he:
+                if partitions[node] != -1:
+                    continue
+                inbound_set.update(hg.getInboundHyperedges(node))
+                if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges:
+                    inbound_set = set(hg.getInboundHyperedges(node))
+                    nodes_count = 0
+                    next_partition_idx += 1
+                nodes_count += 1
+                partitions[node] = next_partition_idx
+                for other_he in hg.getTouchingHyperedges(node):
+                    if other_he not in seen_hes:
+                        ranking[other_he] += other_he.spike_frequency
+    
+    # TODO: check that it is not possible for a node to not have a partition as of now!
+    
+    # enforce max_partitions constraint
+    if next_partition_idx > max_partitions:
+        raise Exception(f"Partitioning could only form {next_partition_idx} > {max_partitions} clusters under the provided constraints.")
+    
+    return partitions

@@ -173,6 +173,7 @@ if __name__ == "__main__":
             #"unordered-sequential": run_unordered_sequential,
             "sequential": run_sequential,
             "edgehiding": run_edgehiding,
+            "hyperedgehiding": run_hyperedgehiding,
             #"swap": run_swap,
             #"multistart": run_multistart,
             "setlist": run_setlist,
