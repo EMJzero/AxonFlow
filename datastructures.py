@@ -728,8 +728,8 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
         assert self.fmt is not None, f"Unsupported hash_bytes size: {self.hash_bytes}"
         self.tree_depth = self.num_perm // self.tree_count
         self.total_hash_bytes = self.hash_bytes*self.tree_depth
-        assert self.tree_count < 256, f"Excessive tree_count: {self.tree_count} > 256"
-        assert math.ceil(self.total_hash_bytes / 16) < 256, f"Excessive hash_bytes*tree_depth: {self.total_hash_bytes} > 256"
+        assert self.tree_count < 2**16, f"Excessive tree_count: {self.tree_count} > 2^16"
+        assert math.ceil(self.total_hash_bytes / 16) < 2**16, f"Excessive hash_bytes*tree_depth: {self.total_hash_bytes} > 2^16"
         self.normalized_weights_range = normalized_weights_range
         assert self.normalized_weights_range[0] <= self.normalized_weights_range[1], f"Empty weights range: [{self.normalized_weights_range[0]}, {self.normalized_weights_range[1]}]"
         
@@ -766,10 +766,10 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
                 out = bytearray()
                 i = 0
                 while len(out) + 16 <= self.total_hash_bytes:
-                    out.extend(xxhash.xxh128(struct.pack(">IBB", k, i, t)).digest())
+                    out.extend(xxhash.xxh128(struct.pack(">IHH", k, i, t)).digest())
                     i += 1
                 if len(out) < self.total_hash_bytes:
-                    out.extend(xxhash.xxh64(struct.pack(">IBB", k, i, t)).digest())
+                    out.extend(xxhash.xxh64(struct.pack(">IHH", k, i, t)).digest())
                 key_digests.append(bytes(out[:self.total_hash_bytes]))
             
             tree_result = bytearray()
@@ -787,7 +787,8 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
                 tree_result.extend(min_digest)
             result.append(bytes(tree_result))
 
-        return tuple(result)
+        #return tuple(result)
+        return result
 
     """
     Return the original set dictionary for a given ID.
@@ -891,9 +892,12 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
     def _query(self, signature : list[bytes], depth : int) -> Generator[int, None, None]:
         if depth > self.tree_depth or depth <= 0:
             raise ValueError("Depth outside valid range.")
+        hash_bytes_depth = depth * self.hash_bytes
         # generate prefixes of concatenated hash values
-        upper_prefixes = map(lambda p : p[:depth] + bytes([0xFF] * depth), signature)
-        lower_prefixes = map(lambda p : p[:depth] + bytes(depth), signature)
+        padding_oxffs = bytes([0xFF] * hash_bytes_depth)
+        padding_zeros = bytes([0x00] * hash_bytes_depth)
+        upper_prefixes = map(lambda p : p[:hash_bytes_depth] + padding_oxffs, signature)
+        lower_prefixes = map(lambda p : p[:hash_bytes_depth] + padding_zeros, signature)
         for sorted_table, lower_prefix, upper_prefix, table in zip(self.sorted_tables, lower_prefixes, upper_prefixes, self.tables):
             for prefix in sorted_table.irange(lower_prefix, upper_prefix):
                 for id in table[prefix]:
@@ -908,16 +912,15 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
     If 'top_k' is set, it returns up to 'top_k' most similar sets.
     Returns the candidate IDs and optionally the list of their distances.
     """
-    def query(self, weighted_set : dict[T, float], validity_condition = Callable[[LSHEntry], bool], top_k : int = 1, count_invalid : int = 0, compute_scores : bool = False) -> tuple[list[int], Optional[list[float]]]:
+    def query(self, entry : LSHEntry, validity_condition = Callable[[LSHEntry], bool], top_k : int = 1, count_invalid : int = 0, compute_scores : bool = False) -> tuple[list[int], Optional[list[float]]]:
         if top_k <= 0:
             raise ValueError("Top-k must be strictly positive.")
         
-        signature = self._weighted_minhash_signature(weighted_set)
         candidates = set()
         invalid_candidates = set()
         depth = self.tree_depth
         while depth > 0 and len(candidates) + (len(invalid_candidates)//count_invalid if count_invalid else 0) < top_k:
-            for id in self._query(signature, depth):
+            for id in self._query(entry.signature, depth):
                 if id not in invalid_candidates:
                     if validity_condition(self.data[id]):
                         candidates.add(id)
@@ -932,20 +935,30 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
             scored = []
             for cid in candidates:
                 other_set = self.data[cid].weighted_set
-                score = self._weighted_jaccard(weighted_set, other_set)
+                score = self._weighted_jaccard(entry.weighted_set, other_set)
                 scored.append(score)
             return candidates, scored
         else:
             return candidates, None
 
     """
-    Query similar sets using an existing stored set.
+    Works like 'query'.
+    Query sets similar to the provided 'weighted_set'.
+    """
+    def query_by_set(self, weighted_set : dict[T, float], validity_condition = Callable[[LSHEntry], bool], top_k : int = 1, count_invalid : int = 0, compute_scores : bool = False) -> tuple[list[int], Optional[list[float]]]:
+        signature = self._weighted_minhash_signature(weighted_set)
+        entry = LSHEntry(weighted_set, signature)
+        return self.query(entry, validity_condition = validity_condition, top_k = top_k, count_invalid = count_invalid, compute_scores = compute_scores)
+
+    """
+    Works like 'query'.
+    Query similar sets using an existing stored set, identified by its id.
     """
     def query_by_id(self, set_id : int, validity_condition = Callable[[LSHEntry], bool], top_k : int = 1, count_invalid : int = 0, compute_scores : bool = False) -> tuple[list[int], list[float]]:
         if set_id not in self.data:
             raise Exception(f"The provided set ID {set_id} does not exist.")
-        target_set = self.data[set_id].weighted_set
-        candidates, scores = self.query(target_set, validity_condition = validity_condition, top_k = top_k, count_invalid = count_invalid, compute_scores = compute_scores)
+        entry = self.data[set_id]
+        candidates, scores = self.query(entry, validity_condition = validity_condition, top_k = top_k, count_invalid = count_invalid, compute_scores = compute_scores)
         try:
             idx = candidates.index(set_id)
             candidates.pop(idx)

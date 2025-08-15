@@ -119,7 +119,7 @@ if __name__ == "__main__":
             snn_stats["nodes_per_edge_mean"] = nodes_per_edge_mean
             snn_stats["nodes_per_edge_variation"] = nodes_per_edge_variation
             #acyclic_snn = makeAcyclic(snn)
-        prettyPrintDict(snn.getStatistics(), formatter = lambda v : f"{v:.3f}")
+        prettyPrintDict(snn_stats, formatter = lambda v : f"{v:.3f}")
         
         if options["save"]:
             print("\n-------- saving graph --------")

@@ -728,14 +728,15 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     # 16, 4 is fast and works decently
     # 32, 8 takes double the time, but is akin to a round of FM
     # 64, 16 is slow but beats one round of FM
+    # 256, 128 is best for the 8k model
     # higher 'top_k' costs slightly more time for slightly better results (e.g. 2% on both when doubled)
     #lhs : WeightedMinHashLSHForest[int] = WeightedMinHashLSHForest(num_perm = 32, tree_count = 16)
-    # IDEA for 'size_multiplier': after 1024*16, increase by 1 every time you multiply by 16 the nodes in the hypergraph
+    # IDEA for 'size_multiplier': after 1024*32, increase by 1 every time you multiply by 16 the nodes in the hypergraph
     # TODO: fine tune 'count_invalid'!
-    size_multiplier = math.ceil(math.log(max(hg.nodes / (1024*16), 1), 16)) + 1
+    size_multiplier = math.ceil(math.log(max((hg.nodes + 1) / (1024*32), 1), 16)) + 1
     count_invalid = 2
     normalized_weights_range = (1, 16) # (1, 10) is quite good
-    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32*size_multiplier, tree_count = 4*size_multiplier, hash_bytes = 4, normalized_weights_range = normalized_weights_range)
+    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32*size_multiplier, tree_count = 16*size_multiplier, hash_bytes = 4, normalized_weights_range = normalized_weights_range)
     print(f"Creating LSH forest with: {lhs.num_perm} perms, {lhs.tree_count} trees, {lhs.hash_bytes} hash bytes, {normalized_weights_range} normalized weights range, {top_k} top-k and {count_invalid} count invalid queries.")
     
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
@@ -755,10 +756,10 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
         if inbound:
             d[n] = average_sf / len(inbound)
         else:
-            d[n] = 0.001
+            #d[n] = 0.001
             # default hyperedge for who has no inbound connections -> helps merge nodes that receive outside input
             # NOTE: node ids must be positive...
-            d[-1 & 0xFFFFFFFF] = 0.1
+            d[-1 & 0xFFFFFFFF] = 1
         lhs.insert(d, set_id = n)
         timerPrint(f"Building LSH forest: {n}/{hg.nodes}...")
 
@@ -783,7 +784,8 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
                 continue
             cluster = lhs.get(i)
 
-            cand_ids, cand_simils = lhs.query_by_id(i, valid, top_k, count_invalid, True)
+            # NOTE: query by entry does not guarantee that the entry itself will not be in the output, filter it later...
+            cand_ids, cand_simils = lhs.query(cluster, valid, top_k, count_invalid, True)
             
             # pick the best mergeable cluster
             best_cid, best_jacc = None, 0.0
@@ -793,7 +795,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
                 #sim = sim / max(cluster.merge_count, cl.merge_count)
                 #cost = ((cluster.merge_count + cl.merge_count) / N + (len(cluster.weighted_set.keys() | cl.weighted_set.keys())) / M)
                 #sim = sim / cost
-                if sim > best_jacc:
+                if cid != i and sim > best_jacc:
                     best_cid, best_jacc = cid, sim
 
             # merge into the chosen cluster
@@ -953,3 +955,51 @@ def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 
     if best_partitioning == None:
         raise Exception("No partitioning found, something broke.")
     return best_partitioning
+
+"""
+Algorithm from "EdgeMap: An Optimized Mapping Toolchain for Spiking Neural Network in Edge Computing" by Jianwei Xue.
+"""
+@core
+def greedyEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+    initial_partitions_count = math.ceil(hg.nodes/max_nodes)
+    partitions : list[set[int]] = [set() for _ in range(initial_partitions_count)] # usage: partitions[partition_idx] -> set of nodes in partition
+    partitions_inbound_sets : list[set[HyperEdge]] = [set() for _ in range(initial_partitions_count)] # usage: partitions_inbound_sets[partition_idx] -> set of hyperedge inbound to that partition
+
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+
+    # greedy, one-shot
+    # NOTE: unless the nodes you connect to have been at least in part seen before you, this works terribly.
+    for node in range(hg.nodes):
+        timerPrint(f"Working on node: {node}/{hg.nodes}...")
+        best_part_idx = -1
+        best_delta = -math.inf
+        node_inbound_set = hg.getInboundHyperedges(node)
+        node_outbound_set = hg.getOutboundHyperedges(node)
+        for part_idx, (part, part_inbount_set) in enumerate(zip(partitions, partitions_inbound_sets)):
+            # constraints check
+            #if len(part) < max_nodes and len(part_inbount_set | node_inbound_set) < max_inbound_edges:
+            if len(part) == 0 or len(part) < max_nodes and len(part_inbount_set) + len(node_inbound_set) - sum(1 for he in node_inbound_set if he in part_inbount_set) < max_inbound_edges:
+                # how many connections would get "hidden" inside a single partition by this move?
+                # in other words: total spike frequency of the transmission that would have src and dst within this core.
+                # NOTE: this does NOT actively consider synaptic reuse, but enforce spike resolution within a core, that shall contain both src and dst neuron!
+                # NOTE: the penality for larger partitions is "len(part)**2 - (len(part) + 1)**2" that equates "1 - 2*len(part)", this also prevents
+                #       merges with partitions with nothing in common when there are instead empty partitions available.
+                delta = sum(he.spike_frequency for he in node_inbound_set if he.source() in part)*100 + sum(he.spike_frequency for he in node_outbound_set for dst in he.destinations() if dst in part)*100 - 1 - 2*len(part)
+                if delta > best_delta:
+                    best_part_idx = part_idx
+                    best_delta = delta
+        if best_part_idx < 0:
+            partitions.append({node})
+            partitions_inbound_sets.append(set(node_inbound_set))
+        else:
+            partitions[best_part_idx].add(node)
+            partitions_inbound_sets[best_part_idx].update(node_inbound_set)
+    # enforce max_partitions constraint
+    if len(partitions) > max_partitions:
+        raise Exception(f"Partitioning could only form {len(partitions)} > {max_partitions} clusters under the provided constraints.")
+    
+    result = [-1 for _ in range(hg.nodes)]
+    for i, partition in enumerate(partitions):
+        for node in partition:
+            result[node] = i
+    return result

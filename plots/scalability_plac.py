@@ -182,27 +182,35 @@ if __name__ == "__main__":
             congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
 
         # Optional: keep only the best placement for each partitioning technique
-        best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
-        for technique, edp in energy_delay_product.items():
-            partitioning_technique = technique.split('-', 1)[0]
-            for i in range(len(sizes)):
-                if all(edp[i] is not None and energy_delay_product[other_techinque][i] > edp[i] for other_techinque in best_techniques[partitioning_technique]):
-                    best_techniques[partitioning_technique].add(technique)
-        techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values())
-        energy = {k : v for k, v in energy.items() if k in techniques}
-        latency = {k : v for k, v in latency.items() if k in techniques}
-        congestion = {k : v for k, v in congestion.items() if k in techniques}
-        times = {k : v for k, v in times.items() if k in techniques}
-        energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
+        #best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
+        #for technique, edp in energy_delay_product.items():
+        #    partitioning_technique = technique.split('-', 1)[0]
+        #    for i in range(len(sizes)):
+        #        if all(edp[i] is not None and (energy_delay_product[other_techinque][i] is None or energy_delay_product[other_techinque][i] > edp[i]) for other_techinque in best_techniques[partitioning_technique]):
+        #            best_techniques[partitioning_technique].add(technique)
+        #techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values())
+        #energy = {k : v for k, v in energy.items() if k in techniques}
+        #latency = {k : v for k, v in latency.items() if k in techniques}
+        #congestion = {k : v for k, v in congestion.items() if k in techniques}
+        #times = {k : v for k, v in times.items() if k in techniques}
+        #energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
 
         # Plotting
         #fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize = (18, 6), sharex = True)
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True, tight_layout = True)
 
+        # Assign markers to partitioning techniques
+        possible_markers = type('CircularList', (list,), {'__getitem__': lambda self, i: super(self.__class__, self).__getitem__(i % len(self))})(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
+        markers = {}
+        for i, technique in enumerate(techniques):
+            part_technique = technique.split('-', 1)[0]
+            if part_technique not in markers:
+                markers[part_technique] = possible_markers[i]
+
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, energy[technique], marker = 'o', label = technique)
+                ax.plot(x_indices, energy[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -215,7 +223,7 @@ if __name__ == "__main__":
         # Latency plot
         def latency_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, latency[technique], marker = 'o', label = technique)
+                ax.plot(x_indices, latency[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -228,7 +236,7 @@ if __name__ == "__main__":
         # Congestion plot
         def congestion_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, congestion[technique], marker = 'o', label = technique)
+                ax.plot(x_indices, congestion[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -242,7 +250,7 @@ if __name__ == "__main__":
         # Energy x Delay Product plot
         def edp_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, energy_delay_product[technique], marker = 'o', label = technique)
+                ax.plot(x_indices, energy_delay_product[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -255,7 +263,7 @@ if __name__ == "__main__":
         # Time plot
         def time_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, times[technique], marker = 'o', label = technique)
+                ax.plot(x_indices, times[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")

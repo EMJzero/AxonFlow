@@ -238,7 +238,7 @@ class HyperGraph(Iterable):
     Given a node's index, returns the list of hyperedges outbound from that node.
     Throws an exception if the node's index is invalid.
     """
-    def getOutboundHyperedges(self, node : int) -> list[HyperEdge]:
+    def getOutboundHyperedges(self, node : int) -> tuple[HyperEdge]:
         if node < 0 or node >= self.nodes:
             raise Exception("Invalid node.")
         return self._outbound[node]

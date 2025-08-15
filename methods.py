@@ -64,7 +64,6 @@ class Result:
 
     def partTime(self) -> None:
         self.part_time = time.time() - self._start_time
-        self._start_time = time.time()
 
     def endTime(self) -> None:
         self.time = time.time() - self._start_time
@@ -445,6 +444,18 @@ def run_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) 
     if not isTopologicallySorted(hg):
         hg = feedForwardOrder(hg)
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part)
+    part_snn.squishHyperedges()
+    res.endTime()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    return res
+
+def run_edgehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.startTime()
+    part = greedyEdgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
     res.endTime()

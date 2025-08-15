@@ -172,6 +172,7 @@ if __name__ == "__main__":
         } if not options["partitioning"] else {
             #"unordered-sequential": run_unordered_sequential,
             "sequential": run_sequential,
+            "edgehiding": run_edgehiding,
             #"swap": run_swap,
             #"multistart": run_multistart,
             "setlist": run_setlist,
