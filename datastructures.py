@@ -991,13 +991,14 @@ Complexity:
 - deletion by key (via lazy removal): O(1)
 
 Arguments:
-- get_value: a function that given a 'value' of this data structure returns its corresponding priority.
+- get_value: a function that given a 'key' and 'value' of this data structure returns its corresponding priority.
              Defaults to the identity function.
+- default_factory: factory usen to create entries for non-existing keys on the fly, works as a 'defaultdict'.
 """
 class AddressableMaxPQ(MutableMapping[T, U]):
-    def __init__(self, get_value: Callable[[U], float] = lambda x : x):
+    def __init__(self, get_value: Callable[[T, U], float] = lambda _, x : x, default_factory : Optional[Callable[[], U]] = None):
         self._heap: list[tuple[float, int, T]] = [] # (-priority, counter, key)
-        self._entry_finder: dict[T, U] = {} # key -> value
+        self._entry_finder: dict[T, U] = {} if not default_factory else defaultdict(default_factory) # key -> value
         self._counter = 0 # unique counter to break ties
         self._get_value = get_value
         self._REMOVED = object() # marker for removed keys
@@ -1008,7 +1009,7 @@ class AddressableMaxPQ(MutableMapping[T, U]):
     def __setitem__(self, key: T, value: U):
         if key in self._entry_finder:
             self.__delitem__(key)
-        priority = -self._get_value(value)
+        priority = -self._get_value(key, value)
         heapq.heappush(self._heap, (priority, self._counter, key))
         self._counter += 1
         self._entry_finder[key] = value

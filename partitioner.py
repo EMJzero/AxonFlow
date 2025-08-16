@@ -742,7 +742,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     size_multiplier = math.ceil(math.log(max((hg.nodes + 1) / (1024*32), 1), 16)) + 1
     count_invalid = 2
     normalized_weights_range = (1, 16) # (1, 10) is quite good
-    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 32*size_multiplier, tree_count = 16*size_multiplier, hash_bytes = 4, normalized_weights_range = normalized_weights_range)
+    lhs : WeightedMinHashLSHSortedForest[int] = WeightedMinHashLSHSortedForest(num_perm = 128*size_multiplier, tree_count = 64*size_multiplier, hash_bytes = 4, normalized_weights_range = normalized_weights_range)
     print(f"Creating LSH forest with: {lhs.num_perm} perms, {lhs.tree_count} trees, {lhs.hash_bytes} hash bytes, {normalized_weights_range} normalized weights range, {top_k} top-k and {count_invalid} count invalid queries.")
     
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
@@ -966,7 +966,7 @@ def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 
 Algorithm from "EdgeMap: An Optimized Mapping Toolchain for Spiking Neural Network in Edge Computing" by Jianwei Xue.
 """
 @core
-def greedyEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+def partitionEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
     initial_partitions_count = math.ceil(hg.nodes/max_nodes)
     partitions : list[set[int]] = [set() for _ in range(initial_partitions_count)] # usage: partitions[partition_idx] -> set of nodes in partition
     partitions_inbound_sets : list[set[HyperEdge]] = [set() for _ in range(initial_partitions_count)] # usage: partitions_inbound_sets[partition_idx] -> set of hyperedge inbound to that partition
@@ -1026,7 +1026,7 @@ General idea:
 Complexity bound: O(e*d*h)
 """
 @core
-def greedyHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
     partitions : list[int] = [-1 for _ in range(hg.nodes)]
     sorted_hes = sorted(hg.hyperedges, key = lambda he : he.spike_frequency, reverse = True)
 
@@ -1040,27 +1040,40 @@ def greedyHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int
         seen_hes.add(he)
         timerPrint(f"Working on hyperedge: {len(seen_hes)}/{len(sorted_hes)}...")
        
-        # TODO: improve 'max' lookup efficiency!
-        ranking : dict[HyperEdge, float] = defaultdict(lambda : 0.0) # tracks the total spike frequency with which neighboring hedges appear
+        #ranking : dict[HyperEdge, int] = defaultdict(lambda : 0) # tracks the occurrences of neighboring hedges
+        ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : (cnt - math.log2(len(he) - cnt + 1))*he.spike_frequency, lambda : 0)
         nodes_count = 0 # tracks nodes involved in the present partition
         inbound_set = set() # tracks the inbound hyperedges to the present partition
         for node in he:
             if partitions[node] != -1:
                 continue
+            inbound_set.update(hg.getInboundHyperedges(node))
+            if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges:
+                inbound_set = set(hg.getInboundHyperedges(node))
+                nodes_count = 0
+                next_partition_idx += 1
             nodes_count += 1
             partitions[node] = next_partition_idx
-            inbound_set.update(hg.getInboundHyperedges(node))
             for other_he in hg.getTouchingHyperedges(node):
                 if other_he not in seen_hes:
-                    ranking[other_he] += other_he.spike_frequency
+                    ranking[other_he] += 1
         
         if nodes_count == 0:
             continue
         
         while ranking:
-            best_he = max(ranking, key = ranking.get)
+            # greedy, second-order
+            #best_he = max(ranking, key = lambda he : ranking[he]*he.spike_frequency)
+            # TODO-IDEA:
+            # - the sqrt penalty is a sublinear tax on new nodes, it demotes heavy hedges with tiny overlap => good under high inbound pressure
+            # - small hedges w.r.t. 'max_inbound_edges' means low inbound pressure => no need to penalize larger hedges
+            # ==> switch between the penalty and not at runtime depending on the average pressure
+            #best_he = max(ranking, key = lambda he : (ranking[he] - math.sqrt(len(he) - ranking[he]))*he.spike_frequency)
+            #best_he = max(ranking, key = lambda he : (ranking[he] - math.log2(len(he) - ranking[he] + 1))*he.spike_frequency)
+            #best_he = max(ranking, key = lambda he : (ranking[he]*he.spike_frequency)/len(he))
+            best_he, _ = ranking.popMax()
             seen_hes.add(best_he)
-            ranking.pop(best_he)
+            #ranking.pop(best_he)
             timerPrint(f"Working on hyperedge: {len(seen_hes)}/{len(sorted_hes)}...")
             for node in best_he:
                 if partitions[node] != -1:
@@ -1074,12 +1087,10 @@ def greedyHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int
                 partitions[node] = next_partition_idx
                 for other_he in hg.getTouchingHyperedges(node):
                     if other_he not in seen_hes:
-                        ranking[other_he] += other_he.spike_frequency
-    
-    # TODO: check that it is not possible for a node to not have a partition as of now!
+                        ranking[other_he] += 1
     
     # enforce max_partitions constraint
-    if next_partition_idx > max_partitions:
+    if next_partition_idx + 1 > max_partitions:
         raise Exception(f"Partitioning could only form {next_partition_idx} > {max_partitions} clusters under the provided constraints.")
     
     return partitions

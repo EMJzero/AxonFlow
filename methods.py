@@ -210,6 +210,88 @@ def run_sequential_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, se
     res.setPlac(**hw.getAllMetrics(topological_order, plac))
     return res
 
+def run_hehiding_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.startTime()
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part)
+    part_snn.squishHyperedges()
+    res.partTime()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    topological_order = feedForwardOrder(part_snn)
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(part_snn, plac))
+    return res
+
+def run_hehiding_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.startTime()
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part)
+    part_snn.squishHyperedges()
+    res.partTime()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    topological_order = feedForwardOrder(part_snn)
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(part_snn, plac))
+    return res
+
+def run_hehiding_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.startTime()
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part)
+    part_snn.squishHyperedges()
+    res.partTime()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(part_snn, plac))
+    return res
+
+def run_hehiding_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.startTime()
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part)
+    part_snn.squishHyperedges()
+    res.partTime()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(part_snn, plac))
+    return res
+
+def run_hehiding_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
+    res.startTime()
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part_snn = hg.getPartitionsHypergraph(part)
+    part_snn.squishHyperedges()
+    res.partTime()
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    topological_order = feedForwardOrder(part_snn)
+    plac = trueNorthPlacement(topological_order, hw)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(part_snn, plac))
+    return res
+
 def run_swap_particleswarm(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
@@ -455,19 +537,19 @@ def run_edgehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) 
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
-    part = greedyEdgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionEdgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
     res.endTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     return res
 
-def run_hyperedgehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_hehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
-    part = greedyHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
     res.endTime()
