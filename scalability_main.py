@@ -81,7 +81,7 @@ if __name__ == "__main__":
         print("---------- ( o .o ) ----------")
         print("----------  >  ^ <  ---Flow---\n")
 
-    Settings.CORE_TIMEOUT = 3600*8
+    Settings.CORE_TIMEOUT = 3600*100
 
     if os.name != "posix":
         print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")

@@ -54,7 +54,7 @@ NOTE: if the first line in the file says 'compact', then the graphml format is
       by ';' to represent edges.
 """
 @core
-def manualGraphMLparser(path : str) -> tuple[set[str], list[str]]:
+def manualGraphMLparser(path : str) -> tuple[dict[str, int], list[str]]:
     path = os.path.abspath(path)
     if not os.path.exists(path):
         raise Exception(f"The provided path does not exist: {path}")
@@ -64,7 +64,8 @@ def manualGraphMLparser(path : str) -> tuple[set[str], list[str]]:
         print("WARNING: the provided file does not have the '.graphml' extension. Are you sure it stores a graph?")
     
     total_size = os.path.getsize(path)
-    nodes = set()
+    next_node_idx = 0
+    nodes = dict() # node id -> node index
     edges = []
     lines_count = 0
     total_bytes_read = 0
@@ -97,7 +98,8 @@ def manualGraphMLparser(path : str) -> tuple[set[str], list[str]]:
                 # MAYBE: internalize all node names to save memory
                 #node = sys.intern(match.group(1))
                 #nodes.add(node)
-                nodes.add(match.group(1))
+                nodes[match.group(1)] = next_node_idx
+                next_node_idx += 1
                 continue
             match = edgeline_regex.match(line)
             if match:
@@ -107,7 +109,8 @@ def manualGraphMLparser(path : str) -> tuple[set[str], list[str]]:
             # fall back on the weirdline regex
             match = weirdline_regex.search(line)
             if match:
-                nodes.add(match.group(1))
+                nodes[match.group(1)] = next_node_idx
+                next_node_idx += 1
                 continue
             print("Unmatched line:", line.strip())
     return nodes, edges
@@ -174,7 +177,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     #if not isinstance(g, networkx.DiGraph) and not isinstance(g, networkx.MultiDiGraph):
     #    raise Exception(f"The provided graph does not get loaded as neither a DiGraph nor a MultiDiGraph instance by NetworkX. Its current class is {type(g)}.")
     class GraphContainer:
-        def __init__(self, nodes : set[str], edges : list[str]):
+        def __init__(self, nodes : dict[str, int], edges : list[str]):
             self.nodes = nodes
             self.edges = edges
     g = GraphContainer(*manualGraphMLparser(graphml_path))
@@ -256,7 +259,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
     del spiketrains
 
     print("Building HyperGraph...")
-    nodes = {n : i for i, n in enumerate(g.nodes)} # node id -> node index
+    nodes = g.nodes
     hyperedges = defaultdict(list) # source node id -> list of destinations ids
     for src, dst in zip(g.edges[::2], g.edges[1::2]):
         hyperedges[src].append(dst)

@@ -8,6 +8,7 @@ import threading
 import traceback
 import textwrap
 import inspect
+import weakref
 import signal
 import ast
 import sys
@@ -26,16 +27,20 @@ if not hasattr(signal, "alarm"):
     signal.alarm = _no_alarm
     signal.SIGALRM = 22 # "22" is SIGABRT, the true SIGALRM would be "14"
 
+# protection to the processes startup
+wait_and_retry_lock = threading.Lock()
+
 """
 Defer polling operations to a thread.
 As soon as 'condition' is satisfied, 'func' is called with the provided arguments.
 """
 def wait_and_retry(func : Callable, condition : Callable[[], bool], check_interval : int, *args : tuple[Any, ...], **kwargs : dict[str, Any]) -> None:
     def check():
-        if condition():
-            func(*args, **kwargs)
-        else:
-            threading.Timer(check_interval, check).start()
+        with wait_and_retry_lock:
+            if condition():
+                func(*args, **kwargs)
+            else:
+                threading.Timer(check_interval, check).start()
     check()
 
 """
@@ -47,10 +52,12 @@ class Worker():
     # start from 1, since 0 is reserved for main
     _process_counter = itertools.count(1)
     _colors_generator = color_generator()
+    _instances = weakref.WeakSet()
     _start_time = None
     _pid = None
 
     def __init__(self, func : Callable[..., Any], *args : tuple[Any, ...], **kwargs : dict[str, Any]):
+        self._instances.add(self)
         self.queue = multiprocessing.Queue()
         if not Settings.MULTIPROCESSING:
             signal.signal(signal.SIGALRM, self._timeout_handler)
@@ -68,11 +75,28 @@ class Worker():
             wait_and_retry(lambda : self._start(), lambda : len(multiprocessing.active_children()) < Settings.PROCESSES_COUNT, Settings.MULTIPROCESSING_SPINNING_INTERVAL)
     
     """
+    Returns all currently alive instances of this class.
+    """
+    @classmethod
+    def active_instances(cls) -> list[Worker]:
+        return list(cls._instances)
+    
+    """
     Start the parallel process.
     """
     def _start(self) -> None:
-        self.process.start()
-        self._start_time = time.time()
+        try:
+            self.process.start()
+            self._start_time = time.time()
+        except (ValueError):
+            raise Exception("Could not asynchronously start the process.")
+    
+    """
+    Cancels the asynchronous startup of the parallel process.
+    """
+    def _close(self) -> None:
+        if hasattr(self, "process"):
+            self.process.close()
     
     """
     Wraps and runs the function passed to Worker inside another process.
@@ -211,12 +235,15 @@ Terminates all child processes.
 <<<86's S1 ending plays in the background>>>
 """
 def kill_all_children():
-    for p in multiprocessing.active_children():
-        print(f"Terminating child process {p.name}.")
-        try:
-            p.kill()
-        except ProcessLookupError:
-            print(f"Process {p.name} already terminated.")
+    with wait_and_retry_lock:
+        for p in multiprocessing.active_children():
+            print(f"Terminating child process {p.name}.")
+            try:
+                p.kill()
+            except ProcessLookupError:
+                print(f"Process {p.name} already terminated.")
+        for w in Worker.active_instances():
+            w._close()
 
 
 # UTILITY FUNCTIONS:

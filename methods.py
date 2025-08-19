@@ -108,6 +108,7 @@ def run_sequential_topo_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareMod
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
+    res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     if isTopologicallySorted(part_snn):
         topological_order = part_snn
@@ -129,6 +130,7 @@ def run_sequential_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, s
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     part_snn.squishHyperedges()
+    res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     topological_order = feedForwardOrder(part_snn)
     plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 

@@ -1058,3 +1058,11 @@ class AddressableMaxPQ(MutableMapping[T, U]):
                 return key, self._entry_finder[key]
             heapq.heappop(self._heap) # discard stale entry
         raise KeyError("Priority queue is empty.")
+    
+    """
+    Empties the datastructure.
+    """
+    def clear(self) -> None:
+        self._heap.clear()
+        self._entry_finder.clear()
+        self._counter = 0

@@ -1028,7 +1028,8 @@ Complexity bound: O(e*d*h)
 @core
 def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
     partitions : list[int] = [-1 for _ in range(hg.nodes)]
-    sorted_hes = sorted(hg.hyperedges, key = lambda he : he.spike_frequency, reverse = True)
+    #sorted_hes = sorted(hg.hyperedges, key = lambda he : he.spike_frequency, reverse = True)
+    sorted_hes = sorted(hg.hyperedges, key = lambda he : (he.spike_frequency + 0.000001)*len(he), reverse = True)
 
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
 
@@ -1040,8 +1041,9 @@ def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: 
         seen_hes.add(he)
         timerPrint(f"Working on hyperedge: {len(seen_hes)}/{len(sorted_hes)}...")
        
-        #ranking : dict[HyperEdge, int] = defaultdict(lambda : 0) # tracks the occurrences of neighboring hedges
-        ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : (cnt - math.log2(len(he) - cnt + 1))*he.spike_frequency, lambda : 0)
+        #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : (cnt - math.log2(len(he) - cnt + 1))*he.spike_frequency, lambda : 0)
+        #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt*math.log10(he.spike_frequency), lambda : 0)
+        ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt/len(he), lambda : 0) # sometimes 'he.spike_frequency*cnt/len(he)' works better...
         nodes_count = 0 # tracks nodes involved in the present partition
         inbound_set = set() # tracks the inbound hyperedges to the present partition
         for node in he:
@@ -1054,7 +1056,7 @@ def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: 
                 next_partition_idx += 1
             nodes_count += 1
             partitions[node] = next_partition_idx
-            for other_he in hg.getTouchingHyperedges(node):
+            for other_he in hg.getTouchingHyperedges(node): # using 'getInboundHyperedges' works too...
                 if other_he not in seen_hes:
                     ranking[other_he] += 1
         
@@ -1063,17 +1065,8 @@ def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: 
         
         while ranking:
             # greedy, second-order
-            #best_he = max(ranking, key = lambda he : ranking[he]*he.spike_frequency)
-            # TODO-IDEA:
-            # - the sqrt penalty is a sublinear tax on new nodes, it demotes heavy hedges with tiny overlap => good under high inbound pressure
-            # - small hedges w.r.t. 'max_inbound_edges' means low inbound pressure => no need to penalize larger hedges
-            # ==> switch between the penalty and not at runtime depending on the average pressure
-            #best_he = max(ranking, key = lambda he : (ranking[he] - math.sqrt(len(he) - ranking[he]))*he.spike_frequency)
-            #best_he = max(ranking, key = lambda he : (ranking[he] - math.log2(len(he) - ranking[he] + 1))*he.spike_frequency)
-            #best_he = max(ranking, key = lambda he : (ranking[he]*he.spike_frequency)/len(he))
             best_he, _ = ranking.popMax()
             seen_hes.add(best_he)
-            #ranking.pop(best_he)
             timerPrint(f"Working on hyperedge: {len(seen_hes)}/{len(sorted_hes)}...")
             for node in best_he:
                 if partitions[node] != -1:
@@ -1085,9 +1078,54 @@ def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: 
                     next_partition_idx += 1
                 nodes_count += 1
                 partitions[node] = next_partition_idx
-                for other_he in hg.getTouchingHyperedges(node):
+                for other_he in hg.getTouchingHyperedges(node): # using 'getInboundHyperedges' works too...
                     if other_he not in seen_hes:
                         ranking[other_he] += 1
+    
+    # enforce max_partitions constraint
+    if next_partition_idx + 1 > max_partitions:
+        raise Exception(f"Partitioning could only form {next_partition_idx} > {max_partitions} clusters under the provided constraints.")
+    
+    return partitions
+
+# MORE COMPACT FORM (functionally equivalent)
+@core
+def partitionHyperedgeHidingCOMPACT(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+    partitions : list[int] = [-1 for _ in range(hg.nodes)]
+    sorted_hes = sorted(hg.hyperedges, key = lambda he : (he.spike_frequency + 0.000001)*len(he), reverse = True)
+
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+
+    seen_hes = set()
+    next_partition_idx = 0
+    sorted_hes_iterator = (he for he in sorted_hes if he not in seen_hes)
+    ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt/len(he), lambda : 0) # sometimes 'he.spike_frequency*cnt/len(he)' works better...
+    nodes_count = 0 # tracks nodes involved in the present partition
+    inbound_set = set() # tracks the inbound hyperedges to the present partition
+    while True:
+        if len(ranking) != 0:
+            he, _ = ranking.popMax()
+        else:
+            he = next(sorted_hes_iterator, None)
+            if he == None:
+                break
+        seen_hes.add(he)
+        timerPrint(f"Working on hyperedge: {len(seen_hes)}/{len(sorted_hes)}...")
+       
+        # greedy, second-order
+        for node in he:
+            if partitions[node] != -1:
+                continue
+            inbound_set.update(hg.getInboundHyperedges(node))
+            if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges:
+                inbound_set = set(hg.getInboundHyperedges(node))
+                nodes_count = 0
+                next_partition_idx += 1
+            nodes_count += 1
+            partitions[node] = next_partition_idx
+            for other_he in hg.getTouchingHyperedges(node): # using 'getInboundHyperedges' works too...
+                if other_he not in seen_hes:
+                    ranking[other_he] += 1
     
     # enforce max_partitions constraint
     if next_partition_idx + 1 > max_partitions:

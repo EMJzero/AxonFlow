@@ -74,7 +74,7 @@ class HyperEdge(Iterable):
         return len(self.nodes)
     
     def __eq__(self, other : Self) -> bool:
-        return self.nodes == other.nodes and self.spike_frequency == other.spike_frequency
+        return type(other) == HyperEdge and self.nodes == other.nodes and self.spike_frequency == other.spike_frequency
     
     def __str__(self) -> str:
         return self.nodes.__str__()[:-1] + f", sf = {self.spike_frequency:.1e})"
