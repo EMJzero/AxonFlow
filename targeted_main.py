@@ -61,13 +61,13 @@ def parse_options() -> dict[str, Any]:
 def help_options() -> None:
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
-    print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
+    print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print(("-l, --load <?path>\tLoads a true SNN graph instead of randomly generating one. If omitted, the default path is './snn_models/simple_cnn'.\n"
            "\t\t\tThe given path is concatenated with '_0.npz', '_input.npz', '.graphml', these are the three files expected to be found."))
     print("-s, --save <path>\tSaves the used SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'.")
     print("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load.")
-    print("-o --output <file>\tName of the '.json' file where to write results.")
-    print("-p --partitioning\tOnly runs the partitioning algorithms part, skips placement.")
+    print("-o, --output <file>\tName of the '.json' file where to write results.")
+    print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement.")
     print("-f, --fraction <num>\tFraction of the lowest-spike-frequency hyperedges to ignore (still count for costs), let it be a number in [0, 1].")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 

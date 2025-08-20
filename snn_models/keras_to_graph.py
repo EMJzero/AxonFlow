@@ -391,50 +391,6 @@ def extract_neuron_graph(model : Model, use_layer_type_as_name : bool = False, d
         G.close()
     return G
 
-# Example usage:
-if __name__ == "__main__":
-    path_wd = os.getcwd()
-
-    # load dataset
-    (x_train, y_train), (x_test, y_test) = mnist.load_data()
-    # normalize
-    x_train = x_train / 255
-    x_test = x_test / 255
-    # add channel dimension (B&W => 1 channel)
-    axis = 1 if keras.backend.image_data_format() == 'channels_first' else -1
-    x_train = np.expand_dims(x_train, axis)
-    x_test = np.expand_dims(x_test, axis)
-    # one-hot encode target vectors
-    y_train = to_categorical(y_train, 10)
-    y_test = to_categorical(y_test, 10)
-
-    # create ANN
-    input_shape = x_train.shape[1:]
-    input_layer = Input(input_shape)
-    layer = Conv2D(filters = 16, kernel_size = (5, 5), strides = (2, 2), activation = 'relu')(input_layer)
-    layer = BatchNormalization(axis = axis)(layer)
-    layer = Activation('relu')(layer)
-    layer = AveragePooling2D()(layer)
-    branch1 = Conv2D(filters = 32, kernel_size = (3, 3), padding = 'same', activation = 'relu')(layer)
-    branch2 = Conv2D(filters = 8, kernel_size = (1, 1), activation = 'relu')(layer)
-    layer = Concatenate(axis = axis)([branch1, branch2])
-    layer = Conv2D(filters = 10, kernel_size = (3, 3), activation = 'relu')(layer)
-    layer = Flatten()(layer)
-    layer = Dropout(0.01)(layer)
-    layer = Dense(units = 10, activation = 'softmax')(layer)
-
-    model = Model(input_layer, layer)
-    model.summary()
-    model.compile('adam', 'categorical_crossentropy', ['accuracy'])
-
-    # train model
-    model.fit(x_train, y_train, batch_size = 64, epochs = 1, verbose = 2, validation_data = (x_test, y_test))
-
-    # save the model as both a NN and a graph
-    model_name = 'mnist_cnn'
-    keras.models.save_model(model, os.path.join(path_wd, model_name + '.h5'))
-    nx.write_graphml(extract_neuron_graph(model), os.path.join(path_wd, model_name + '.graphml'))
-
 """
 Save model weights in a fully pickle-free way, guaranteed to be readable
 by older NumPy/TensorFlow versions.
@@ -479,3 +435,47 @@ def load_weights_compat(model : Model, filepath : str = "weights.npz", strict : 
         raise ValueError(f"Missing weights for layers: {missing_layers}")
 
     print(f"Loaded weights from {filepath}.")
+
+# Example usage:
+if __name__ == "__main__":
+    path_wd = os.getcwd()
+
+    # load dataset
+    (x_train, y_train), (x_test, y_test) = mnist.load_data()
+    # normalize
+    x_train = x_train / 255
+    x_test = x_test / 255
+    # add channel dimension (B&W => 1 channel)
+    axis = 1 if keras.backend.image_data_format() == 'channels_first' else -1
+    x_train = np.expand_dims(x_train, axis)
+    x_test = np.expand_dims(x_test, axis)
+    # one-hot encode target vectors
+    y_train = to_categorical(y_train, 10)
+    y_test = to_categorical(y_test, 10)
+
+    # create ANN
+    input_shape = x_train.shape[1:]
+    input_layer = Input(input_shape)
+    layer = Conv2D(filters = 16, kernel_size = (5, 5), strides = (2, 2), activation = 'relu')(input_layer)
+    layer = BatchNormalization(axis = axis)(layer)
+    layer = Activation('relu')(layer)
+    layer = AveragePooling2D()(layer)
+    branch1 = Conv2D(filters = 32, kernel_size = (3, 3), padding = 'same', activation = 'relu')(layer)
+    branch2 = Conv2D(filters = 8, kernel_size = (1, 1), activation = 'relu')(layer)
+    layer = Concatenate(axis = axis)([branch1, branch2])
+    layer = Conv2D(filters = 10, kernel_size = (3, 3), activation = 'relu')(layer)
+    layer = Flatten()(layer)
+    layer = Dropout(0.01)(layer)
+    layer = Dense(units = 10, activation = 'softmax')(layer)
+
+    model = Model(input_layer, layer)
+    model.summary()
+    model.compile('adam', 'categorical_crossentropy', ['accuracy'])
+
+    # train model
+    model.fit(x_train, y_train, batch_size = 64, epochs = 1, verbose = 2, validation_data = (x_test, y_test))
+
+    # save the model as both a NN and a graph
+    model_name = 'mnist_cnn'
+    keras.models.save_model(model, os.path.join(path_wd, model_name + '.h5'))
+    nx.write_graphml(extract_neuron_graph(model), os.path.join(path_wd, model_name + '.graphml'))

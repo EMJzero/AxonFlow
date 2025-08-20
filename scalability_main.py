@@ -57,9 +57,9 @@ def parse_options() -> dict[str, Any]:
 def help_options() -> None:
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
-    print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
-    print("-o --output <file>\tName of the '.json' file where to write results.")
-    print("-p --partitioning\tOnly runs the partitioning algorithms part, skips placement.")
+    print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
+    print("-o, --output <file>\tName of the '.json' file where to write results.")
+    print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement.")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -104,50 +104,50 @@ if __name__ == "__main__":
         sizes : dict[dict[str, int]] = {
             # LOGIC:
             # - nodes_count: *2
-            # - nodes_per_edge_mean: +2, +2, +4, +4, +8, +8, ... then *8
-            # - nodes_per_edge_variation: +1, +1, +2, +2, +4, +4, ... then *4
+            # - nodes_per_edge_mean: +2, +2, +4, +4, +8, +8, ...
+            # - nodes_per_edge_variation: +1, +1, +2, +2, +4, +4, ...
             # - neurons_per_core: +16, +16, +16, +32, +32, +64, +64, ...
             # - ALTERNATIVE neurons_per_core: +16, +16, +16, +32, +32, +32, +64, +64, +64, ...
-            # - synapses_per_core: +128, +128, +256, +256, +512, +512 ... then *2 after 1024*32 (included), then *4 after 1024*128, ...
+            # - synapses_per_core: +128, +128, +256, +256, +512, +512 ...
             "256":
-               {"nodes_count": 256, "nodes_per_edge_mean": 4*8, "nodes_per_edge_variation": 2*4,
+               {"nodes_count": 256, "nodes_per_edge_mean": 4, "nodes_per_edge_variation": 2,
                "neurons_per_core": 16, "synapses_per_core" : 256, "cores_per_chip_1d": 64},
             "512":
-                {"nodes_count": 512, "nodes_per_edge_mean": 6*8, "nodes_per_edge_variation": 3*4,
+                {"nodes_count": 512, "nodes_per_edge_mean": 6, "nodes_per_edge_variation": 3,
                 "neurons_per_core": 24, "synapses_per_core" : 384, "cores_per_chip_1d": 64},
             "1024":
-                {"nodes_count": 1024, "nodes_per_edge_mean": 8*8, "nodes_per_edge_variation": 4*4,
+                {"nodes_count": 1024, "nodes_per_edge_mean": 8, "nodes_per_edge_variation": 4,
                 "neurons_per_core": 32, "synapses_per_core" : 512, "cores_per_chip_1d": 64},
             f"{1024*2}":
-                {"nodes_count": 1024*2, "nodes_per_edge_mean": 12*8, "nodes_per_edge_variation": 6*4,
+                {"nodes_count": 1024*2, "nodes_per_edge_mean": 12, "nodes_per_edge_variation": 6,
                 "neurons_per_core": 64, "synapses_per_core" : 768, "cores_per_chip_1d": 64},
             f"{1024*4}":
-                {"nodes_count": 1024*4, "nodes_per_edge_mean": 16*8, "nodes_per_edge_variation": 8*4,
+                {"nodes_count": 1024*4, "nodes_per_edge_mean": 16, "nodes_per_edge_variation": 8,
                 "neurons_per_core": 96, "synapses_per_core" : 1024, "cores_per_chip_1d": 64},
             f"{1024*8}":
-                {"nodes_count": 1024*8, "nodes_per_edge_mean": 24*8, "nodes_per_edge_variation": 12*4,
+                {"nodes_count": 1024*8, "nodes_per_edge_mean": 24, "nodes_per_edge_variation": 12,
                 "neurons_per_core": 128, "synapses_per_core" : 1536, "cores_per_chip_1d": 64},
             f"{1024*16}":
-                {"nodes_count": 1024*16, "nodes_per_edge_mean": 32*8, "nodes_per_edge_variation": 16*4,
+                {"nodes_count": 1024*16, "nodes_per_edge_mean": 32, "nodes_per_edge_variation": 16,
                 "neurons_per_core": 192, "synapses_per_core" : 2048, "cores_per_chip_1d": 64},
             f"{1024*32}":
-                {"nodes_count": 1024*32, "nodes_per_edge_mean": 48*8, "nodes_per_edge_variation": 24*4,
-                "neurons_per_core": 256, "synapses_per_core" : 3072*2, "cores_per_chip_1d": 64},
+                {"nodes_count": 1024*32, "nodes_per_edge_mean": 48, "nodes_per_edge_variation": 24,
+                "neurons_per_core": 256, "synapses_per_core" : 3072, "cores_per_chip_1d": 64},
             f"{1024*64}":
-                {"nodes_count": 1024*64, "nodes_per_edge_mean": 64*8, "nodes_per_edge_variation": 32*4,
-                "neurons_per_core": 384, "synapses_per_core" : 4096*2, "cores_per_chip_1d": 64},
+                {"nodes_count": 1024*64, "nodes_per_edge_mean": 64, "nodes_per_edge_variation": 32,
+                "neurons_per_core": 384, "synapses_per_core" : 4096, "cores_per_chip_1d": 64},
             f"{1024*128}":
-                {"nodes_count": 1024*128, "nodes_per_edge_mean": 96*8, "nodes_per_edge_variation": 48*4,
-                "neurons_per_core": 512, "synapses_per_core" : 6144*4, "cores_per_chip_1d": 64},
+                {"nodes_count": 1024*128, "nodes_per_edge_mean": 96, "nodes_per_edge_variation": 48,
+                "neurons_per_core": 512, "synapses_per_core" : 6144, "cores_per_chip_1d": 64},
             f"{1024*256}":
-                {"nodes_count": 1024*256, "nodes_per_edge_mean": 128*8, "nodes_per_edge_variation": 64*4,
-                "neurons_per_core": 768, "synapses_per_core" : 8192*4, "cores_per_chip_1d": 96},
+                {"nodes_count": 1024*256, "nodes_per_edge_mean": 128, "nodes_per_edge_variation": 64,
+                "neurons_per_core": 768, "synapses_per_core" : 8192, "cores_per_chip_1d": 96},
             f"{1024*512}":
-                {"nodes_count": 1024*512, "nodes_per_edge_mean": 192*8, "nodes_per_edge_variation": 96*4,
-                "neurons_per_core": 1024, "synapses_per_core" : 12288*8, "cores_per_chip_1d": 96},
+                {"nodes_count": 1024*512, "nodes_per_edge_mean": 192, "nodes_per_edge_variation": 96,
+                "neurons_per_core": 1024, "synapses_per_core" : 12288, "cores_per_chip_1d": 96},
             f"{1024**2}":
-                {"nodes_count": 1024**2, "nodes_per_edge_mean": 256*8, "nodes_per_edge_variation": 128*4,
-                "neurons_per_core": 1536, "synapses_per_core" : 16384*8, "cores_per_chip_1d": 128}
+                {"nodes_count": 1024**2, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 128,
+                "neurons_per_core": 1536, "synapses_per_core" : 16384, "cores_per_chip_1d": 128}
         }
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
             #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,

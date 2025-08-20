@@ -50,6 +50,7 @@ def parse_options() -> dict[str, Any]:
         "load": args_match_and_remove(["-l", "--load"], with_value = True),
         "save": args_match_and_remove(["-s", "--save"], with_value = True),
         "reload": args_match_and_remove(["-r", "--reload"], with_value = True),
+        "dryrun": args_match_and_remove(["-d", "--dryrun"]),
         "fraction": args_match_and_remove(["-f", "--fraction"], with_value = True, value_type = float),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
@@ -58,11 +59,12 @@ def parse_options() -> dict[str, Any]:
 def help_options() -> None:
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
-    print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
+    print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print(("-l, --load <?path>\tLoads a true SNN graph instead of randomly generating one. If omitted, the default path is './snn_models/simple_cnn'.\n"
            "\t\t\tThe given path is concatenated with '_0.npz', '_input.npz', '.graphml', these are the three files expected to be found."))
     print("-s, --save <path>\tSaves the used SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'.")
     print("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load.")
+    print("-d, --dryrun\t\tOnly loads the model and algorithms, runs the model import/export/generation, and checks mapping feasibility.")
     print("-f, --fraction <num>\tFraction of the lowest-spike-frequency hyperedges to ignore (still count for costs), let it be a number in [0, 1].")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
@@ -264,8 +266,9 @@ if __name__ == "__main__":
             print("Metrics HSC layout (canon version - refined with force-directed algorithm):")
             prettyPrintDict(metrics_hsc_fd, 1)
         # run the above function while skipping lines that give exceptions...
-        line_by_line = make_swallowing_wrapper(line_by_line)
-        line_by_line()
+        if not options["dryrun"]:
+            line_by_line = make_swallowing_wrapper(line_by_line)
+            line_by_line()
     except Exception:
         print(traceback.format_exc())
 

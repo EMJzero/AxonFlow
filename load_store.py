@@ -12,6 +12,19 @@ from prints import *
 from utils import *
 from snn import *
 
+# HOW-TO IMPORT FROM SNN Toolbox:
+# - GitHub: https://github.com/NeuromorphicProcessorProject/snn_toolbox
+# - get SNN Toolbox up and running (good luck ;p), you can find the python3.8.20 requirements for it in 'snn_models/snn_toolbox_requirements.txt'
+# - prepare a python script to run the tool, see 'snn_models/snn_toolbox_example.py' for an example
+# - from the toolbox's output folder (usually './temp') recover, rename, and place all in the same folder the following files:
+#   - x_norm.npz -> {modelname}_input.npz
+#   - {modelname}.graphml
+#   - /log/gui/test/log_vars/0.pkl -> {modelname}_0.npz
+# - to speedup subsequent runs, run AxonFlow's main to import and save the preprocessed model:
+#   - python3.13 main.py -d -l folder/{modelname} -s folder/{modelname}_processed
+# - run experiments while re-importing the preprocessed model:
+#   - python3.13 targeted_main.py -r folder/{modelname}_preprocessed
+
 """
 Given a path relative to this script or absolute pointing to a GraphML graph,
 loads it and returns it as an hypergraph.
