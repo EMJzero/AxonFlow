@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Generator, Callable, Iterable, Optional, Any, Union
 from collections import defaultdict
 import multiprocessing
+import numpy as np
 import itertools
 import threading
 import traceback
@@ -441,3 +442,20 @@ Removes all duplicates from an iterable while preserving its order.
 def deduplicate_preserve_order(seq : Iterable[T]) -> list[T]:
     seen = set()
     return [x for x in seq if not (x in seen or seen.add(x))]
+
+"""
+Counting sort for arbitrary objects using integer keys.
+"""
+def counting_sort_by_key(arr: Iterable[T], key: Callable[[T], int]) -> list[T]:
+    if not arr:
+        return []
+    keys = np.fromiter((key(x) for x in arr), dtype=int, count=len(arr))
+    min_key = keys.min()
+    counts = np.bincount(keys - min_key)
+    positions = np.cumsum(counts) - counts
+    output = [None] * len(arr)
+    for element, k in zip(arr, keys):
+        pos = positions[k - min_key]
+        output[pos] = element
+        positions[k - min_key] += 1
+    return output

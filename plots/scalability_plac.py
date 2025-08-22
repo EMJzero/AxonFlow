@@ -1,8 +1,9 @@
 from typing import TypeVar, Any, Optional
-from functools import reduce
 from types import FrameType
 
 import matplotlib.pyplot as plt
+from functools import reduce
+from itertools import cycle
 import matplotlib.axes
 import matplotlib
 import traceback
@@ -146,10 +147,10 @@ if __name__ == "__main__":
         x_indices = list(range(len(sorted_sizes)))
 
         # Prepare metric containers
-        energy : dict[str, list[float]] = defaultdict(list)
-        latency : dict[str, list[float]] = defaultdict(list)
-        congestion : dict[str, list[float]] = defaultdict(list)
-        times : dict[str, list[float]] = defaultdict(list)
+        energy : dict[str, list[Optional[float]]] = defaultdict(list)
+        latency : dict[str, list[Optional[float]]] = defaultdict(list)
+        congestion : dict[str, list[Optional[float]]] = defaultdict(list)
+        times : dict[str, list[Optional[float]]] = defaultdict(list)
 
         for size in sorted_sizes:
             size_entries = entries_by_size[size]
@@ -167,7 +168,7 @@ if __name__ == "__main__":
                     times[technique].append(None)
 
         # Optional: normalize w.r.t. the best partitioning
-        energy_delay_product : dict[str, list[float]] = {}
+        energy_delay_product : dict[str, list[Optional[float]]] = {}
         best_energy_delay_product = [min([energy[technique][i]*latency[technique][i] for technique in techniques if energy[technique][i] != None and latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
         for technique in techniques:
             energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None else None, zip(energy[technique], latency[technique], best_energy_delay_product)))
@@ -181,12 +182,12 @@ if __name__ == "__main__":
         for technique in techniques:
             congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
 
-        # Optional: keep only the best placement for each partitioning technique
+        # Optional: keep only the best placement by EDP for each partitioning technique
         #best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
         #for technique, edp in energy_delay_product.items():
         #    partitioning_technique = technique.split('-', 1)[0]
         #    for i in range(len(sizes)):
-        #        if all(edp[i] is not None and (energy_delay_product[other_techinque][i] is None or energy_delay_product[other_techinque][i] > edp[i]) for other_techinque in best_techniques[partitioning_technique]):
+        #        if all(edp[i] is None or energy_delay_product[other_techinque][i] is None or energy_delay_product[other_techinque][i] > edp[i] for other_techinque in best_techniques[partitioning_technique]) and not all(e is None for e in edp):
         #            best_techniques[partitioning_technique].add(technique)
         #techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values())
         #energy = {k : v for k, v in energy.items() if k in techniques}
@@ -200,12 +201,12 @@ if __name__ == "__main__":
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True, tight_layout = True)
 
         # Assign markers to partitioning techniques
-        possible_markers = type('CircularList', (list,), {'__getitem__': lambda self, i: super(self.__class__, self).__getitem__(i % len(self))})(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
+        possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
         markers = {}
-        for i, technique in enumerate(techniques):
+        for technique in techniques:
             part_technique = technique.split('-', 1)[0]
             if part_technique not in markers:
-                markers[part_technique] = possible_markers[i]
+                markers[part_technique] = next(possible_markers)
 
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):

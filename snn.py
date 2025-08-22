@@ -7,6 +7,7 @@ from collections import defaultdict
 from array import array
 import networkx as nx
 import numpy as np
+import itertools
 import random
 import struct
 
@@ -22,6 +23,8 @@ class HyperEdge(Iterable):
     nodes : tuple[int, ...]
     spike_frequency : float
     _id : int
+    # global counter for assigning custom IDs
+    _id_conter = itertools.count(0)
     
     def __init__(self, source : int, destinations : tuple[int, ...], spike_frequency : float):
         if len(destinations) == 0:
@@ -29,7 +32,7 @@ class HyperEdge(Iterable):
         # TODO: raise an exception if a node occurs more than once in destinations
         self.nodes = (source,) + destinations
         self.spike_frequency = spike_frequency
-        self._id = hash(self.nodes + (self.spike_frequency, random.random()))
+        self._id = next(self._id_conter)
     
     """
     Returns this hyperedge's source node.
@@ -47,8 +50,8 @@ class HyperEdge(Iterable):
     Returns True iif 'other' has the same source and destinations as this hyperedge.
     """
     def sameNodes(self, other : Self) -> bool:
-        other_destinations = other.nodes[1:]
-        return self.nodes[0] == other.nodes[0] and len(self.nodes) == len(other.nodes) and all(node in other_destinations for node in self.nodes[1:])
+        other_destinations = set(other.nodes[1:])
+        return self.nodes[0] == other.nodes[0] and len(self.nodes) - 1 == len(other_destinations) and all(node in other_destinations for node in self.nodes[1:])
     
     """
     Returns an hash that is identical between any two hyperedges with the same source and set of destinations.
@@ -131,8 +134,8 @@ class HyperGraph(Iterable):
             self._outbound[he.source()].append(he)
             for d in he.destinations():
                 self._inbound[d].append(he)
-        map(tuple, self._outbound)
-        map(tuple, self._inbound)
+        #self._outbound = map(tuple, self._outbound)
+        #self._inbound = map(tuple, self._inbound)
 
     """
     Generate a random hypergraph with 'n' nodes, where each node is the source
@@ -215,7 +218,7 @@ class HyperGraph(Iterable):
                 src_part = partitions[he.source()]
                 if not keep_self_cycles and src_part in affected_partitions:
                     affected_partitions.remove(src_part)
-                if len(affected_partitions) > 1:
+                if len(affected_partitions) > 0:
                     new_hyperedges.append(HyperEdge(src_part, tuple(affected_partitions), he.spike_frequency))
         else:
             new_hyperedges : dict[int, HyperEdge] = {}
@@ -224,7 +227,7 @@ class HyperGraph(Iterable):
                 src_part = partitions[he.source()]
                 if not keep_self_cycles and src_part in affected_partitions:
                     affected_partitions.remove(src_part)
-                if len(affected_partitions) > 1:
+                if len(affected_partitions) > 0:
                     samenodes_hash = hash((src_part, hash(frozenset(affected_partitions))))
                     if samenodes_hash not in new_hyperedges:
                         new_hyperedges[samenodes_hash] = HyperEdge(src_part, tuple(affected_partitions), he.spike_frequency)
@@ -314,20 +317,22 @@ class HyperGraph(Iterable):
             hedges = self._outbound[src]
             disjoint_set = {} # usage: disjoint_set[idx] -> parent_idx (where 'parent' is an identical he that accumulated the spike frequency)
             for he_idx1 in range(1, len(hedges)):
+                he1 = hedges[he_idx1]
                 # search for an he identical to the one in he_idx1
                 for he_idx2 in range(he_idx1):
-                    if self.hyperedges[he_idx1].sameNodes(self.hyperedges[he_idx2]):
+                    he2 = hedges[he_idx2]
+                    if he1.sameNodes(he2):
                         # at this point, he_idx1 is never in disjoint_set
-                        while he_idx2 in disjoint_set:
-                            he_idx2 = disjoint_set[he_idx2]
-                        disjoint_set[he_idx1] = he_idx2
-                        self.hyperedges[he_idx2].spike_frequency += self.hyperedges[he_idx1].spike_frequency
+                        while he2 in disjoint_set:
+                            he2 = disjoint_set[he2]
+                        disjoint_set[he1] = he2
+                        he2.spike_frequency += he1.spike_frequency
                         break
-            self._outbound[src] = tuple(he for he in self._outbound[src] if he not in disjoint_set)
+            self._outbound[src] = list(he for he in self._outbound[src] if he not in disjoint_set)
             to_delete.update(disjoint_set)
         self.hyperedges = [he for he in self.hyperedges if he not in to_delete]
         for dst in range(self.nodes):
-            self._inbound[dst] = tuple(he for he in self._inbound[dst] if he not in to_delete)
+            self._inbound[dst] = list(he for he in self._inbound[dst] if he not in to_delete)
         
         # NOTE: general case variant (when the one-source HP does not hold)
         #seen = defaultdict(list) # usage: seen[hedge_xor] -> list of distinct hedges with the same xor

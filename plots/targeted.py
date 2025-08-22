@@ -3,6 +3,8 @@ from types import FrameType
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+from functools import reduce
+from itertools import cycle
 import numpy as np
 import matplotlib
 import traceback
@@ -123,9 +125,10 @@ if __name__ == "__main__":
         x_indices = list(range(len(files)))
 
         # Metrics to collect
-        energy = defaultdict(list)
-        latency = defaultdict(list)
-        times = defaultdict(list)
+        energy : dict[str, list[Optional[float]]] = defaultdict(list)
+        latency : dict[str, list[Optional[float]]] = defaultdict(list)
+        congestion : dict[str, list[Optional[float]]] = defaultdict(list)
+        times : dict[str, list[Optional[float]]] = defaultdict(list)
 
         # Read files
         for file in files:
@@ -173,58 +176,178 @@ if __name__ == "__main__":
                 if entry:
                     energy[technique].append(entry.get("plac_energy", None))
                     latency[technique].append(entry.get("plac_avg_lat", None))
+                    congestion[technique].append(entry.get("plac_avg_cong", None))
                     times[technique].append(entry.get("time", None))
                 else:
                     energy[technique].append(None)
                     latency[technique].append(None)
+                    congestion[technique].append(None)
                     times[technique].append(None)
 
         # Optional: normalize w.r.t. the best partitioning
+        energy_delay_product : dict[str, list[Optional[float]]] = {}
+        best_energy_delay_product = [min([energy[technique][i]*latency[technique][i] for technique in techniques if energy[technique][i] != None and latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        for technique in techniques:
+            energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None else None, zip(energy[technique], latency[technique], best_energy_delay_product)))
         best_energy = [min([energy[technique][i] for technique in techniques if energy[technique][i] != None], default = 0) for i in range(len(x_indices))]
         for technique in techniques:
             energy[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(energy[technique], best_energy)))
         best_latency = [min([latency[technique][i] for technique in techniques if latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
         for technique in techniques:
             latency[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(latency[technique], best_latency)))
+        best_congestion = [min([congestion[technique][i] for technique in techniques if congestion[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        for technique in techniques:
+            congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
+
+        # Optional: keep only the best placement by EDP for each partitioning technique
+        omit_techniques = {"setlist"}
+        best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
+        for technique in sorted(energy_delay_product.keys()):
+            edp = energy_delay_product[technique]
+            partitioning_technique = technique.split('-', 1)[0]
+            if partitioning_technique in omit_techniques:
+                continue
+            for i in range(len(file_data)):
+                if all(edp[i] is None or energy_delay_product[other_techinque][i] is None or energy_delay_product[other_techinque][i] > edp[i] for other_techinque in best_techniques[partitioning_technique]) and not all(e is None for e in edp):
+                    best_techniques[partitioning_technique].add(technique)
+        techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values())
+        energy = {k : v for k, v in energy.items() if k in techniques}
+        latency = {k : v for k, v in latency.items() if k in techniques}
+        congestion = {k : v for k, v in congestion.items() if k in techniques}
+        times = {k : v for k, v in times.items() if k in techniques}
+        energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
 
         # Plotting
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(20, 6), sharex=True)
+        #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
+        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True, tight_layout = True)
+
+        # Assign markers to partitioning techniques
+        possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
+        possible_linestyles = cycle(['-', ':', '--', '-.'])
+        style = {}
+        for technique in sorted(techniques):
+            part_technique = technique.split('-', 1)[0]
+            if part_technique not in style:
+                style[part_technique] = {"marker": next(possible_markers), "linestyle": next(possible_linestyles), "markersize": 8, "alpha": 0.9}
+
+        # Decide the y-axis bounds by ignoring outliers (lower sigma is more brutal)
+        def set_bounds(ax : matplotlib.axes.Axes, sigma : float = 0.5, margin : float = 0.2):
+            lines = ax.lines
+            data_by_x = {}
+            for line in lines:
+                xdata, ydata = line.get_xdata(), line.get_ydata()
+                for xi, yi in zip(xdata, ydata):
+                    if yi is None or np.isnan(yi):
+                        continue
+                    data_by_x.setdefault(xi, []).append(yi)
+
+            valid_y = []
+            for xi, values in data_by_x.items():
+                values = np.array(values, dtype = float)
+                if len(values) == 1:
+                    valid_y.extend(values)
+                else:
+                    mean = values.mean()
+                    std = values.std()
+                    keep = values[np.abs(values - mean) <= sigma * std]
+                    valid_y.extend(keep)
+
+            valid_y = np.array(valid_y)
+            ymin, ymax = valid_y.min(), valid_y.max()
+            yrange = ymax - ymin
+            if yrange == 0:
+                ymin, ymax = ymin - 1, ymax + 1
+            else:
+                ymin -= margin * yrange
+                ymax += margin * yrange
+            if ax.get_yscale() == "log":
+                ymin = 1.0 - margin #max(ymin, np.min(valid_y[valid_y > 0]) * 0.9)
+                ymax = max(ymax, ymin * 1.1)
+            ax.set_ylim(ymin, ymax)
 
         # Energy plot
-        for technique in sorted(techniques):
-            ax1.plot(x_indices, energy[technique], marker = 'o', label = technique)
-        ax1.set_xticks(x_indices)
-        ax1.set_xticklabels(x_labels, rotation = 45, ha = "right")
-        ax1.set_xlabel("Input Graph (nodes)")
-        ax1.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
-        ax1.set_title("Energy vs Input Graph")
-        ax1.legend()
-        ax1.grid(True)
+        def energy_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, energy[technique], **style[technique.split('-', 1)[0]], label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
+            ax.set_title("Energy vs Problem Size")
+            #ax.legend()
+            ax.grid(True)
+            set_bounds(ax)
 
         # Latency plot
-        for technique in sorted(techniques):
-            ax2.plot(x_indices, latency[technique], marker = 'o', label = technique)
-        ax2.set_xticks(x_indices)
-        ax2.set_xticklabels(x_labels, rotation = 45, ha = "right")
-        ax2.set_xlabel("Input Graph (nodes)")
-        ax2.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
-        ax2.set_title("Latency vs Input Graph")
-        ax2.legend()
-        ax2.grid(True)
+        def latency_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, latency[technique], **style[technique.split('-', 1)[0]], label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
+            ax.set_title("Latency vs Problem Size")
+            #ax.legend()
+            ax.grid(True)
+            set_bounds(ax)
+
+        # Congestion plot
+        def congestion_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, congestion[technique], **style[technique.split('-', 1)[0]], label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Avg. congestion (normalized w.r.t. lowest)")
+            ax.set_title("Congestion vs Problem Size")
+            #ax.legend()
+            ax.grid(True)
+            set_bounds(ax)
+
+        # TODO: does it even make sense to look at this? It is not like, the longer you run, the more you consume here...
+        # Energy x Delay Product plot
+        def edp_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, energy_delay_product[technique], **style[technique.split('-', 1)[0]], label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Placement Energy x Latency (normalized w.r.t. lowest)")
+            ax.set_title("Energy-Delay Product vs Problem Size")
+            #ax.legend()
+            ax.grid(True)
+            set_bounds(ax)
 
         # Time plot
-        for technique in sorted(techniques):
-            ax3.plot(x_indices, times[technique], marker = 'o', label = technique)
-        ax3.set_xticks(x_indices)
-        ax3.set_xticklabels(x_labels, rotation = 45, ha = "right")
-        ax3.set_xlabel("Input Graph (nodes)")
-        ax3.set_ylabel("Execution Time (s)")
-        ax3.set_title("Time vs Input Graph")
-        ax3.legend()
-        ax3.grid(True)
+        def time_plot(ax : matplotlib.axes.Axes):
+            for technique in sorted(techniques):
+                ax.plot(x_indices, times[technique], **style[technique.split('-', 1)[0]], label = technique)
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Time [s]")
+            ax.set_title("Execution Time vs Problem Size")
+            #ax.legend()
+            ax.grid(True)
+        
+        energy_plot(ax1)
+        latency_plot(ax2)
+        edp_plot(ax3)
+        time_plot(ax4)
+        
+        max_legend_rows = 3
+        # HP: all axis have the same entries!
+        handles, labels = ax1.get_legend_handles_labels()
+        ncols = math.ceil(len(labels) / max_legend_rows)
+        fig.legend(handles, labels, loc = 'lower center', ncol = ncols)
         
         # Show the plot
-        plt.tight_layout()
+        plt.tight_layout(rect = [0, 0.065, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
         if options["save"]:
             filename = options["save"]
             if not any(filename.endswith(ext) for ext in SUPPORTED_EXTENSIONS):
