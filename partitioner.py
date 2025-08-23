@@ -1092,7 +1092,10 @@ def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: 
 @core
 def partitionHyperedgeHidingCompact(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
     partitions : list[int] = [-1 for _ in range(hg.nodes)]
-    sorted_hes = sorted(hg.hyperedges, key = lambda he : (he.spike_frequency + 0.000001)*len(he), reverse = True)
+    # ordering by either only-length or only-spike-frequency seems to work better than to do so by their product...
+    #sorted_hes = sorted(hg.hyperedges, key = lambda he : (he.spike_frequency + 0.000001)*len(he), reverse = True)
+    sorted_hes = sorted(hg.hyperedges, key = lambda he : he.spike_frequency, reverse = True)
+    #sorted_hes = sorted(hg.hyperedges, key = lambda he : len(he), reverse = True)
     hes_length = {he : len(he) for he in hg.hyperedges}
 
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
@@ -1130,6 +1133,8 @@ def partitionHyperedgeHidingCompact(hg: HyperGraph, max_nodes: int, max_inbound_
                 #ranking.clear()
                 #for r in tuple(ranking.keys()):
                 #    ranking[r] *= 0.2
+                if nodes_count == 0:
+                    raise Exception(f"Node {best_node} has more inbound hyperedges than the hardware can handle per-core: {len(inbound_set)} > {max_inbound_edges}.")
                 inbound_set.clear()
                 nodes_count = 0
                 next_partition_idx += 1
@@ -1138,6 +1143,80 @@ def partitionHyperedgeHidingCompact(hg: HyperGraph, max_nodes: int, max_inbound_
             nodes_count += 1
             partitions[best_node] = next_partition_idx
             for other_he in hg.getTouchingHyperedges(best_node):
+                if other_he not in seen_hes:
+                    hes_length[other_he] -= 1
+                    if hes_length[other_he] == 0:
+                        seen_hes.add(other_he)
+                        ranking.pop(other_he)
+                    else:
+                        ranking[other_he] += 1
+    
+    # enforce max_partitions constraint
+    if next_partition_idx + 1 > max_partitions:
+        raise Exception(f"Partitioning could only form {next_partition_idx} > {max_partitions} clusters under the provided constraints.")
+    
+    return partitions
+
+@core
+def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+    partitions : list[int] = [-1 for _ in range(hg.nodes)]
+    # ordering by either only-length or only-spike-frequency seems to work better than to do so by their product...
+    #sorted_hes = sorted(hg.hyperedges, key = lambda he : (he.spike_frequency + 0.000001)*len(he), reverse = True)
+    sorted_hes = sorted(hg.hyperedges, key = lambda he : he.spike_frequency, reverse = True)
+    #sorted_hes = sorted(hg.hyperedges, key = lambda he : len(he), reverse = True)
+    # counter of each hyperedge's yet-to-assign nodes
+    #hes_length = {he : len(he) for he in hg.hyperedges}
+    hes_length = {he : he.connections() + (1 if len(hg.getInboundHyperedges(he.source())) == 0 else 0) for he in hg.hyperedges}
+
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+
+    seen_hes = set()
+    next_partition_idx = 0
+    sorted_hes_iterator = (he for he in sorted_hes if he not in seen_hes)
+    # next hyperedge: the one with the highest overlap ratio
+    ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt/hes_length[he], lambda : 0) # sometimes 'he.spike_frequency*cnt/len(he)' works better...
+    nodes_count = 0 # tracks nodes involved in the present partition
+    inbound_set = set() # tracks the inbound hyperedges to the present partition
+    while True:
+        if len(ranking) != 0:
+            he, _ = ranking.popMax()
+        else:
+            he = next(sorted_hes_iterator, None)
+            if he == None:
+                break
+        seen_hes.add(he)
+        timerPrint(f"Working on hyperedge: {len(seen_hes)}/{len(sorted_hes)}...")
+       
+        # next node: the one with least new hyperedges, and then the most common hyperedges
+        # NOTE: consider destinations only! In particular:
+        # - if the source has zero inbound hyperedges, sure, bring it closer to its destinations
+        # - otherwise, leave it together with other nodes that have similar inbound sets, since not doing so would
+        #   fragment their hyperedges without ever asking their permission (since they would end up with lenght zero!)
+        nodes = {node : set(hg.getInboundHyperedges(node)) for node in he.destinations() if partitions[node] == -1}
+        if len(hg.getInboundHyperedges(src := he.source())) == 0 and partitions[src] == -1:
+            nodes[src] = set()
+        while len(nodes) > 0:
+            if len(inbound_set) == 0:
+                # empty inbound set? Pick the node with the largest inbound set (see Loihi Compiler), as to make sure it fits
+                best_node, inbound = max(nodes.items(), key = lambda item : len(item[1]))
+                #best_node, inbound = min(nodes.items(), key = lambda item : (len(item[1]), sum(ohe.spike_frequency for ohe in hg.getOutboundHyperedges(item[0]))))
+            else:
+                # this already gives the minimum overlap node, if it can't fit, no other node can, thus we need a new partition
+                best_node, inbound = min(nodes.items(), key = lambda item : (len(item[1] - inbound_set), -len(item[1]))) # TODO: in case of tie, break it by total spike frequency
+                #best_node, inbound = max(nodes.items(), key = lambda item : len(item[1] & inbound_set)/len(item[1]) if item[1] else 0)
+            inbound_set.update(inbound)
+            if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges:
+                if nodes_count == 0:
+                    raise Exception(f"Node {best_node} has more inbound hyperedges than the hardware can handle per-core: {len(inbound_set)} > {max_inbound_edges}.")
+                ranking.clear()
+                inbound_set.clear()
+                nodes_count = 0
+                next_partition_idx += 1
+                continue
+            nodes.pop(best_node)
+            nodes_count += 1
+            partitions[best_node] = next_partition_idx
+            for other_he in hg.getInboundHyperedges(best_node):
                 if other_he not in seen_hes:
                     hes_length[other_he] -= 1
                     if hes_length[other_he] == 0:

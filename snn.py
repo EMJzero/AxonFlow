@@ -151,18 +151,28 @@ class HyperGraph(Iterable):
     def generate_random(cls, n: int, c: float, d: float, spike_frequency_range: tuple[float, float] = (0.1, 1.0), seed : Optional[int] = None) -> Self:
         hyperedges = []
         spike_frequencies = []
+        range_interval, range_min = spike_frequency_range[1] - spike_frequency_range[0], spike_frequency_range[0]
 
         rng = np.random.default_rng(seed)
         all_nodes = np.arange(n, dtype = np.int32)
-        num_dests = np.clip(rng.normal(loc = c, scale = d, size = n).astype(np.int32), 0, n - 1)
+        num_dests = np.clip(rng.normal(loc = c, scale = d, size = n).astype(np.int32), 1, n - 1)
         for source in range(n):
             nd = num_dests[source]
-            if nd == 0:
-                continue
             candidates = np.delete(all_nodes, source)
-            destinations = rng.choice(candidates, size = nd, replace = False)
+            # compute weights to make each node more likely to connect to closer nodes, with a bias towards > indexes
+            # the custom probability of choosing node 'i' as a target from the current node 's' is: p(i|s) = e^{-|i - s|/a*n}*(1 + q*tanh((i - s)/c*n))
+            #q, a, c = 0.6, 0.6, 0.03 # vertical span (higher -> widens the gap between lower and higher indices), distance weight (higher -> prefers distance indices), smoothness at present node (higher -> smoother, moves +/- peaks further from the present index)
+            q, a, c = 0.3, 0.1, 0.05
+            distances = np.abs(candidates - source)
+            decay = np.exp(-distances / (a * n))
+            bias = 1.0 + q * np.tanh((candidates - source) / (c * n))
+            weights = decay * bias
+            weights /= weights.sum() # normalize to make a distribution
+            destinations = rng.choice(candidates, size = nd, replace = False, p = weights)
+            #destinations = rng.choice(candidates, size = nd, replace = False)
             hyperedges.append((source, *destinations))
-            spike_frequencies.append(rng.uniform(*spike_frequency_range))
+            #spike_frequencies.append(rng.uniform(*spike_frequency_range))
+            spike_frequencies.append(rng.beta(5, 2)*range_interval + range_min)
         return cls(n, hyperedges, spike_frequencies)
 
     """

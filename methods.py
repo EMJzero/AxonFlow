@@ -524,7 +524,7 @@ def run_hehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) ->
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
-    part = partitionHyperedgeHidingCompact(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
