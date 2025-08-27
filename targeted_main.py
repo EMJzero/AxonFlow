@@ -105,10 +105,12 @@ if __name__ == "__main__":
     if Settings.MULTIPROCESSING:
         multiprocessing.current_process().name = '0'
 
+    print("Start time (GMT):", time.strftime("%Y-%m-%d %H:%M:%S", time.gmtime()))
+
     # MAIN CODE:
     try:
         seed = 192 #79
-        print("seed:", seed)
+        print("Seed:", seed)
         
         if options["reload"]:
             print("\n------- reloading graph ------")

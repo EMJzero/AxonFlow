@@ -1,17 +1,21 @@
 from typing import TypeVar, Any, Optional
 from types import FrameType
 
-import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+import matplotlib.legend_handler
+import matplotlib.patches
+import matplotlib.axes
+import matplotlib
+
+from collections import defaultdict
 from functools import reduce
 from itertools import cycle
 import numpy as np
-import matplotlib
 import traceback
 import time
+import math
 import code
 import json
-import time
 import sys
 import os
 
@@ -75,6 +79,7 @@ DPI = 300 #800
 SAVE_NOT_SHOW = True
 
 FONTSIZE = 15
+BAR_WIDTH = 0.08
 
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
@@ -117,7 +122,10 @@ if __name__ == "__main__":
                 files.append(f)
                 print("Added file:", f)
             else:
-                print("Skipped file:", f)
+                if os.path.isdir(os.path.join(path, f)):
+                    print("Skipped folder:", f)
+                else:
+                    print("Skipped file:", f)
         files.sort()
         techniques = set()
         file_data = []  # will hold tuples: (num_nodes, filename, technique_entries)
@@ -217,58 +225,103 @@ if __name__ == "__main__":
         times = {k : v for k, v in times.items() if k in techniques}
         energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
 
+        # Replace 'None' with zero
+        for technique in techniques:
+            energy[technique] = list(map(lambda x : x if x != None else math.nan, energy[technique]))
+            latency[technique] = list(map(lambda x : x if x != None else math.nan, latency[technique]))
+            congestion[technique] = list(map(lambda x : x if x != None else math.nan, congestion[technique]))
+            times[technique] = list(map(lambda x : x if x != None else math.nan, times[technique]))
+            energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, energy_delay_product[technique]))
+
+        # Prepare for bar-plot
+        index = np.arange(len(x_labels))
+        offset = (len(techniques) - 1)/2
+        techniques = sorted(techniques, key = lambda s: (''.join(chr(255 - ord(c)) for c in s.split('-')[0]), s.split('-')[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+
         # Plotting
         #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True, tight_layout = True)
 
-        # Assign markers to partitioning techniques
+        # Assign style to partitioning techniques
+        possible_colors = [
+                "#6C8EBF", # BLUE
+                "#48617A", # DARK-BLUE
+                "#FFB700", # YELLOW # alts: D79B00
+                "#B38000", # DARK YELLOW
+                "#FF6978", # PINK
+                "#A8516E", # DARK PINK
+                "#82B366", # GREEN
+                "#169E1B", # DARK-GREEN
+                "#EB6050", # RED # alts: cc3300, e63900, ec3c00, ff531a, ff3c2d, f03c2d, ea382a, ea3b2e, e7473a, e9493d, e94e3d, eb5847
+                "#8E2B25", # DARKER RED
+                "#C2E812", # LIME
+                "#768E0B", # DARK LIME
+            ]
+        #possible_hatches = cycle(['', '/', '\\', 'x', '.']) #['', '/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*']
         possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
         possible_linestyles = cycle(['-', ':', '--', '-.'])
+        part_techniques_to_hatch = defaultdict(lambda : '', hehiding = '/')
         style = {}
-        for technique in sorted(techniques):
+        line_style = {}
+        #prev_part_technique, ongoing_color, ongoing_hatch, ongoing_linestyle = None, cycle(possible_colors), next(possible_hatches), next(possible_linestyles)
+        prev_part_technique, ongoing_color, ongoing_hatch, ongoing_linestyle = None, cycle(possible_colors), '', next(possible_linestyles)
+        for technique in techniques:
             part_technique = technique.split('-', 1)[0]
-            if part_technique not in style:
-                style[part_technique] = {"marker": next(possible_markers), "linestyle": next(possible_linestyles), "markersize": 8, "alpha": 0.9}
+            if prev_part_technique != part_technique:
+                prev_part_technique = part_technique
+                #ongoing_color = cycle(possible_colors)
+                #ongoing_hatch = next(possible_hatches)
+                ongoing_linestyle = next(possible_linestyles)
+            color = next(ongoing_color)
+            style[technique] = {"color": color, "hatch": part_techniques_to_hatch[part_technique], "edgecolor": "white", "alpha": 1.0}
+            line_style[technique] = {"color": color, "marker" : next(possible_markers), "linestyle" : ongoing_linestyle, "markersize" : 8, "alpha" : 1.0}
 
         # Decide the y-axis bounds by ignoring outliers (lower sigma is more brutal)
-        def set_bounds(ax : matplotlib.axes.Axes, sigma : float = 0.5, margin : float = 0.2):
-            lines = ax.lines
-            data_by_x = {}
-            for line in lines:
-                xdata, ydata = line.get_xdata(), line.get_ydata()
-                for xi, yi in zip(xdata, ydata):
-                    if yi is None or np.isnan(yi):
-                        continue
-                    data_by_x.setdefault(xi, []).append(yi)
+        def set_bounds(ax : matplotlib.axes.Axes, data : Optional[dict[str, float]], shapes : Optional[list[matplotlib.patches.Patch]], sigma : float = 0.5, margin : float = 0.2):
+            if data:
+                data_by_x = defaultdict(list)
+                for technique in techniques:
+                    for xi, value in zip(x_labels, data[technique]):
+                        if value is None or np.isnan(value):
+                            continue
+                        data_by_x[xi].append(value)
 
-            valid_y = []
-            for xi, values in data_by_x.items():
-                values = np.array(values, dtype = float)
-                if len(values) == 1:
-                    valid_y.extend(values)
+                valid_y = []
+                for xi, values in data_by_x.items():
+                    values = np.array(values, dtype = float)
+                    if len(values) == 1:
+                        valid_y.extend(values)
+                    else:
+                        mean = values.mean()
+                        std = values.std()
+                        keep = values[np.abs(values - mean) <= sigma * std]
+                        valid_y.extend(keep)
+
+                valid_y = np.array(valid_y)
+                ymin, ymax = valid_y.min(), valid_y.max()
+                yrange = ymax - ymin
+                if yrange == 0:
+                    ymin, ymax = ymin - 1, ymax + 1
                 else:
-                    mean = values.mean()
-                    std = values.std()
-                    keep = values[np.abs(values - mean) <= sigma * std]
-                    valid_y.extend(keep)
-
-            valid_y = np.array(valid_y)
-            ymin, ymax = valid_y.min(), valid_y.max()
-            yrange = ymax - ymin
-            if yrange == 0:
-                ymin, ymax = ymin - 1, ymax + 1
-            else:
-                ymin -= margin * yrange
-                ymax += margin * yrange
-            if ax.get_yscale() == "log":
-                ymin = 1.0 - margin #max(ymin, np.min(valid_y[valid_y > 0]) * 0.9)
-                ymax = max(ymax, ymin * 1.1)
-            ax.set_ylim(ymin, ymax)
+                    ymin -= margin * yrange
+                    ymax += margin * yrange
+                if ax.get_yscale() == "log":
+                    ymin = 1.0 - margin #max(ymin, np.min(valid_y[valid_y > 0]) * 0.9)
+                    ymax = max(ymax, ymin * 1.1)
+                ax.set_ylim(ymin, ymax)
+            
+            if shapes:
+                min_x, max_x = math.inf, 0
+                for shape in shapes:
+                    min_x = min(min_x, shape.get_x())
+                    max_x = max(max_x, shape.get_x())
+                ax.set_xlim(min_x - BAR_WIDTH, max_x + 2*BAR_WIDTH)
 
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):
-            for technique in sorted(techniques):
-                ax.plot(x_indices, energy[technique], **style[technique.split('-', 1)[0]], label = technique)
+            rects = []
+            for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -276,13 +329,14 @@ if __name__ == "__main__":
             ax.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
             ax.set_title("Energy vs Problem Size")
             #ax.legend()
-            ax.grid(True)
-            set_bounds(ax)
+            ax.grid(axis = 'y', which = 'both')
+            set_bounds(ax, energy, rects)
 
         # Latency plot
         def latency_plot(ax : matplotlib.axes.Axes):
-            for technique in sorted(techniques):
-                ax.plot(x_indices, latency[technique], **style[technique.split('-', 1)[0]], label = technique)
+            rects = []
+            for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, latency[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -290,13 +344,14 @@ if __name__ == "__main__":
             ax.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
             ax.set_title("Latency vs Problem Size")
             #ax.legend()
-            ax.grid(True)
-            set_bounds(ax)
+            ax.grid(axis = 'y', which = 'both')
+            set_bounds(ax, latency, rects)
 
         # Congestion plot
         def congestion_plot(ax : matplotlib.axes.Axes):
-            for technique in sorted(techniques):
-                ax.plot(x_indices, congestion[technique], **style[technique.split('-', 1)[0]], label = technique)
+            rects = []
+            for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, congestion[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -304,14 +359,15 @@ if __name__ == "__main__":
             ax.set_ylabel("Avg. congestion (normalized w.r.t. lowest)")
             ax.set_title("Congestion vs Problem Size")
             #ax.legend()
-            ax.grid(True)
-            set_bounds(ax)
+            ax.grid(axis = 'y', which = 'both')
+            set_bounds(ax, congestion, rects)
 
         # TODO: does it even make sense to look at this? It is not like, the longer you run, the more you consume here...
         # Energy x Delay Product plot
         def edp_plot(ax : matplotlib.axes.Axes):
-            for technique in sorted(techniques):
-                ax.plot(x_indices, energy_delay_product[technique], **style[technique.split('-', 1)[0]], label = technique)
+            rects = []
+            for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy_delay_product[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -319,13 +375,27 @@ if __name__ == "__main__":
             ax.set_ylabel("Placement Energy x Latency (normalized w.r.t. lowest)")
             ax.set_title("Energy-Delay Product vs Problem Size")
             #ax.legend()
-            ax.grid(True)
-            set_bounds(ax)
+            ax.grid(axis = 'y', which = 'both')
+            set_bounds(ax, energy_delay_product, rects)
 
         # Time plot
         def time_plot(ax : matplotlib.axes.Axes):
-            for technique in sorted(techniques):
-                ax.plot(x_indices, times[technique], **style[technique.split('-', 1)[0]], label = technique)
+            rects = []
+            for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, times[technique], BAR_WIDTH, label = technique, **style[technique])
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Time [s]")
+            ax.set_title("Execution Time vs Problem Size")
+            #ax.legend()
+            ax.grid(axis = 'y', which = 'major')
+            set_bounds(ax, None, rects)
+        # With lines instead of bars
+        def time_plot_lines(ax : matplotlib.axes.Axes):
+            for technique in techniques:
+                ax.plot(x_indices, times[technique], label = technique, **line_style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -338,13 +408,17 @@ if __name__ == "__main__":
         energy_plot(ax1)
         latency_plot(ax2)
         edp_plot(ax3)
-        time_plot(ax4)
+        #time_plot(ax4)
+        time_plot_lines(ax4)
         
-        max_legend_rows = 3
+        max_legend_rows = 2
         # HP: all axis have the same entries!
         handles, labels = ax1.get_legend_handles_labels()
+        # UNLESS: you use lines for time, instead of bars
+        handles_lines, _ = ax4.get_legend_handles_labels()
+        combined_handles = list(zip(handles, handles_lines))
         ncols = math.ceil(len(labels) / max_legend_rows)
-        fig.legend(handles, labels, loc = 'lower center', ncol = ncols)
+        fig.legend(combined_handles, labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0) # handlelength = 4.0
         
         # Show the plot
         plt.tight_layout(rect = [0, 0.065, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!

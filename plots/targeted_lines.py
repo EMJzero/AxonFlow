@@ -2,14 +2,14 @@ from typing import TypeVar, Any, Optional
 from types import FrameType
 
 import matplotlib.pyplot as plt
+from functools import reduce
 from itertools import cycle
-import matplotlib.axes
+import numpy as np
 import matplotlib
 import traceback
 import time
 import code
 import json
-import math
 import sys
 import os
 
@@ -49,7 +49,7 @@ def parse_options() -> dict[str, Any]:
     options = {
         "help": args_match_and_remove(["-h", "--help"]),
         "interactive": args_match_and_remove(["-i", "--interactive"]),
-        "path": args_match_and_remove(["-p", "--path"], with_value = True),
+        "dir": args_match_and_remove(["-d", "--dir"], with_value = True),
         "save": args_match_and_remove(["-s", "--save"], with_value = True),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
@@ -59,7 +59,8 @@ def help_options() -> None:
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
     print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
-    print(("-p, --path <path>\tPath to the '.json' file containing the output of 'scalability_main.py'."))
+    print(("-d, --dir <path>\tPath to the directory (folder) containing one or more '.json' files, each being the output of a run of 'targeted_main.py'."
+        "Only files immediately inside the directory (no nested directories) and with the '.json' extension will be considered."))
     print(("-s, --save <name>\tSaves the produced plot with the given name, instead of showing it. There is automatic file overwrite prevention.\n"
         "The default extension is '.png', add an extension to <name> to override the file type, supported ones are '.pdf', '.eps', '.svg', '.png'."))
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
@@ -98,62 +99,81 @@ if __name__ == "__main__":
 
     try:
         # Load JSON data
-        path = options["path"]
+        path = options["dir"]
         if not path:
-            print(f"No filepath provided, option '-p' or '--path' is mandatory.")
+            print(f"No directory path provided, option '-d' or '--dir' is mandatory.")
             sys.exit(0)
         if not os.path.exists(path):
             raise Exception(f"The provided path does not exist: {path}")
-        elif not os.path.isfile(path):
-            raise Exception(f"The provided path is not a file: {path}")
-        elif path.split('.')[-1] != "json":
-            print(f"WARNING: the '{path}' file does not have the '.json' extension. Are you sure it is a report from 'scalability_main.py'?")
-        with open(path, "r") as f:
-            data = json.load(f)
+        elif not os.path.isdir(path):
+            raise Exception(f"The provided path is not a directory: {path}")
 
         # Organize data
-        entries_by_size = defaultdict(dict)
+        files = []
+        for f in os.listdir(path):
+            if f.endswith(".json"):
+                files.append(f)
+                print("Added file:", f)
+            else:
+                if os.path.isdir(os.path.join(path, f)):
+                    print("Skipped folder:", f)
+                else:
+                    print("Skipped file:", f)
+        files.sort()
         techniques = set()
-        sizes = set()
+        file_data = []  # will hold tuples: (num_nodes, filename, technique_entries)
+        x_labels = []
+        x_indices = list(range(len(files)))
 
-        for entry in data:
-            name = entry['name']
-            try:
-                size_str, *technique_parts = name.split("-")
-                size = int(size_str)
-                technique = "-".join(technique_parts)
-            except ValueError:
-                print(f"Invalid name format: {name}")
-                continue
-
-            if "note" in entry:
-                print(f"Failed entry '{name}', note content:\n\t{entry['note']}")
-                continue
-
-            techniques.add(technique)
-            sizes.add(size)
-            entries_by_size[size][technique] = entry
-
-            if not entry.get("part_valid", True):
-                print(f"WARNING: Invalid partitioning for {name}")
-            if not entry.get("plac_valid", True):
-                print(f"WARNING: Invalid placement for {name}")
-
-        # Prepare X axis
-        sorted_sizes = sorted(sizes)
-        x_labels = [str(s) for s in sorted_sizes]
-        x_indices = list(range(len(sorted_sizes)))
-
-        # Prepare metric containers
+        # Metrics to collect
         energy : dict[str, list[Optional[float]]] = defaultdict(list)
         latency : dict[str, list[Optional[float]]] = defaultdict(list)
         congestion : dict[str, list[Optional[float]]] = defaultdict(list)
         times : dict[str, list[Optional[float]]] = defaultdict(list)
 
-        for size in sorted_sizes:
-            size_entries = entries_by_size[size]
+        # Read files
+        for file in files:
+            file_path = os.path.join(path, file)
+
+            with open(file_path, "r") as f:
+                data = json.load(f)
+
+            graph_nodes = None
+            technique_entries = {}
+
+            for entry in data:
+                name = entry["name"]
+
+                if "note" in entry:
+                    print(f"Failed entry '{file}' -> '{name}', note content:\n\t{entry['note']}")
+                    continue
+
+                technique = name
+                techniques.add(technique)
+                technique_entries[technique] = entry
+
+                if graph_nodes is None and "graph_nodes" in entry:
+                    graph_nodes = entry["graph_nodes"]
+
+                if not entry.get("part_valid", True):
+                    print(f"WARNING: Invalid partitioning for {file} -> {name}")
+                if not entry.get("plac_valid", True):
+                    print(f"WARNING: Invalid placement for {file} -> {name}")
+
+            if graph_nodes is not None:
+                file_data.append((graph_nodes, file, technique_entries))
+            else:
+                print(f"WARNING: Could not determine graph_nodes for {file}")
+
+        file_data.sort(key = lambda x : x[0])  # Sort by number of nodes
+
+        # Extract data in increasing graph size order
+        for idx, (graph_nodes, file, technique_entries) in enumerate(file_data):
+            label = f"{os.path.splitext(file)[0]}\n({graph_nodes})"
+            x_labels.append(label)
+
             for technique in techniques:
-                entry = size_entries.get(technique)
+                entry = technique_entries.get(technique)
                 if entry:
                     energy[technique].append(entry.get("plac_energy", None))
                     latency[technique].append(entry.get("plac_avg_lat", None))
@@ -181,35 +201,75 @@ if __name__ == "__main__":
             congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
 
         # Optional: keep only the best placement by EDP for each partitioning technique
-        #best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
-        #for technique, edp in energy_delay_product.items():
-        #    partitioning_technique = technique.split('-', 1)[0]
-        #    for i in range(len(sizes)):
-        #        if all(edp[i] is None or energy_delay_product[other_techinque][i] is None or energy_delay_product[other_techinque][i] > edp[i] for other_techinque in best_techniques[partitioning_technique]) and not all(e is None for e in edp):
-        #            best_techniques[partitioning_technique].add(technique)
-        #techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values())
-        #energy = {k : v for k, v in energy.items() if k in techniques}
-        #latency = {k : v for k, v in latency.items() if k in techniques}
-        #congestion = {k : v for k, v in congestion.items() if k in techniques}
-        #times = {k : v for k, v in times.items() if k in techniques}
-        #energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
+        omit_techniques = {"setlist"}
+        best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
+        for technique in sorted(energy_delay_product.keys()):
+            edp = energy_delay_product[technique]
+            partitioning_technique = technique.split('-', 1)[0]
+            if partitioning_technique in omit_techniques:
+                continue
+            for i in range(len(file_data)):
+                if all(edp[i] is None or energy_delay_product[other_techinque][i] is None or energy_delay_product[other_techinque][i] > edp[i] for other_techinque in best_techniques[partitioning_technique]) and not all(e is None for e in edp):
+                    best_techniques[partitioning_technique].add(technique)
+        techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values())
+        energy = {k : v for k, v in energy.items() if k in techniques}
+        latency = {k : v for k, v in latency.items() if k in techniques}
+        congestion = {k : v for k, v in congestion.items() if k in techniques}
+        times = {k : v for k, v in times.items() if k in techniques}
+        energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
 
         # Plotting
-        #fig, (ax1, ax2, ax3, ax4) = plt.subplots(1, 4, figsize = (18, 6), sharex = True)
+        #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True, tight_layout = True)
 
         # Assign markers to partitioning techniques
         possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
-        markers = {}
-        for technique in techniques:
+        possible_linestyles = cycle(['-', ':', '--', '-.'])
+        style = {}
+        for technique in sorted(techniques):
             part_technique = technique.split('-', 1)[0]
-            if part_technique not in markers:
-                markers[part_technique] = next(possible_markers)
+            if part_technique not in style:
+                style[part_technique] = {"marker": next(possible_markers), "linestyle": next(possible_linestyles), "markersize": 8, "alpha": 0.9}
+
+        # Decide the y-axis bounds by ignoring outliers (lower sigma is more brutal)
+        def set_bounds(ax : matplotlib.axes.Axes, sigma : float = 0.5, margin : float = 0.2):
+            lines = ax.lines
+            data_by_x = {}
+            for line in lines:
+                xdata, ydata = line.get_xdata(), line.get_ydata()
+                for xi, yi in zip(xdata, ydata):
+                    if yi is None or np.isnan(yi):
+                        continue
+                    data_by_x.setdefault(xi, []).append(yi)
+
+            valid_y = []
+            for xi, values in data_by_x.items():
+                values = np.array(values, dtype = float)
+                if len(values) == 1:
+                    valid_y.extend(values)
+                else:
+                    mean = values.mean()
+                    std = values.std()
+                    keep = values[np.abs(values - mean) <= sigma * std]
+                    valid_y.extend(keep)
+
+            valid_y = np.array(valid_y)
+            ymin, ymax = valid_y.min(), valid_y.max()
+            yrange = ymax - ymin
+            if yrange == 0:
+                ymin, ymax = ymin - 1, ymax + 1
+            else:
+                ymin -= margin * yrange
+                ymax += margin * yrange
+            if ax.get_yscale() == "log":
+                ymin = 1.0 - margin #max(ymin, np.min(valid_y[valid_y > 0]) * 0.9)
+                ymax = max(ymax, ymin * 1.1)
+            ax.set_ylim(ymin, ymax)
 
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, energy[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
+                ax.plot(x_indices, energy[technique], **style[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -218,11 +278,12 @@ if __name__ == "__main__":
             ax.set_title("Energy vs Problem Size")
             #ax.legend()
             ax.grid(True)
+            set_bounds(ax)
 
         # Latency plot
         def latency_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, latency[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
+                ax.plot(x_indices, latency[technique], **style[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -231,11 +292,12 @@ if __name__ == "__main__":
             ax.set_title("Latency vs Problem Size")
             #ax.legend()
             ax.grid(True)
+            set_bounds(ax)
 
         # Congestion plot
         def congestion_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, congestion[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
+                ax.plot(x_indices, congestion[technique], **style[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -244,12 +306,13 @@ if __name__ == "__main__":
             ax.set_title("Congestion vs Problem Size")
             #ax.legend()
             ax.grid(True)
+            set_bounds(ax)
 
         # TODO: does it even make sense to look at this? It is not like, the longer you run, the more you consume here...
         # Energy x Delay Product plot
         def edp_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, energy_delay_product[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
+                ax.plot(x_indices, energy_delay_product[technique], **style[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -258,11 +321,12 @@ if __name__ == "__main__":
             ax.set_title("Energy-Delay Product vs Problem Size")
             #ax.legend()
             ax.grid(True)
+            set_bounds(ax)
 
         # Time plot
         def time_plot(ax : matplotlib.axes.Axes):
             for technique in sorted(techniques):
-                ax.plot(x_indices, times[technique], marker = markers[technique.split('-', 1)[0]], label = technique)
+                ax.plot(x_indices, times[technique], **style[technique.split('-', 1)[0]], label = technique)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("Problem Size (nodes)")
@@ -277,14 +341,14 @@ if __name__ == "__main__":
         edp_plot(ax3)
         time_plot(ax4)
         
-        max_legend_rows = 2
+        max_legend_rows = 3
         # HP: all axis have the same entries!
         handles, labels = ax1.get_legend_handles_labels()
         ncols = math.ceil(len(labels) / max_legend_rows)
         fig.legend(handles, labels, loc = 'lower center', ncol = ncols)
         
         # Show the plot
-        plt.tight_layout(rect = [0, 0.05, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
+        plt.tight_layout(rect = [0, 0.065, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
         if options["save"]:
             filename = options["save"]
             if not any(filename.endswith(ext) for ext in SUPPORTED_EXTENSIONS):
