@@ -37,7 +37,7 @@ def signal_handler(signal: int, frame: Optional[FrameType]) -> None:
         time.sleep(0.2)
         print('\nTERMINATION RECEIVED - SWITCHING TO INTERACTIVE MODE\n[type "exit()" or press "ctrl+c" again to terminate the program]\n')
         in_interactive_mode = True
-        code.interact(local=globals())
+        code.interact(local = globals())
         in_interactive_mode = False
 
 T = TypeVar('T')
@@ -106,7 +106,7 @@ if __name__ == "__main__":
         elif path.split('.')[-1] != "json":
             print(f"WARNING: the '{path}' file does not have the '.json' extension. Are you sure it is a report from 'scalability_main.py'?")
         with open(path, "r") as f:
-            data = json.load(f)
+            data : list[dict[str, float]] = json.load(f)
 
         # Organize data
         entries_by_size = defaultdict(dict)  # {size: {technique: entry}}
@@ -133,6 +133,9 @@ if __name__ == "__main__":
             if not entry.get("part_valid", True):
                 print(f"WARNING: invalid partitioning for \"{name}\"")
 
+            if "part_time" not in entry:
+                print(f"WARNING: key 'part_time' not found for \"{name}\", using 'time' instead.")
+
         # Sort sizes
         sorted_sizes = sorted(sizes)
         x_labels = []
@@ -152,7 +155,10 @@ if __name__ == "__main__":
                 entry = size_entries.get(technique)
                 if entry:
                     part_costs[technique].append(entry["part_cost"])
-                    times[technique].append(entry["time"])
+                    if "part_time" in entry:
+                        times[technique].append(entry["part_time"])
+                    else:
+                        times[technique].append(entry["time"])
                 else:
                     part_costs[technique].append(None)
                     times[technique].append(None)

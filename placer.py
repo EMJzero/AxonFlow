@@ -187,12 +187,14 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                 if tension > 0:
                     heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
     
+    iteration, max_iterations = 0, hg.totalConnections()
     prev_moves_counts = [0, 0]
     batch_size = max(math.ceil(batch_ratio*len(candidates)), 1)
     print(f"Starting FD refinement with: {batch_size} batch size, {fixes} fixes, {len(candidates)} initial candidates.")
-    while len(candidates) > 0:
-        timerPrint(f"FD remaining candidates {len(candidates)}")
+    while len(candidates) > 0 and iteration < max_iterations:
+        timerPrint(f"FD iteration {iteration}/{max_iterations}, remaining candidates: {len(candidates)}")
         moves = 0
+        iteration += 1
         candidates_count = len(candidates)
         affected : set[Coord2D] = set()
         while moves < batch_size and len(candidates) > 0:
@@ -245,6 +247,10 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
             prev_moves_counts.pop(0)
             prev_moves_counts.append(moves)
         batch_size = new_batch_size
+    if iteration == max_iterations:
+        print(f"FD terminated with {max_iterations} iterations.")
+    else:
+        print(f"FD terminated with 0 candidates after {iteration} iterations.")
     
     return [new_placement.inv[node] for node in range(hg.nodes)]
 

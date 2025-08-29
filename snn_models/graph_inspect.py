@@ -23,7 +23,7 @@ def signal_handler(signal: int, frame) -> None:
         time.sleep(0.2)
         print('\nTERMINATION RECEIVED - SWITCHING TO INTERACTIVE MODE\n[type "exit()" or press "ctrl+c" again to terminate the program]\n')
         in_interactive_mode = True
-        code.interact(local=globals())
+        code.interact(local = globals())
         in_interactive_mode = False
 
 def print_graph_statistics(graph):
@@ -81,5 +81,5 @@ if __name__ == "__main__":
 
     print("Interactive, the graph is in the variable 'G'.")
     in_interactive_mode = True
-    code.interact(local=globals())
+    code.interact(local = globals())
     in_interactive_mode = False

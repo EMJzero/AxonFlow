@@ -8,3 +8,4 @@ prettytable >= 3.16.0
 xxhash >= 3.5.0
 sortedcontainers >= 2.4.0
 matplotlib >= 3.10.3
+h5py >= 3.14

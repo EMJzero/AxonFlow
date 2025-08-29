@@ -472,11 +472,12 @@ class HyperGraph(Iterable):
         connections = self.totalConnections()
         return {
             'nodes_count': self.nodes,
-            'edges_count': len(self.hyperedges),
-            'nodes_per_edge_mean': connections/len(self.hyperedges),
-            'edges_per_node_mean': connections/self.nodes,
-            'outbound_edges_per_node_mean': sum(len(node_hes) for node_hes in self._outbound)/self.nodes,
-            'inbound_edges_per_node_mean': sum(len(node_hes) for node_hes in self._inbound)/self.nodes,
+            'hedges_count': len(self.hyperedges),
+            'edges_count': connections,
+            'nodes_per_hedge_mean': connections/len(self.hyperedges),
+            'hedges_per_node_mean': connections/self.nodes,
+            'outbound_hedges_per_node_mean': sum(len(node_hes) for node_hes in self._outbound)/self.nodes,
+            'inbound_hedges_per_node_mean': sum(len(node_hes) for node_hes in self._inbound)/self.nodes,
             'spike_frequency_mean': self.totalSpikeFrequency()/len(self.hyperedges), # this is per connection, divide by the avg. number of connections per hyperedge to get the avg. spike frequency per hyperedge
         }
     

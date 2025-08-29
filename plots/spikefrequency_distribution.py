@@ -47,7 +47,7 @@ def signal_handler(signal: int, frame: Optional[FrameType]) -> None:
         time.sleep(0.2)
         print('\nTERMINATION RECEIVED - SWITCHING TO INTERACTIVE MODE\n[type "exit()" or press "ctrl+c" again to terminate the program]\n')
         in_interactive_mode = True
-        code.interact(local=globals())
+        code.interact(local = globals())
         in_interactive_mode = False
 
 T = TypeVar('T')
