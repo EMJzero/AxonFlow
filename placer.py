@@ -43,7 +43,7 @@ and coordinates are discretized to the nearest available lattice points, resolvi
 def spectralPlacement(graph: nx.Graph, width: int, height: int) -> list[Coord2D]:
     nodes = graph.number_of_nodes()
     if width * height < nodes:
-        raise Exception("Grid too small to hold all nodes.")
+        raise Exception(f"Grid too small to hold all nodes: {nodes} > {width*height} ({width}x{height}).")
 
     # 1. Spectral layout using edge weights
     pos = nx.spectral_layout(graph, weight = 'spike_frequency', dim = 2)
@@ -89,6 +89,8 @@ NOTE: requires nodes to be topologically ordered!
 def hilbertPlacement(nodes : int, width : int, height : int) -> list[Coord2D]:
     if width % 2 != 0 or height % 2 != 0:
         print("WARNING: building an HSC with odd 'width' or 'height', results quality may vary.")
+    if nodes > width * height:
+        raise Exception(f"Grid too small to hold all nodes: {nodes} > {width*height} ({width}x{height}).")
 
     def sgn(x):
         return (x > 0) - (x < 0)

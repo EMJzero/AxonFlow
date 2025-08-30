@@ -3,6 +3,7 @@ from types import FrameType
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+from scipy.stats import lognorm
 import numpy as np
 import matplotlib
 import traceback
@@ -85,6 +86,9 @@ SAVE_NOT_SHOW = True
 
 FONTSIZE = 15
 
+LOG_SPACE_X = False
+FIT_LOGNORM = True
+
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
         'size'   : FONTSIZE}
@@ -164,11 +168,10 @@ if __name__ == "__main__":
         positive_values = all_values[all_values > 0]
         if len(positive_values) == 0:
             raise ValueError("All values are zero or negative; cannot compute log-scale histogram.")
-        bins = np.logspace(
-            np.log10(min(positive_values)),
-            np.log10(max(positive_values)),
-            num = num_intervals + 1
-        )
+        if LOG_SPACE_X:
+            bins = np.logspace(np.log10(min(positive_values)), np.log10(max(positive_values)), num = num_intervals + 1)
+        else:
+            bins = np.linspace(min(positive_values), max(positive_values), num = num_intervals + 1)
 
         plt.figure(figsize=(16, 10)) #(13.8, 4)
 
@@ -219,13 +222,34 @@ if __name__ == "__main__":
         for colors, name in zip(colors_array, names_array):
             patches.append(mpatches.Patch(facecolor = colors[1], edgecolor = colors[0], label = name))
 
-        #plt.xlim(0.9, 100)
+        # Fit lognormal distribution to positive values
+        if FIT_LOGNORM:
+            shape, loc, scale = lognorm.fit(positive_values, floc = 0)
+            cv = np.sqrt(np.exp(shape**2) - 1)
+            print(f"Fitted lognorm params: shape = {shape:.3f}, loc = {loc:.3g}, scale (median) = {scale:.3g}, cv = {cv:.3f}")
+            
+            # Evaluate the fitted PDF on bin centers
+            bin_centers = 0.5 * (bins[1:] + bins[:-1])
+            pdf_vals = lognorm.pdf(bin_centers, shape, loc = loc, scale = scale)
+
+            # Scale PDF to histogram counts (so it overlays properly)
+            pdf_scaled = pdf_vals * len(positive_values) * np.diff(bins)
+            #pdf_scaled = np.clip(pdf_scaled, min(counts), max(counts))
+
+            # Overlay the fitted curve
+            lognorm, = plt.plot(bin_centers, pdf_scaled, 'k--', linewidth = 2, label = "Lognormal fit")
+            lognorm.set_in_layout(False)
 
         # Add the custom legend
-        plt.legend(handles  =patches)
+        plt.legend(handles = patches)
 
-        # Set X axis to be logarithmic
-        plt.xscale('log')
+        # Set axis to be logarithmic
+        plt.autoscale(enable = True, axis = 'y', tight = True)
+        if LOG_SPACE_X:
+            plt.xscale('log')
+        #plt.yscale('log')
+
+        #plt.xlim(0.9, 100)
 
         # Show grid only for the Y axis (with low alpha) and hide X axis grid
         plt.grid(axis = 'y', alpha = 0.3)

@@ -209,7 +209,9 @@ if __name__ == "__main__":
                 latency_per_routing = 1.0,
                 latency_per_wire = 0.1
             )
-            hypergraph = HyperGraph.generate_random(size["nodes_count"], size["nodes_per_edge_mean"], size["nodes_per_edge_variation"], spike_frequency_range = (0.1, 1000), seed = seed)
+            #hypergraph = HyperGraph.generate_random(size["nodes_count"], size["nodes_per_edge_mean"], size["nodes_per_edge_variation"], spike_frequency_range = (0.1, 1000), seed = seed)
+            # reference: Allen V1 cv = 1.37, 8k model cv = 0.96, 64k_model cv = 1.58, lenet cv = 0.89, alexnet cv = 1.84 => we use 1.58
+            hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 2, locality_sigma = 0.35, long_range_fraction = 0.1, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
             #acyclic_snn = makeAcyclic(snn)
             if not hardware.checkSnnFit(hypergraph, verbose = True):
                 print(f"WARNING: the generated SNN of experiment '{experiment}' may not fit on the given HW, change either's configuration or the seed.")

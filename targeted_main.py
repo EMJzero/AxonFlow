@@ -131,6 +131,7 @@ if __name__ == "__main__":
             nodes_count = 1024 #512
             nodes_per_edge_mean, nodes_per_edge_variation = 6, 4 #8, 4
             snn = HyperGraph.generate_random(nodes_count, nodes_per_edge_mean, nodes_per_edge_variation, seed = seed)
+            #snn = HyperGraph.generate_reservoir_random(n = 5000, mean_fanout = 200, space_dim = 2, locality_sigma = 0.35, long_range_fraction = 0.05, spike_rate_median = 1.0, spike_rate_cv = 4.0, seed = seed)
             snn_stats = snn.getStatistics()
             snn_stats["nodes_per_edge_mean"] = nodes_per_edge_mean
             snn_stats["nodes_per_edge_variation"] = nodes_per_edge_variation

@@ -10,6 +10,7 @@ import numpy as np
 import itertools
 import random
 import struct
+import math
 
 from prints import *
 
@@ -174,6 +175,60 @@ class HyperGraph(Iterable):
             #spike_frequencies.append(rng.uniform(*spike_frequency_range))
             spike_frequencies.append(rng.beta(5, 2)*range_interval + range_min)
         return cls(n, hyperedges, spike_frequencies)
+
+    """
+    Generate a random reservoir-style directed hypergraph.
+    
+    Arguments:
+    - n: number of neurons (nodes). Nodes are labeled continously from 0 to n - 1.
+    - mean_fanout: mean number of outgoing targets per neuron (Poisson-distributed).
+    - space_dim: 1 or 2 (embedding dimension). Coordinates live in [0, 1]^dim. 1D is a ring.
+    - locality_sigma: kernel width for local (distance-dependent) connection probability
+                    expressed in "units of the embedding" (i.e. fraction of the box).
+    - long_range_fraction: fraction of each neuron's fanout that is long-range (uniform).
+    - spike_rate_median, spike_rate_cv: parameters for lognormal spike frequency prior [Hz],
+      respectively its middle value (e^mu) and coefficient of variation (sqrt(e^sigma^2 - 1)).
+    """
+    @classmethod
+    @core
+    def generate_reservoir_random(cls, n: int, mean_fanout: int = 100, space_dim: int = 2, locality_sigma: float = 0.05, long_range_fraction: float = 0.05, spike_rate_median: float = 1.0, spike_rate_cv: float = 2.0, seed: Optional[int] = None) -> Self:
+        rng = np.random.default_rng(seed)
+
+        if space_dim == 1: coords = rng.random((n, 1)) # [0, 1] ring
+        elif space_dim == 2: coords = rng.random((n, 2)) # unit square
+        else: raise Exception(f"Argument 'space_dim' must be 1 or 2, not {space_dim}.")
+
+        # choose spike rates from lognormal - convert median & cv to mu, sigma
+        mu = np.log(spike_rate_median)
+        sigma = math.sqrt(math.log(1 + spike_rate_cv**2))
+        spike_freq = np.exp(rng.normal(mu, sigma, size = n))
+        hyperedges = []
+        for i in range(n):
+            k = rng.poisson(mean_fanout)
+            if k == 0:
+                continue
+            n_long = int(round(long_range_fraction * k))
+            n_local = k - n_long
+            targets = []
+            if n_local + n_long >= n: # more target than nodes -> connect to every node
+                hyperedges.append(HyperEdge(i, tuple(t for t in range(n) if t != i), spike_freq[i]))
+                continue
+            if n_local > 0: # local targets
+                diffs = coords - coords[i]
+                if space_dim == 1:
+                    diffs = np.minimum(np.abs(diffs), 1 - np.abs(diffs)) # ring metric
+                dists = np.linalg.norm(diffs, axis = 1)
+                probs = np.exp(-0.5 * (dists / locality_sigma)**2) # sample according to Gaussian kernel
+                probs[i] = 0.0 # prevent self-cycles
+                if probs.sum() > 0:
+                    probs /= probs.sum()
+                    local_targets = rng.choice(n, size = n_local, replace = False, p = probs)
+                    targets.extend(local_targets.tolist())
+            if n_long > 0: # long-range random targets
+                long_targets = rng.choice(n, size = n_long, replace = False)
+                targets.extend(t for t in long_targets if t != i)
+            hyperedges.append(HyperEdge(i, tuple(targets), spike_freq[i]))
+        return cls(n, hyperedges)
 
     """
     Lower the HyperGraph into a directed Graph.
@@ -546,7 +601,7 @@ class Graph(HyperGraph):
         elif all(isinstance(he, tuple) and len(he) == 2 for he in edges) and spike_frequencies and len(spike_frequencies) == len(edges):
             self.hyperedges = [Edge(he[0], he[1:], spike_frequencies[i]) for i, he in enumerate(edges)]
         else:
-            raise Exception("""Failed to build graph. Edges shall be provided either as an empty list, a list of Edges, a list of HyperEdges, or a list of tuples of exactly two entries each.
+            raise Exception("""Failed to build graph. Edges shall be provided either as an empty list, a list of Edges, a list of HyperEdges, or a list of tuples of exactly two entries each. 
                                In the latter case, spike_frequencies must also be a list of the same lenght, while the first entry in each tuple specifies the source node for that edge.""")
         if any(node < 0 or node >= nodes for he in self.hyperedges for node in he):
             raise Exception("Invalid edges, all node indices must be in the range [0, nodes).")

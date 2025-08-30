@@ -220,7 +220,7 @@ def feedForwardOrder(hg : HyperGraph) -> HyperGraph:
     # - place it, then put in the queue all nodes [it is connected to] reached from the hyperedge departing from it, ranked by spike frequency
     # - place the next highest spike frequency node, insert / update all those it is connected to in the queue by adding spike frequencies
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
-    pq : AddressableMaxPQ[int, float] = AddressableMaxPQ()
+    pq : AddressableMaxPQ[int, float] = AddressableMaxPQ(default_factory = lambda : 0.0)
     new_id, next_id = [-1] * hg.nodes, 0
     while next_id != hg.nodes:
         min_inbound_count, min_inbound_nodes = math.inf, []
@@ -247,10 +247,7 @@ def feedForwardOrder(hg : HyperGraph) -> HyperGraph:
             for he in hg.getOutboundHyperedges(n):
                 for m in he:
                     if new_id[m] == -1:
-                        if m in pq:
-                            pq[m] += he.spike_frequency
-                        else:
-                            pq[m] = he.spike_frequency
+                        pq[m] += he.spike_frequency
             timerPrint(f"Reordered {next_id}/{hg.nodes} nodes...")
     
     # Rebuild hypergraph with permuted node IDs

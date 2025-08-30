@@ -408,3 +408,22 @@ def loadSNNh5(nodes_path : str, edges_path : str, spikes_path : str, allow_nodes
     
     print("Building HyperGraph...")
     return HyperGraph(len(nodes), [HyperEdge(src, tuple(dsts), spike_counts[src]/duration) for src, dsts in hedges.items()], no_checks = True)
+
+"""
+Export the given hypergraph in NetworkX's format.
+Spike frequencies will be annotated on each node under the label 'spike_frequency'.
+
+The provided 'path' will be automatically concatenated with the '.gml.gz' extension.
+"""
+def exportToNetworkX(hg : HyperGraph, path : str, silent_overwrite : bool = False) -> None:
+    path = os.path.abspath(path + ".gml.gz")
+    if os.path.exists(path) and not silent_overwrite:
+        overwrite = input(f"Request to save the hypergraph to an existing path '{path}'.\nOverwrite it [y/n]? ")
+        while overwrite not in ['y', 'n']:
+            overwrite = input(f"Invalid answer. Choose [y/n]? ")
+        if overwrite == 'n':
+            print("WARNING: the hypergraph was NOT saved due to an overwrite conflict.")
+    
+    graph = hg.toGraph(collapse_overlapping_edges = True)
+    nxgraph = graph.toNxGraph()
+    nx.write_gml(nxgraph, path)
