@@ -2,6 +2,7 @@ import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from scipy.stats import lognorm
 from functools import reduce
+import matplotlib.axes
 import numpy as np
 import matplotlib
 import math
@@ -36,6 +37,7 @@ SAVE = False
 SAVE_PATH = "spike_frequency_manual_plot.png"
 
 LOG_SPACE_X = False
+LOG_SPACE_Y = True
 FIT_LOGNORM = True
 
 font = {'family' : 'sans-serif',
@@ -67,10 +69,13 @@ if __name__ == "__main__":
         ('#D6B656', '#FFF2CC'), #yellow
         ]
     
+    # Set the number of intervals/bins
+    num_intervals = 100 #200
+    
     plots_cols = math.ceil(math.sqrt(len(processed_snns_paths)))
     plots_rows = math.ceil(len(processed_snns_paths)/plots_cols)
     fig, axs = plt.subplots(plots_rows, plots_cols, figsize = (16, 10), tight_layout = True)
-    lin_axs = axs.flatten()[:len(processed_snns_paths)]
+    lin_axs : list[matplotlib.axes.Axes] = axs.flatten()[:len(processed_snns_paths)]
 
     #patches = []
     for (name, snn_path), ax, (line_color, area_color) in zip(processed_snns_paths.items(), lin_axs, colors_array):
@@ -82,9 +87,6 @@ if __name__ == "__main__":
         print(f"Nodes count: {snn.nodes}\nEdges: {len(snn.hyperedges)}\nMean nodes per edge: {sum(he.connections() for he in snn)/len(snn.hyperedges)}")
 
         values = np.array([he.spike_frequency for he in snn for _ in range(he.connections())])
-
-        # Set the number of intervals
-        num_intervals = 200 #150
 
         # Create logarithmically spaced bins from the minimum to maximum value
         # Filter out non-positive values to avoid log10(0) or log10 of negative
@@ -138,20 +140,34 @@ if __name__ == "__main__":
             # Overlay the fitted curve
             lnorm, = ax.plot(bin_centers, pdf_scaled, 'k--', linewidth = 2, label = "Lognormal fit")
             lnorm.set_in_layout(False)
+            
+            # Add text inside the plot
+            x_pos = bin_centers[len(pdf_scaled)//2]
+            y_pos = pdf_scaled[len(pdf_scaled)//2]
+            ax.text(
+                x_pos, y_pos,
+                f"Median = {scale:.2f}, Coeff. of Variation = {cv:.2f}",
+                fontsize = FONTSIZE - 5, color = "black",  # same color as curve
+                ha = "left", va = "bottom"
+            )
 
         # Set axis to be logarithmic
         ax.autoscale(enable = True, axis = 'y', tight = True)
         if LOG_SPACE_X:
-            ax.xscale('log')
-        #ax.yscale('log')
+            ax.set_xscale('log')
+        if LOG_SPACE_Y:
+            ax.set_yscale('log')
+            #ax.set_ylim(bottom = y_points.min(where = np.greater(y_points, 0), initial = math.inf))
+            low, high = np.percentile(y_points, [5, 95])
+            ax.set_ylim(bottom = y_points.min(where = np.where((y_points > low) & (y_points <= high), True, False), initial = math.inf))
 
         # Show grid only for the Y axis (with low alpha) and hide X axis grid
         ax.grid(axis = 'y', alpha = 0.3)
         ax.grid(axis = 'x', visible = False)
 
         # Labels and title
-        ax.set_xlabel("Spike Frequency")
-        ax.set_ylabel("Count")
+        ax.set_xlabel("Spike Frequency") # [Hz]
+        ax.set_ylabel("Neurons Count")
         ax.set_title(f"SNN: {name}")
 
     # Global title

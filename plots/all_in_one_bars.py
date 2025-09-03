@@ -2,6 +2,7 @@ from typing import TypeVar, Any, Optional
 from types import FrameType
 
 import matplotlib.pyplot as plt
+from matplotlib.ticker import LogLocator, FuncFormatter
 import matplotlib.legend_handler
 import matplotlib.patches
 import matplotlib.axes
@@ -78,8 +79,8 @@ SUPPORTED_EXTENSIONS = ['.pdf', '.eps', '.svg', '.png']
 DPI = 300 #800
 SAVE_NOT_SHOW = True
 
-FONTSIZE = 15
-BAR_WIDTH = 0.08
+FONTSIZE = 13
+BAR_WIDTH = 0.11
 
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
@@ -180,11 +181,11 @@ if __name__ == "__main__":
             else:
                 print(f"WARNING: Could not determine graph_nodes for {file}")
 
-        file_data.sort(key = lambda x : x[0])  # Sort by number of nodes
+        file_data.sort(key = lambda x : x[0]) # Sort by number of nodes
 
         # Extract data in increasing graph size order
         for idx, (graph_nodes, file, technique_entries) in enumerate(file_data):
-            label = f"{os.path.splitext(file)[0]}\n({graph_nodes})"
+            label = f"{os.path.splitext(file)[0]}" # .replace('_', '-') #\n({graph_nodes})"
             x_labels.append(label)
 
             for technique in techniques:
@@ -268,7 +269,7 @@ if __name__ == "__main__":
 
         # Plotting
         #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize = (12, 12), sharex = True, tight_layout = True)
+        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize = (20, 12), sharex = True, tight_layout = True)
 
         # Assign style to partitioning techniques
         possible_colors = [
@@ -337,7 +338,7 @@ if __name__ == "__main__":
                         ymin -= margin * yrange
                         ymax += margin * yrange
                     if ax.get_yscale() == "log":
-                        ymin = 1.0 - margin #max(ymin, np.min(valid_y[valid_y > 0]) * 0.9)
+                        ymin = 1.0 - margin / 2 #max(ymin, np.min(valid_y[valid_y > 0]) * 0.9)
                         ymax = max(ymax, ymin * 1.1)
                     ax.set_ylim(ymin, ymax)
             
@@ -348,6 +349,17 @@ if __name__ == "__main__":
                     max_x = max(max_x, shape.get_x())
                 ax.set_xlim(min_x - BAR_WIDTH, max_x + 2*BAR_WIDTH)
 
+        # Sets the y-scale for bar plots to be in percentage
+        def format_y_bars(ax : matplotlib.axes.Axes):
+            ax.set_yscale("log", base = 10)
+            ax.grid(axis = 'y', which = 'both')
+            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = "all", numticks = 10))
+            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = [1.0, 2.0, 5.0], numticks = 10))
+            #formatter = FuncFormatter(lambda v, _: f"{v*100:.0f}%" if v > 0 else "")
+            formatter = FuncFormatter(lambda v, _: f"{v:.1f}" if v > 0 else "")
+            ax.yaxis.set_major_formatter(formatter)
+            ax.yaxis.set_minor_formatter(formatter)
+
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):
             rects = []
@@ -355,12 +367,12 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("Problem Size (nodes)")
-            ax.set_yscale('log', base = 10)
+            #ax.set_xlabel("Problem Size (nodes)")
+            ax.set_xlabel("SNN (least → most nodes)")
             ax.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
             ax.set_title("Energy vs Problem Size")
             #ax.legend()
-            ax.grid(axis = 'y', which = 'both')
+            format_y_bars(ax)
             set_bounds(ax, energy, rects)
 
         # Latency plot
@@ -370,12 +382,11 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, latency[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("Problem Size (nodes)")
-            ax.set_yscale('log', base = 10)
+            ax.set_xlabel("SNN (least → most nodes)")
             ax.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
             ax.set_title("Latency vs Problem Size")
             #ax.legend()
-            ax.grid(axis = 'y', which = 'both')
+            format_y_bars(ax)
             set_bounds(ax, latency, rects)
 
         # Congestion plot
@@ -385,12 +396,11 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, congestion[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("Problem Size (nodes)")
-            ax.set_yscale('log', base = 10)
+            ax.set_xlabel("SNN (least → most nodes)")
             ax.set_ylabel("Avg. congestion (normalized w.r.t. lowest)")
             ax.set_title("Congestion vs Problem Size")
             #ax.legend()
-            ax.grid(axis = 'y', which = 'both')
+            format_y_bars(ax)
             set_bounds(ax, congestion, rects)
 
         # TODO: does it even make sense to look at this? It is not like, the longer you run, the more you consume here...
@@ -401,12 +411,11 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy_delay_product[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("Problem Size (nodes)")
-            ax.set_yscale('log', base = 10)
+            ax.set_xlabel("SNN (least → most nodes)")
             ax.set_ylabel("Placement Energy x Latency (normalized w.r.t. lowest)")
-            ax.set_title("Energy-Delay Product vs Problem Size")
+            ax.set_title("Energy-Latency Product vs Problem Size")
             #ax.legend()
-            ax.grid(axis = 'y', which = 'both')
+            format_y_bars(ax)
             set_bounds(ax, energy_delay_product, rects)
 
         # Partitioned Hypergraph Connectivity plot
@@ -416,59 +425,59 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, connectivity[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("Problem Size (nodes)")
-            ax.set_yscale('log', base = 10)
+            ax.set_xlabel("SNN (least → most nodes)")
             ax.set_ylabel("Partitioning Connectivity (normalized w.r.t. lowest)")
             ax.set_title("Connectivity vs Problem Size")
             #ax.legend()
-            ax.grid(axis = 'y', which = 'both')
+            format_y_bars(ax)
             set_bounds(ax, connectivity, rects)
 
-        # Time plot
-        def time_plot(ax : matplotlib.axes.Axes):
-            rects = []
-            for j, technique in enumerate(techniques):
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, times[technique], BAR_WIDTH, label = technique, **style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("Problem Size (nodes)")
-            ax.set_yscale('log', base = 10)
-            ax.set_ylabel("Time [s]")
-            ax.set_title("Execution Time vs Problem Size")
-            #ax.legend()
-            ax.grid(axis = 'y', which = 'major')
-            set_bounds(ax, None, rects)
-        # With lines instead of bars
-        def time_plot_lines(ax : matplotlib.axes.Axes):
-            for technique in techniques:
-                ax.plot(x_indices, times[technique], label = technique, **line_style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("Problem Size (nodes)")
-            ax.set_yscale('log', base = 10)
-            ax.set_ylabel("Time [s]")
-            ax.set_title("Execution Time vs Problem Size")
-            #ax.legend()
-            ax.grid(True)
-        
         # Partitioning Time plot
-        def part_time_plot_lines(ax : matplotlib.axes.Axes):
+        def part_time_plot(ax : matplotlib.axes.Axes):
             for technique in techniques:
                 ax.plot(x_indices, part_times[technique], label = technique, **line_style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("Problem Size (nodes)")
+            ax.set_xlabel("SNN (least → most nodes)")
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Time [s]")
             ax.set_title("Partitioning Time vs Problem Size")
             #ax.legend()
             ax.grid(True)
+
+        # Placement Time plot
+        def plac_time_plot(ax : matplotlib.axes.Axes):
+            for technique in techniques:
+                ax.plot(x_indices, list(map(lambda t : t[0] - t[1], zip(times[technique], part_times[technique]))), label = technique, **line_style[technique])
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Time [s]")
+            ax.set_title("Placement Time vs Problem Size")
+            #ax.legend()
+            ax.grid(True)
+
+        # Total Time plot
+        def tot_time_plot(ax : matplotlib.axes.Axes):
+            for technique in techniques:
+                ax.plot(x_indices, times[technique], label = technique, **line_style[technique])
+            ax.set_xticks(x_indices)
+            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_yscale('log', base = 10)
+            ax.set_ylabel("Time [s]")
+            ax.set_title("Total Time vs Problem Size")
+            #ax.legend()
+            ax.grid(True)
         
         energy_plot(ax1)
         latency_plot(ax2)
-        edp_plot(ax3)
-        #time_plot(ax4)
-        time_plot_lines(ax4)
+        plac_time_plot(ax3)
+        #conn_plot(ax3)
+        congestion_plot(ax4)
+        edp_plot(ax5)
+        tot_time_plot(ax6)
         
         #conn_plot(ax1)
         #part_time_plot_lines(ax2)
@@ -477,7 +486,7 @@ if __name__ == "__main__":
         # HP: all axis have the same entries!
         handles, labels = ax1.get_legend_handles_labels()
         # UNLESS: you use lines for time, instead of bars
-        handles_lines, _ = ax4.get_legend_handles_labels()
+        handles_lines, _ = ax6.get_legend_handles_labels()
         combined_handles = list(zip(handles, handles_lines))
         ncols = math.ceil(len(labels) / max_legend_rows)
         fig.legend(combined_handles, labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0) # handlelength = 4.0

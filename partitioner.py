@@ -145,7 +145,7 @@ def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int
         for n in grp:
             node_to_coarse[n] = ci
 
-    coarse_hes = defaultdict(lambda : 0) # he-tuple -> spike frequency
+    coarse_hes = defaultdict(float) # he-tuple -> spike frequency
     for he in hg.hyperedges:
         src = node_to_coarse[he.source()]
         dsts = tuple({node_to_coarse[d] for d in he.destinations() if node_to_coarse[d] != src})
@@ -446,7 +446,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
                         for m in he:
                             if m in unused and m != n:
                                 candidates[m] += he.spike_frequency
-                    # TODO: inefficient max retrieval -> use a heap?
+                    # TODO: inefficient max retrieval -> use a heap? Apparently it got worse, so no.
                     while candidates:
                         best = max(candidates, key = candidates.get)
                         if (new_size := partition_sizes[n] + partition_sizes[best]) < max_nodes and len(new_ids_set := inbound_he_ids[n] + inbound_he_ids[best]) < max_inbound_edges:
@@ -492,7 +492,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
         rng.shuffle(nodes)
         # TODO: should iterate until no more moves occur? Likely yes, but put a cap on the number of iterations (e.g. 8)...
         for n in nodes:
-            connectivity_w_partitions = defaultdict(lambda : 0) # partition -> sum of spike frequency of connections
+            connectivity_w_partitions = defaultdict(float) # partition -> sum of spike frequency of connections
             for he in hg.getTouchingHyperedges(n):
                 for m in he:
                     if m != n:
@@ -1104,7 +1104,7 @@ def partitionHyperedgeHidingCompact(hg: HyperGraph, max_nodes: int, max_inbound_
     next_partition_idx = 0
     sorted_hes_iterator = (he for he in sorted_hes if he not in seen_hes)
     # next hyperedge: the one with the highest overlap ratio
-    ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt/hes_length[he], lambda : 0) # sometimes 'he.spike_frequency*cnt/len(he)' works better...
+    ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt/hes_length[he], int) # sometimes 'he.spike_frequency*cnt/len(he)' works better...
     nodes_count = 0 # tracks nodes involved in the present partition
     inbound_set = set() # tracks the inbound hyperedges to the present partition
     while True:
@@ -1173,7 +1173,7 @@ def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbo
     next_partition_idx = 0
     sorted_hes_iterator = (he for he in sorted_hes if he not in seen_hes)
     # next hyperedge: the one with the highest overlap ratio
-    ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : he.spike_frequency*cnt/hes_length[he], lambda : 0) # with or w/out 'he.spike_frequency*cnt/len(he)'?
+    ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : he.spike_frequency*cnt/hes_length[he], int) # with or w/out 'he.spike_frequency*cnt/len(he)'?
     nodes_count = 0 # tracks nodes involved in the present partition
     inbound_set = set() # tracks the inbound hyperedges to the present partition
     while True:

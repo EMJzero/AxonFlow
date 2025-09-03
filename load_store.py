@@ -198,7 +198,7 @@ def loadSNNcomposite(npz_log_path : str, npz_input_path : str, graphml_path : st
             self.edges = edges
     g = GraphContainer(*manualGraphMLparser(graphml_path))
     
-    spike_frequencies = defaultdict(lambda : 0) # node -> spike frequency
+    spike_frequencies = defaultdict(float) # node -> spike frequency
     
     table = PrettyTable(["Layer Name", "Shape", "Neurons", "Avg. spike freq."])
     table.border = False
@@ -396,7 +396,7 @@ def loadSNNh5(nodes_path : str, edges_path : str, spikes_path : str, allow_nodes
         if t > end and t <= high:
             end = t
     duration = end - start
-    spike_counts = defaultdict(lambda : 0)
+    spike_counts = defaultdict(int)
     for n in spikes_file["spikes"][spikes_key]["node_ids"]:
         spike_counts[n] += 1
     print(f"Found spikes for {len(spike_counts)} nodes over a measured duration of {duration}s...")
