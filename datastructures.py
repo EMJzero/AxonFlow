@@ -21,7 +21,7 @@ U = TypeVar('U')
 """
 Class for 2D discrete (integer) coordinate based on a tuple.
 """
-class Coord2D(tuple):
+class Coord2D(tuple[int, int]):
     def __new__(cls, x : int, y : int):
         if isinstance(x, tuple) and y is None: # accept tuple (x, y) for pickling or normal x, y
             x, y = x
@@ -52,6 +52,34 @@ class Coord2D(tuple):
 
     def __abs__(self) -> int:
         return abs(self.x) + abs(self.y)
+
+    def __eq__(self, other : Self) -> bool:
+        if not isinstance(other, Coord2D):
+            return NotImplemented
+        return self.x == other.x and self.y == other.y
+
+    def __gt__(self, other : Self) -> int:
+        if not isinstance(other, Coord2D):
+            return NotImplemented
+        return self.x > other.x and self.y > other.y
+
+    def __ge__(self, other : Self) -> int:
+        if not isinstance(other, Coord2D):
+            return NotImplemented
+        return self.x >= other.x and self.y >= other.y
+
+    def __lt__(self, other : Self) -> int:
+        if not isinstance(other, Coord2D):
+            return NotImplemented
+        return self.x < other.x and self.y < other.y
+
+    def __le__(self, other : Self) -> int:
+        if not isinstance(other, Coord2D):
+            return NotImplemented
+        return self.x <= other.x and self.y <= other.y
+
+    def __hash__(self):
+        return super().__hash__()
 
     def __repr__(self) -> str:
         return f"(x = {self.x}, y = {self.y})"

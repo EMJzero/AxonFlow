@@ -1,5 +1,6 @@
 from typing import Optional
 
+from scipy.sparse import csr_array, spdiags, linalg
 from itertools import islice, combinations
 from collections import defaultdict
 from scipy.spatial import KDTree
@@ -45,25 +46,97 @@ def spectralPlacement(graph: nx.Graph, width: int, height: int) -> list[Coord2D]
     if width * height < nodes:
         raise Exception(f"Grid too small to hold all nodes: {nodes} > {width*height} ({width}x{height}).")
 
-    # 1. Spectral layout using edge weights
+    # Spectral layout using edge weights
+    # IN CASE OF 'ArpackNoConvergence' EXCEPTION, MODIFY networkx AS FOLLOWS:
+    # - in the package's folder, locate '/networkx/drawing/layout.py'
+    # - locate the function '_sparse_spectral' around line 1150
+    # - in the call to 'scipy.sparse.linalg.eigsh' replace the argument 'ncv' with 'nnodes - 1'
     pos = nx.spectral_layout(graph, weight = 'spike_frequency', dim = 2)
 
-    # 2. Layout coordinates -> [0, 1]^2 box
+    # Layout coordinates -> [0, 1]^2 box
     coords = np.array([pos[i] for i in range(nodes)])
-    coords -= coords.min(axis=0)
-    coords /= coords.max(axis=0) + 1e-9
-    # 3. Determine a tight box to pack nodes closely
+    coords -= coords.min(axis = 0)
+    coords /= coords.max(axis = 0) + 1e-9
+    # Determine a tight box to pack nodes closely
     aspect_ratio = width / height
     box_w = min(width, math.ceil(math.sqrt(nodes * aspect_ratio)))
     box_h = min(height, math.ceil(nodes / box_w))
-    # 4. Scale to the compact box
+    # Scale to the compact box
     coords[:, 0] *= box_w - 1
     coords[:, 1] *= box_h - 1
-    # 5. Center the compact box in the full grid
+    # Center the compact box in the full grid
     offset_x = (width - box_w) // 2
     offset_y = (height - box_h) // 2
 
-    # 6. Create grid, KDTree, and resolve unique placement
+    # Create grid, KDTree, and resolve unique placement
+    grid_points = [Coord2D(x, y) for x in range(offset_x, offset_x + box_w) for y in range(offset_y, offset_y + box_h)]
+    tree = KDTree(grid_points)
+    used = set()
+    embedding = [0 for _ in range(nodes)]
+    for i, pt in enumerate(coords):
+        _, idx = tree.query(pt + [offset_x, offset_y])
+        while grid_points[idx] in used:
+            grid_points.pop(idx)
+            tree = KDTree(grid_points)
+            _, idx = tree.query(pt + [offset_x, offset_y])
+        embedding[i] = grid_points[idx]
+        used.add(grid_points[idx])
+    return embedding
+
+"""
+Same as the above, but does not rely on networkx, directly calling scipy.
+The logic is nonetheless based on networkx's.
+"""
+@core
+def spectralPlacementScipy(hg : HyperGraph, width: int, height: int) -> list[Coord2D]:
+    nodes = hg.nodes
+    dim = 2
+    if width * height < nodes:
+        raise Exception(f"Grid too small to hold all nodes: {nodes} > {width*height} ({width}x{height}).")
+
+    A = hg.toScipySparseAdjacencyMatrix()
+    A = A + np.transpose(A)
+
+    # build the Laplacian matrix
+    # TODO: change csr_array wrapper in favor of spdiags array constructor when available
+    D = csr_array(spdiags(A.sum(axis = 1), 0, nodes, nodes))
+    L = D - A
+
+    k = dim + 1
+    # number of Lanczos vectors for ARPACK solver
+    ncv = max(2 * k + 1, int(math.sqrt(nodes)))
+    # return smallest k eigenvalues and eigenvectors
+    try:
+        eigenvalues, eigenvectors = linalg.eigsh(L, k, which = "SM", ncv = ncv)
+    except:
+        # if the "efficient" choice didn't work, use as many vectors as possible
+        print(f"WARNING: ARPACK didn't converge with {ncv} Lanczos vectors, switching to using {nodes - 1}.")
+        ncv = nodes - 1
+        eigenvalues, eigenvectors = linalg.eigsh(L, k, which = "SM", ncv = ncv)
+    index = np.argsort(eigenvalues)[1:k]  # 0 index is zero eigenvalue
+    pos = np.real(eigenvectors[:, index])
+    pos -= pos.mean(axis = 0)
+    lim = np.abs(pos).max() # max coordinate for all axes
+    # rescale to (-scale, scale) in all directions, preserves aspect
+    if lim > 0:
+        pos *= 1 / lim
+
+    # Layout coordinates -> [0, 1]^2 box
+    coords = np.array([pos[i] for i in range(nodes)])
+    coords -= coords.min(axis = 0)
+    coords /= coords.max(axis = 0) + 1e-9
+    # Determine a tight box to pack nodes closely
+    aspect_ratio = width / height
+    box_w = min(width, math.ceil(math.sqrt(nodes * aspect_ratio)))
+    box_h = min(height, math.ceil(nodes / box_w))
+    # Scale to the compact box
+    coords[:, 0] *= box_w - 1
+    coords[:, 1] *= box_h - 1
+    # Center the compact box in the full grid
+    offset_x = (width - box_w) // 2
+    offset_y = (height - box_h) // 2
+
+    # Create grid, KDTree, and resolve unique placement
     grid_points = [Coord2D(x, y) for x in range(offset_x, offset_x + box_w) for y in range(offset_y, offset_y + box_h)]
     tree = KDTree(grid_points)
     used = set()
@@ -177,6 +250,7 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
     directions = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1))
     forces : dict[Coord2D, dict[Coord2D, float]] = defaultdict(lambda : {d : 0.0 for d in directions}, {coords : model.getForces(hg, placement, node, directions) for node, coords in enumerate(placement)})
     new_placement = BiMap({coords : node for node, coords in enumerate(placement)}, default_factory = lambda : -1)
+    origin, lattice_bound = Coord2D(0, 0), Coord2D(model.coresAlongX(), model.coresAlongY())
 
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
 
@@ -184,10 +258,12 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
     for coords in iter_major_diagonals(min_x, min_y, max_x, max_y, end_included = True):
         for d_pos, d_neg in zip(directions[:2], directions[2:]):
             other_coords = coords + d_pos
-            if coords in forces or other_coords in forces:
-                tension = forces[coords][d_pos] + forces[other_coords][d_neg]
-                if tension > 0:
-                    heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
+            if origin <= other_coords < lattice_bound:
+                if coords in forces or other_coords in forces:
+                    if d_pos in forces[coords] and d_neg in forces[other_coords]:
+                        tension = forces[coords][d_pos] + forces[other_coords][d_neg]
+                        if tension > 0:
+                            heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
     
     iteration, max_iterations = 0, hg.totalConnections()
     prev_moves_counts = [0, 0]
@@ -233,12 +309,14 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
             for d_pos in directions:
                 d_neg = - d_pos
                 other_coords = coords + d_pos
-                if (coords.x, coords.y, other_coords.x, other_coords.y) not in deduplicate and (other_coords.x, other_coords.y, coords.x, coords.y) not in deduplicate:
-                    tension = forces[coords][d_pos] + forces[other_coords][d_neg]
-                    if tension > 0:
-                        candidates.append((-tension, coords, other_coords))
-                    deduplicate.add((coords.x, coords.y, other_coords.x, other_coords.y))
-                    deduplicate.add((other_coords.x, other_coords.y, coords.x, coords.y))
+                if origin <= other_coords < lattice_bound:
+                    if (coords.x, coords.y, other_coords.x, other_coords.y) not in deduplicate and (other_coords.x, other_coords.y, coords.x, coords.y) not in deduplicate:
+                        if d_pos in forces[coords] and d_neg in forces[other_coords]:
+                            tension = forces[coords][d_pos] + forces[other_coords][d_neg]
+                            if tension > 0:
+                                candidates.append((-tension, coords, other_coords))
+                            deduplicate.add((coords.x, coords.y, other_coords.x, other_coords.y))
+                            deduplicate.add((other_coords.x, other_coords.y, coords.x, coords.y))
         heapq.heapify(candidates)
         # ISSUE: unless we stop using batches when candidates are few, we might have endless loops due to lazy updates
         # ALTERNATIVE FIX: do NOT rebuild forces for all nodes (see above "ISSUE")

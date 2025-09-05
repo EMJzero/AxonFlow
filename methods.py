@@ -10,22 +10,35 @@ from snn import *
 
 class Result:
     name : str
+    # HYPERGRAPH
     graph_nodes : int
     graph_edges : int
     graph_cost : float
+    # HARDWARE
     hw_npc : int
     hw_spc : int
     hw_cpc : int
+    # PARTITIONING
     part_valid : bool
     part_cost : float # lower is better
     part_count : int
+    # INITIAL PLACEMENT
+    init_valid : bool
+    init_energy : float
+    init_avg_lat : float
+    init_max_lat : float
+    init_avg_cong : float
+    init_max_cong : float
+    # FINAL PLACEMENT
     plac_valid : bool
     plac_energy : float
     plac_avg_lat : float
     plac_max_lat : float
     plac_avg_cong : float
     plac_max_cong : float
+    # EXTRA
     note : str
+    # TIME
     part_time : int
     time : int
     approx_time : int
@@ -47,6 +60,14 @@ class Result:
         self.part_valid = valid
         self.part_cost = cost
         self.part_count = count
+    
+    def setInitPlac(self, valid : bool, energy : float, avg_latency : float, max_latency : float, avg_congestion : float, max_congestion : float) -> None:
+        self.init_valid = valid
+        self.init_energy = energy
+        self.init_avg_lat = avg_latency
+        self.init_max_lat = max_latency
+        self.init_avg_cong = avg_congestion
+        self.init_max_cong = max_congestion
     
     def setPlac(self, valid : bool, energy : float, avg_latency : float, max_latency : float, avg_congestion : float, max_congestion : float) -> None:
         self.plac_valid = valid
@@ -116,7 +137,8 @@ def run_sequential_topo_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareMod
         topological_order = part_snn
     else:
         topological_order, _ = topologicalOrder(part_snn, break_cycles = True)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -135,7 +157,8 @@ def run_sequential_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, s
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
     topological_order = feedForwardOrder(part_snn)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -154,7 +177,8 @@ def run_sequential_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, s
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
     topological_order = feedForwardOrder(part_snn)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -172,7 +196,8 @@ def run_sequential_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, 
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -190,7 +215,8 @@ def run_sequential_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, 
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -225,7 +251,8 @@ def run_hehiding_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, see
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
     topological_order = feedForwardOrder(part_snn)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -242,7 +269,8 @@ def run_hehiding_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, see
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
     topological_order = feedForwardOrder(part_snn)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -258,7 +286,8 @@ def run_hehiding_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, se
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -274,7 +303,8 @@ def run_hehiding_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, se
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -337,7 +367,8 @@ def run_multistart_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, 
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -354,7 +385,8 @@ def run_setlist_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
     topological_order = feedForwardOrder(part_snn)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -371,7 +403,8 @@ def run_setlist_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
     topological_order = feedForwardOrder(part_snn)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -387,7 +420,8 @@ def run_setlist_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, see
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -403,7 +437,8 @@ def run_setlist_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, see
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -436,7 +471,8 @@ def run_hmetis_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed 
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
     topological_order = feedForwardOrder(part_snn)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -453,7 +489,8 @@ def run_hmetis_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed 
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
     topological_order = feedForwardOrder(part_snn)
-    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY()) 
+    plac = hilbertPlacement(topological_order.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -469,7 +506,8 @@ def run_hmetis_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = forceDirectedRefinement(part_snn, plac, hw, fixes = False)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))
@@ -485,7 +523,8 @@ def run_hmetis_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed
     res.partTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     del hg
-    plac = spectralPlacement(part_snn.toGraph().toNxGraph(), hw.coresAlongX(), hw.coresAlongY())
+    plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20, initial_layout = plac)
     res.endTime()
     res.setPlac(**hw.getAllMetrics(part_snn, plac))

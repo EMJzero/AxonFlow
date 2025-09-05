@@ -4,6 +4,7 @@ from collections.abc import Iterable, Iterator
 from typing import Optional, Self, Union
 
 from collections import defaultdict
+from scipy.sparse import coo_array
 from array import array
 import networkx as nx
 import numpy as np
@@ -250,6 +251,21 @@ class HyperGraph(Iterable):
                     else:
                         edges[(src, dst)] = Edge(src, dst, he.spike_frequency)
             return Graph(self.nodes, edges.values())
+
+    """
+    Builds a SciPy sparse adjacency matrix for the hypergraph.
+    The matrix will have shape 'self.nodes x self.nodes', and each entry will have as
+    value its original hyperedge's spike frequency.
+    """
+    def toScipySparseAdjacencyMatrix(self) -> np.ndarray:
+        rows, cols, data = [], [], []
+        for he in self.hyperedges:
+            src = he.source()
+            for dst in he.destinations():
+                rows.append(src)
+                cols.append(dst)
+                data.append(he.spike_frequency)
+        return coo_array((data, (rows, cols)), shape = (self.nodes, self.nodes))
 
     """
     Returns the hypegraph that arises between partitions of the present hypergraph,

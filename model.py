@@ -266,14 +266,18 @@ class HardwareModel:
     Summarizes all model metrics for a given placement.
     """
     def getAllMetrics(self, part_snn : HyperGraph, placement : list[Coord2D]) -> dict[str, float]:
-        return {
-            'valid': self.checkPlacementValidity(part_snn, placement),
-            'energy': self.placementEnergyConsumption(part_snn, placement),
-            'avg_latency': self.placementAverageLatency(part_snn, placement),
-            'max_latency': self.placementMaximumLatency(part_snn, placement),
-            'avg_congestion': self.placementAverageCongestion(part_snn, placement),
-            'max_congestion': self.placementMaximumCongestion(part_snn, placement)
-        }
+        valid = self.checkPlacementValidity(part_snn, placement)
+        if valid:
+            return {
+                'valid': valid,
+                'energy': self.placementEnergyConsumption(part_snn, placement),
+                'avg_latency': self.placementAverageLatency(part_snn, placement),
+                'max_latency': self.placementMaximumLatency(part_snn, placement),
+                'avg_congestion': self.placementAverageCongestion(part_snn, placement),
+                'max_congestion': self.placementMaximumCongestion(part_snn, placement)
+            }
+        else:
+            return {'valid': valid}
     
     """
     Returns a compound cost metric that is the product of energy, latency, and congestion, all of which shall be minimized.
@@ -298,29 +302,31 @@ class HardwareModel:
     """
     Returns the "force", aka the reduction in the hardware's potential energy (defined as a proxy for the hardware's energy
     and latency), that would derive from moving the 'placement' for the provided 'node' in any of 'directions'.
-    One force for each direction is returned, in order, in a tuple.
+    One force for each direction is returned, unless the destination is outside the hardware's bounds.
     An invalid node index silently results in zero force in all directions.
     """
     def getForces(self, part_snn : HyperGraph, placement : Union[list[Coord2D], dict[int, Coord2D]], node : int, directions : tuple[Coord2D, ...] = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1)), potential_func : Callable[[Coord2D], float] = lambda c : max(abs(c), 1)) -> dict[Coord2D, float]:
         # ISSUE: the original version used as 'potential_func' just 'abs', without 'max(1, ...)', but that meant that you ignored the potential
         # energy caused by the node already occupying 'node_placement + d', and that is a problem if such a node is heavily connected!
+        node_placement = placement[node]
+        node_placement_plus_d = {d : node_placement + d for d in directions}
+        directions = tuple(d for d in directions if 0 <= node_placement_plus_d[d].x < self.coresAlongX() and 0 <= node_placement_plus_d[d].y < self.coresAlongY())
         if node < 0 or node >= part_snn.nodes:
             return {d : 0.0 for d in directions}
         base_potential = 0.0
         alt_potentials = {d : 0.0 for d in directions}
-        node_placement = placement[node]
         for he in part_snn.getInboundHyperedges(node):
             src_placement = placement[he.source()]
             base_potential += potential_func(node_placement - src_placement)*he.spike_frequency
             for d in directions:
-                alt_potentials[d] += potential_func(node_placement + d - src_placement)*he.spike_frequency
+                alt_potentials[d] += potential_func(node_placement_plus_d[d] - src_placement)*he.spike_frequency
         # ISSUE: the original version depended only on inbound, not outbound connections (forces were not symmetric)
         for he in part_snn.getOutboundHyperedges(node):
             for dst in he.destinations():
                 dst_placement = placement[dst]
                 base_potential += potential_func(node_placement - dst_placement)*he.spike_frequency
                 for d in directions:
-                    alt_potentials[d] += potential_func(node_placement + d - dst_placement)*he.spike_frequency
+                    alt_potentials[d] += potential_func(node_placement_plus_d[d] - dst_placement)*he.spike_frequency
         return {d : base_potential - alt_potentials[d] for d in directions}
 
 
