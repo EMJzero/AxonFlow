@@ -302,17 +302,16 @@ class HardwareModel:
     """
     Returns the "force", aka the reduction in the hardware's potential energy (defined as a proxy for the hardware's energy
     and latency), that would derive from moving the 'placement' for the provided 'node' in any of 'directions'.
-    One force for each direction is returned, unless the destination is outside the hardware's bounds.
+    One force for each direction is returned, even if the destination is outside the hardware's bounds.
     An invalid node index silently results in zero force in all directions.
     """
     def getForces(self, part_snn : HyperGraph, placement : Union[list[Coord2D], dict[int, Coord2D]], node : int, directions : tuple[Coord2D, ...] = (Coord2D(1, 0), Coord2D(0, 1), Coord2D(-1, 0), Coord2D(0, -1)), potential_func : Callable[[Coord2D], float] = lambda c : max(abs(c), 1)) -> dict[Coord2D, float]:
         # ISSUE: the original version used as 'potential_func' just 'abs', without 'max(1, ...)', but that meant that you ignored the potential
         # energy caused by the node already occupying 'node_placement + d', and that is a problem if such a node is heavily connected!
-        node_placement = placement[node]
-        node_placement_plus_d = {d : node_placement + d for d in directions}
-        directions = tuple(d for d in directions if 0 <= node_placement_plus_d[d].x < self.coresAlongX() and 0 <= node_placement_plus_d[d].y < self.coresAlongY())
         if node < 0 or node >= part_snn.nodes:
             return {d : 0.0 for d in directions}
+        node_placement = placement[node]
+        node_placement_plus_d = {d : node_placement + d for d in directions}
         base_potential = 0.0
         alt_potentials = {d : 0.0 for d in directions}
         for he in part_snn.getInboundHyperedges(node):

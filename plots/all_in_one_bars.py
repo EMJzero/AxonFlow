@@ -140,6 +140,9 @@ if __name__ == "__main__":
         times : dict[str, list[Optional[float]]] = defaultdict(list)
         connectivity : dict[str, list[Optional[float]]] = defaultdict(list)
         part_times : dict[str, list[Optional[float]]] = defaultdict(list)
+        init_energy : dict[str, list[Optional[float]]] = defaultdict(list)
+        init_latency : dict[str, list[Optional[float]]] = defaultdict(list)
+        init_congestion : dict[str, list[Optional[float]]] = defaultdict(list)
 
         # Optional: specify techniques to omit
         omit_techniques = {"sequential-truenorth"}
@@ -197,6 +200,9 @@ if __name__ == "__main__":
                     times[technique].append(entry.get("time", None))
                     connectivity[technique].append(entry.get("part_cost", None))
                     part_times[technique].append(entry.get("part_time", None))
+                    init_energy[technique].append(entry.get("init_energy", None))
+                    init_latency[technique].append(entry.get("init_avg_lat", None))
+                    init_congestion[technique].append(entry.get("init_avg_cong", None))
                 else:
                     energy[technique].append(None)
                     latency[technique].append(None)
@@ -204,24 +210,29 @@ if __name__ == "__main__":
                     times[technique].append(None)
                     connectivity[technique].append(None)
                     part_times[technique].append(None)
+                    init_energy[technique].append(None)
+                    init_latency[technique].append(None)
+                    init_congestion[technique].append(None)
         
         # Optional: normalize w.r.t. the best partitioning
         energy_delay_product : dict[str, list[Optional[float]]] = {}
         best_energy_delay_product = [min([energy[technique][i]*latency[technique][i] for technique in techniques if energy[technique][i] != None and latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_energy = [min([energy[technique][i] for technique in techniques if energy[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_latency = [min([latency[technique][i] for technique in techniques if latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_congestion = [min([congestion[technique][i] for technique in techniques if congestion[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_connectivity = [min([connectivity[technique][i] for technique in techniques if connectivity[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        init_energy_delay_product : dict[str, list[Optional[float]]] = {}
         for technique in techniques:
             energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None else None, zip(energy[technique], latency[technique], best_energy_delay_product)))
-        best_energy = [min([energy[technique][i] for technique in techniques if energy[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        for technique in techniques:
             energy[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(energy[technique], best_energy)))
-        best_latency = [min([latency[technique][i] for technique in techniques if latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        for technique in techniques:
             latency[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(latency[technique], best_latency)))
-        best_congestion = [min([congestion[technique][i] for technique in techniques if congestion[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        for technique in techniques:
             congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
-        best_connectivity = [min([connectivity[technique][i] for technique in techniques if connectivity[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        for technique in techniques:
             connectivity[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(connectivity[technique], best_connectivity)))
+            # still normalize them w.r.t. the eventual best for their metric since they will be in the same plot
+            init_energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None else None, zip(init_energy[technique], init_latency[technique], best_energy_delay_product)))
+            init_energy[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_energy[technique], best_energy)))
+            init_latency[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_latency[technique], best_latency)))
+            init_congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_congestion[technique], best_congestion)))
 
         # Optional: keep only the best placement by EDP for each partitioning technique
         best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
@@ -261,6 +272,10 @@ if __name__ == "__main__":
             connectivity[technique] = list(map(lambda x : x if x != None else math.nan, connectivity[technique]))
             part_times[technique] = list(map(lambda x : x if x != None else math.nan, part_times[technique]))
             energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, energy_delay_product[technique]))
+            init_energy[technique] = list(map(lambda x : x if x != None else math.nan, init_energy[technique]))
+            init_latency[technique] = list(map(lambda x : x if x != None else math.nan, init_latency[technique]))
+            init_congestion[technique] = list(map(lambda x : x if x != None else math.nan, init_congestion[technique]))
+            init_energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, init_energy_delay_product[technique]))
 
         # Prepare for bar-plot
         index = np.arange(len(x_labels))
@@ -304,8 +319,9 @@ if __name__ == "__main__":
                 #ongoing_hatch = next(possible_hatches)
                 ongoing_linestyle = next(possible_linestyles)
             color = next(ongoing_color)
-            style[technique] = {"color": color, "hatch": part_techniques_to_hatch[part_technique], "edgecolor": "white", "alpha": 1.0}
-            line_style[technique] = {"color": color, "marker" : next(possible_markers), "linestyle" : ongoing_linestyle, "markersize" : 8, "alpha" : 1.0}
+            style[technique] = {"color": color, "hatch": part_techniques_to_hatch[part_technique], "edgecolor": "white"}
+            line_style[technique] = {"color": color, "marker" : next(possible_markers), "linestyle" : ongoing_linestyle, "markersize" : 8}
+        shadow_bars_alpha = 0.3
 
         # Decide the y-axis bounds by ignoring outliers (lower sigma is more brutal)
         def set_bounds(ax : matplotlib.axes.Axes, data : Optional[dict[str, float]], shapes : Optional[list[matplotlib.patches.Patch]], sigma : float = 0.5, margin : float = 0.2):
@@ -364,6 +380,7 @@ if __name__ == "__main__":
         def energy_plot(ax : matplotlib.axes.Axes):
             rects = []
             for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_energy[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
@@ -379,6 +396,7 @@ if __name__ == "__main__":
         def latency_plot(ax : matplotlib.axes.Axes):
             rects = []
             for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_latency[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, latency[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
@@ -393,6 +411,7 @@ if __name__ == "__main__":
         def congestion_plot(ax : matplotlib.axes.Axes):
             rects = []
             for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_congestion[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, congestion[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
@@ -408,6 +427,7 @@ if __name__ == "__main__":
         def edp_plot(ax : matplotlib.axes.Axes):
             rects = []
             for j, technique in enumerate(techniques):
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_energy_delay_product[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy_delay_product[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)

@@ -141,7 +141,14 @@ def spectralPlacementScipy(hg : HyperGraph, width: int, height: int) -> list[Coo
     tree = KDTree(grid_points)
     used = set()
     embedding = [0 for _ in range(nodes)]
-    for i, pt in enumerate(coords):
+    # NOTE: nodes are placed in the order dictated by their index, this means
+    #       that lower-index nodes take priority in the KDtree, to enforce
+    #       a different priority consider first ordering the hypergraph,
+    #       for instance via 'feedForwardOrder'.
+    # => Alternatively: sort by highest total touching spike frequency!
+    #for i, pt in enumerate(coords):
+    for i in sorted(range(nodes), key = lambda n : sum(he.spike_frequency for he in hg.getTouchingHyperedges(n)), reverse = True):
+        pt = coords[i]
         _, idx = tree.query(pt + [offset_x, offset_y])
         while grid_points[idx] in used:
             grid_points.pop(idx)
