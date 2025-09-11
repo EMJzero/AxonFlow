@@ -267,10 +267,9 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
             other_coords = coords + d_pos
             if origin <= other_coords < lattice_bound:
                 if coords in forces or other_coords in forces:
-                    if d_pos in forces[coords] and d_neg in forces[other_coords]:
-                        tension = forces[coords][d_pos] + forces[other_coords][d_neg]
-                        if tension > 0:
-                            heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
+                    tension = forces[coords][d_pos] + forces[other_coords][d_neg]
+                    if tension > 0:
+                        heapq.heappush(candidates, (-tension, coords, other_coords)) # max-heap
     
     iteration, max_iterations = 0, hg.totalConnections()
     prev_moves_counts = [0, 0]
@@ -318,12 +317,11 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                 other_coords = coords + d_pos
                 if origin <= other_coords < lattice_bound:
                     if (coords.x, coords.y, other_coords.x, other_coords.y) not in deduplicate and (other_coords.x, other_coords.y, coords.x, coords.y) not in deduplicate:
-                        if d_pos in forces[coords] and d_neg in forces[other_coords]:
-                            tension = forces[coords][d_pos] + forces[other_coords][d_neg]
-                            if tension > 0:
-                                candidates.append((-tension, coords, other_coords))
-                            deduplicate.add((coords.x, coords.y, other_coords.x, other_coords.y))
-                            deduplicate.add((other_coords.x, other_coords.y, coords.x, coords.y))
+                        tension = forces[coords][d_pos] + forces[other_coords][d_neg]
+                        if tension > 0:
+                            candidates.append((-tension, coords, other_coords))
+                        deduplicate.add((coords.x, coords.y, other_coords.x, other_coords.y))
+                        deduplicate.add((other_coords.x, other_coords.y, coords.x, coords.y))
         heapq.heapify(candidates)
         # ISSUE: unless we stop using batches when candidates are few, we might have endless loops due to lazy updates
         # ALTERNATIVE FIX: do NOT rebuild forces for all nodes (see above "ISSUE")

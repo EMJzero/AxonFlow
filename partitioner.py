@@ -1200,8 +1200,10 @@ def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbo
                 best_node, inbound = max(nodes.items(), key = lambda item : len(item[1]))
                 #best_node, inbound = min(nodes.items(), key = lambda item : (len(item[1]), sum(ohe.spike_frequency for ohe in hg.getOutboundHyperedges(item[0]))))
             else:
-                # this already gives the minimum overlap node, if it can't fit, no other node can, thus we need a new partition
-                best_node, inbound = min(nodes.items(), key = lambda item : (len(item[1] - inbound_set), -len(item[1]))) # TODO: in case of tie, break it by total spike frequency
+                # pick the node with the least new inbound hedges, if it can't fit, no other node can, thus we need a new partition;
+                # as a tiebreaker, pick the node with the largest inbound set overlap
+                best_node, inbound = min(nodes.items(), key = lambda item : (len(item[1] - inbound_set), -len(item[1]))) # TODO: in case of further tie, maybe also break it by total spike frequency?
+                ## this gives the maximum relative overlap node, if it can't fit, no other node can, thus we need a new partition
                 #best_node, inbound = max(nodes.items(), key = lambda item : len(item[1] & inbound_set)/len(item[1]) if item[1] else 0)
             inbound_set.update(inbound)
             if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges:

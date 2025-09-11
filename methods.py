@@ -638,3 +638,62 @@ def run_hmetis(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> R
     res.endTime()
     res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
     return res
+
+
+# PLACEMENT:
+
+def run_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.startTime()
+    ordered_part_snn = feedForwardOrder(hg)
+    plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(ordered_part_snn, plac))
+    plac = forceDirectedRefinement(ordered_part_snn, plac, hw, fixes = False)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(ordered_part_snn, plac))
+    return res
+
+def run_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.startTime()
+    ordered_part_snn = feedForwardOrder(hg)
+    plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(ordered_part_snn, plac))
+    plac = particleSwarmPlacement(ordered_part_snn, hw, num_iterations = 20, initial_layout = plac)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(ordered_part_snn, plac))
+    return res
+
+def run_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.startTime()
+    plac = spectralPlacementScipy(hg, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(hg, plac))
+    plac = forceDirectedRefinement(hg, plac, hw, fixes = False)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(hg, plac))
+    return res
+
+def run_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.startTime()
+    plac = spectralPlacementScipy(hg, hw.coresAlongX(), hw.coresAlongY())
+    res.setInitPlac(**hw.getAllMetrics(hg, plac))
+    plac = particleSwarmPlacement(hg, hw, num_iterations = 20, initial_layout = plac)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(hg, plac))
+    return res
+
+def run_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+    res = Result(name)
+    res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    res.startTime()
+    ordered_part_snn = feedForwardOrder(hg)
+    plac = trueNorthPlacement(ordered_part_snn, hw)
+    res.endTime()
+    res.setPlac(**hw.getAllMetrics(ordered_part_snn, plac))
+    return res

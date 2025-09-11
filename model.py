@@ -84,7 +84,17 @@ class HardwareModel:
     
     Can give false negatives. Never gives false positives.
     """
-    def checkSnnFit(self, snn : HyperGraph, verbose : bool = False) -> bool:
+    def checkSnnFit(self, snn : HyperGraph, already_partitioned : bool = False, verbose : bool = False) -> bool:
+        if already_partitioned:
+            if snn.nodes > self.coresCount():
+                if verbose:
+                    print("SNN CAN'T FIT ON THE HW: more neuron clusters than the HW cores")
+                return False
+            if any(len(snn.getInboundHyperedges(n)) > self.synapses_per_core for n in range(snn.nodes)):
+                if verbose:
+                    print("SNN CAN'T FIT ON THE HW: more inbound synapses on a neuron cluster than the HW can handle")
+                return False
+            return True
         if snn.nodes > self.coresCount()*self.neurons_per_core:
             if verbose:
                 print("SNN CAN'T FIT ON THE HW: more neurons than the HW can house")

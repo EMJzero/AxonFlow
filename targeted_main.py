@@ -53,6 +53,7 @@ def parse_options() -> dict[str, Any]:
         "reload": args_match_and_remove(["-r", "--reload"], with_value = True),
         "output": args_match_and_remove(["-o", "--output"], with_value = True),
         "partitioning": args_match_and_remove(["-p", "--partitioning"]),
+        "placement": args_match_and_remove(["-pp", "--placement"]),
         "fraction": args_match_and_remove(["-f", "--fraction"], with_value = True, value_type = float),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
@@ -67,7 +68,8 @@ def help_options() -> None:
     print("-s, --save <path>\tSaves the used SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'.")
     print("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load.")
     print("-o, --output <file>\tName of the '.json' file where to write results.")
-    print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement.")
+    print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement (takes priority over '-pp').")
+    print("-pp, --placement\tOnly runs the partitioning algorithms part, assumes the input to be already a partitioned hypergraph.")
     print("-f, --fraction <num>\tFraction of the lowest-spike-frequency hyperedges to ignore (still count for costs), let it be a number in [0, 1].")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
@@ -101,6 +103,10 @@ if __name__ == "__main__":
     elif not options["output"].endswith(".json"):
         options["output"] += ".json"
         print(f"WARNING: the output file was missing the '.json' extension, it has updated to '{options["output"]}'.")
+
+    if options["partitioning"] and options["placement"]:
+        options["placement"] = False
+        print(f"WARNING: option '-p' overrode option '-pp'.")
 
     if Settings.MULTIPROCESSING:
         multiprocessing.current_process().name = '0'
@@ -179,34 +185,40 @@ if __name__ == "__main__":
             "hehiding-spectral-fd": run_hehiding_spectral_fd,
             "hehiding-spectral-ps": run_hehiding_spectral_ps,
             "hehiding-truenorth": run_hehiding_truenorth,
-            #"swap-particleswarm": run_swap_particleswarm,
-            #"multistart-truenorth": run_multistart_truenorth,
-            #"multistart-spectral-fd": run_multistart_spectral_fd,
-            "setlist-hilbert-fd": run_setlist_hilbert_fd,
-            "setlist-hilbert-ps": run_setlist_hilbert_ps,
-            "setlist-spectral-fd": run_setlist_spectral_fd,
-            "setlist-spectral-ps": run_setlist_spectral_ps,
-            "setlist-truenorth": run_setlist_truenorth,
+            ##"swap-particleswarm": run_swap_particleswarm,
+            ##"multistart-truenorth": run_multistart_truenorth,
+            ##"multistart-spectral-fd": run_multistart_spectral_fd,
+            #"setlist-hilbert-fd": run_setlist_hilbert_fd,
+            #"setlist-hilbert-ps": run_setlist_hilbert_ps,
+            #"setlist-spectral-fd": run_setlist_spectral_fd,
+            #"setlist-spectral-ps": run_setlist_spectral_ps,
+            #"setlist-truenorth": run_setlist_truenorth,
             "hmetis-hilbert-fd": run_hmetis_hilbert_fd,
             "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
             "hmetis-spectral-fd": run_hmetis_spectral_fd,
             "hmetis-spectral-ps": run_hmetis_spectral_ps,
             "hmetis-truenorth": run_hmetis_truenorth
-        } if not options["partitioning"] else {
+        } if not (options["partitioning"] or options["placement"]) else {
             #"unordered-sequential": run_unordered_sequential,
             "sequential": run_sequential,
-            "edgehiding": run_edgehiding,
+            ##"edgehiding": run_edgehiding,
             "hehiding": run_hehiding,
-            #"swap": run_swap,
-            #"multistart": run_multistart,
-            "setlist": run_setlist,
-            "hmetis": run_hmetis,
+            ##"swap": run_swap,
+            ##"multistart": run_multistart,
+            #"setlist": run_setlist,
+            "hmetis": run_hmetis
+        } if options["partitioning"] else {
+            "hilbert-fd": run_hilbert_fd,
+            "hilbert-ps": run_hilbert_ps,
+            "spectral-fd": run_spectral_fd,
+            "spectral-ps": run_spectral_ps,
+            "truenorth": run_truenorth
         }
         print("Methods to test:")
         prettyPrintIterable(methods.keys(), 3, left_aligned = True)
         
         print("\n---- checking feasibility ----")
-        if not hardware.checkSnnFit(snn, verbose = True):
+        if not hardware.checkSnnFit(snn, already_partitioned = options["placement"], verbose = True):
             print("WARNING: the generated SNN may not fit on the given HW, change either's configuration or the seed.")
         else:
             print("Passed!")

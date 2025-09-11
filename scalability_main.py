@@ -50,6 +50,7 @@ def parse_options() -> dict[str, Any]:
         "interactive": args_match_and_remove(["-i", "--interactive"]),
         "output": args_match_and_remove(["-o", "--output"], with_value = True),
         "partitioning": args_match_and_remove(["-p", "--partitioning"]),
+        "placement": args_match_and_remove(["-pp", "--placement"]),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
@@ -59,7 +60,8 @@ def help_options() -> None:
     print("-h, --help\t\tDisplay this help menu.")
     print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print("-o, --output <file>\tName of the '.json' file where to write results.")
-    print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement.")
+    print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement (takes priority over '-pp').")
+    print("-pp, --placement\tOnly runs the partitioning algorithms part, assumes the input to be already a partitioned hypergraph.")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -92,6 +94,10 @@ if __name__ == "__main__":
     elif not options["output"].endswith(".json"):
         options["output"] += ".json"
         print(f"WARNING: the output file was missing the '.json' extension, it has updated to '{options["output"]}'.")
+
+    if options["partitioning"] and options["placement"]:
+        options["placement"] = False
+        print(f"WARNING: option '-p' overrode option '-pp'.")
 
     if Settings.MULTIPROCESSING:
         multiprocessing.current_process().name = '0'
@@ -163,28 +169,34 @@ if __name__ == "__main__":
             "hehiding-spectral-fd": run_hehiding_spectral_fd,
             "hehiding-spectral-ps": run_hehiding_spectral_ps,
             "hehiding-truenorth": run_hehiding_truenorth,
-            #"swap-particleswarm": run_swap_particleswarm,
-            #"multistart-truenorth": run_multistart_truenorth,
-            #"multistart-spectral-fd": run_multistart_spectral_fd,
-            "setlist-hilbert-fd": run_setlist_hilbert_fd,
-            "setlist-hilbert-ps": run_setlist_hilbert_ps,
-            "setlist-spectral-fd": run_setlist_spectral_fd,
-            "setlist-spectral-ps": run_setlist_spectral_ps,
-            "setlist-truenorth": run_setlist_truenorth,
+            ##"swap-particleswarm": run_swap_particleswarm,
+            ##"multistart-truenorth": run_multistart_truenorth,
+            ##"multistart-spectral-fd": run_multistart_spectral_fd,
+            #"setlist-hilbert-fd": run_setlist_hilbert_fd,
+            #"setlist-hilbert-ps": run_setlist_hilbert_ps,
+            #"setlist-spectral-fd": run_setlist_spectral_fd,
+            #"setlist-spectral-ps": run_setlist_spectral_ps,
+            #"setlist-truenorth": run_setlist_truenorth,
             "hmetis-hilbert-fd": run_hmetis_hilbert_fd,
             "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
             "hmetis-spectral-fd": run_hmetis_spectral_fd,
             "hmetis-spectral-ps": run_hmetis_spectral_ps,
             "hmetis-truenorth": run_hmetis_truenorth
-        } if not options["partitioning"] else {
+        } if not (options["partitioning"] or options["placement"]) else {
             #"unordered-sequential": run_unordered_sequential,
             "sequential": run_sequential,
-            "edgehiding": run_edgehiding,
+            #"edgehiding": run_edgehiding,
             "hehiding": run_hehiding,
             #"swap": run_swap,
             #"multistart": run_multistart,
-            "setlist": run_setlist,
+            #"setlist": run_setlist,
             "hmetis": run_hmetis,
+        } if options["partitioning"] else {
+            "hilbert-fd": run_hilbert_fd,
+            "hilbert-ps": run_hilbert_ps,
+            "spectral-fd": run_spectral_fd,
+            "spectral-ps": run_spectral_ps,
+            "truenorth": run_truenorth
         }
         
         print("\n------ experiment setup ------")
@@ -213,7 +225,7 @@ if __name__ == "__main__":
             # reference: Allen V1 cv = 1.37, 8k model cv = 0.96, 64k_model cv = 1.58, lenet cv = 0.89, alexnet cv = 1.84 => we use 1.58
             hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 2, locality_sigma = 0.35, long_range_fraction = 0.1, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
             #acyclic_snn = makeAcyclic(snn)
-            if not hardware.checkSnnFit(hypergraph, verbose = True):
+            if not hardware.checkSnnFit(hypergraph, already_partitioned = options["placement"], verbose = True):
                 print(f"WARNING: the generated SNN of experiment '{experiment}' may not fit on the given HW, change either's configuration or the seed.")
             
             workers : dict[str, Worker] = {}
