@@ -72,6 +72,15 @@ def help_options() -> None:
         "The default extension is '.png', add an extension to <name> to override the file type, supported ones are '.pdf', '.eps', '.svg', '.png'."))
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
+def rename_label(label : str) -> str:
+    if label == "sequential": return "ordered sequential"
+    if label == "unordered": return "unordered sequential"
+    if label == "edgehiding": return "edgemap"
+    if label == "hmetis": return "hierarchical"
+    if label == "hehiding": return "h-edge overlap"
+    print("Could not rename label:", label)
+    return label
+
 
 # MATPLOTLIB SETTINGS:
 
@@ -80,7 +89,7 @@ DPI = 300 #800
 SAVE_NOT_SHOW = True
 
 FONTSIZE = 13
-BAR_WIDTH = 0.18
+BAR_WIDTH = 0.15 #0.18
 
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
@@ -129,7 +138,7 @@ if __name__ == "__main__":
                     print("Skipped file:", f)
         files.sort()
         techniques = set()
-        file_data = []  # will hold tuples: (num_nodes, filename, technique_entries)
+        file_data = [] # will hold tuples: (num_nodes, filename, technique_entries)
         x_labels = []
         x_indices = list(range(len(files)))
 
@@ -137,6 +146,11 @@ if __name__ == "__main__":
         connectivity : dict[str, list[Optional[float]]] = defaultdict(list)
         part_times : dict[str, list[Optional[float]]] = defaultdict(list)
         part_count : dict[str, list[Optional[float]]] = defaultdict(list)
+
+        # Optional: specify partitioning techniques to omit
+        omit_part_techniques = {"setlist"}
+        # Optional: specify techniques to put first in the order, others will follow in descending alphabetical order
+        forceful_order = ["sequential", "unordered", "edgehiding"]
 
         # Read files
         for file in files:
@@ -151,7 +165,7 @@ if __name__ == "__main__":
             for entry in data:
                 name = entry["name"]
                 technique = name.split("-", 1)[0]
-                if name in techniques:
+                if name in technique_entries:
                     print(f"Already seen technique '{technique}', skipping '{name}'...")
                     continue
 
@@ -164,6 +178,7 @@ if __name__ == "__main__":
 
                 if graph_nodes is None and "graph_nodes" in entry:
                     graph_nodes = entry["graph_nodes"]
+                    #graph_nodes = entry["graph_edges"]
 
                 if not entry.get("part_valid", True):
                     print(f"WARNING: Invalid partitioning for {file} -> {name}")
@@ -198,8 +213,6 @@ if __name__ == "__main__":
         for technique in techniques:
             connectivity[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(connectivity[technique], best_connectivity)))
 
-        # Optional: specify partitioning techniques to omit
-        omit_part_techniques = {"setlist"}
         print("Omitted techniques:", ', '.join(omit_part_techniques))
         techniques = techniques - omit_part_techniques
         connectivity = {k : v for k, v in connectivity.items() if k in techniques}
@@ -216,6 +229,10 @@ if __name__ == "__main__":
         index = np.arange(len(x_labels))
         offset = (len(techniques) - 1)/2
         techniques = sorted(techniques, reverse = True) # descending order on the word before the first '-', then ascending order as a tiebreak.
+        for fo in forceful_order[::-1]:
+            if fo in techniques:
+                techniques.remove(fo)
+                techniques.insert(0, fo)
 
         # Plotting
         #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
@@ -223,11 +240,11 @@ if __name__ == "__main__":
 
         # Assign style to partitioning techniques
         possible_colors = [
-                #"#6C8EBF", # BLUE
-                "#48617A", # DARK-BLUE
-                #"#336699", # DARKER-BLUE
+                "#6C8EBF", # BLUE
+                #"#48617A", # DARK-BLUE
+                "#336699", # DARKER-BLUE
                 #"#FFB700", # YELLOW # alts: D79B00
-                #"#B38000", # DARK YELLOW
+                "#B38000", # DARK YELLOW
                 #"#FF6978", # PINK
                 #"#A8516E", # DARK PINK
                 #"#82B366", # GREEN
@@ -354,6 +371,8 @@ if __name__ == "__main__":
         max_legend_rows = 1
         # HP: all axis have the same entries!
         handles, labels = ax1.get_legend_handles_labels()
+        # Rename labels
+        labels = list(map(rename_label, labels))
         # UNLESS: you use lines for time, instead of bars
         handles_lines, _ = ax3.get_legend_handles_labels()
         combined_handles = list(zip(handles, handles_lines))

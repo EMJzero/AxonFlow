@@ -973,6 +973,15 @@ def partitionEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, 
 
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
 
+    # prepare to normalize spike frequency
+    #spike_frequency_min, spike_frequency_max = math.inf, 0
+    #for he in hg:
+    #    if he.spike_frequency > spike_frequency_max:
+    #        spike_frequency_max = he.spike_frequency
+    #    if he.spike_frequency < spike_frequency_min:
+    #        spike_frequency_min = he.spike_frequency
+    #spike_frequency_span = (spike_frequency_max - spike_frequency_min)*0.01
+
     # greedy, one-shot
     # NOTE: unless the nodes you connect to have been at least in part seen before you, this works terribly.
     for node in range(hg.nodes):
@@ -990,7 +999,12 @@ def partitionEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, 
                 # NOTE: this does NOT actively consider synaptic reuse, but enforce spike resolution within a core, that shall contain both src and dst neuron!
                 # NOTE: the penality for larger partitions is "len(part)**2 - (len(part) + 1)**2" that equates "1 - 2*len(part)", this also prevents
                 #       merges with partitions with nothing in common when there are instead empty partitions available.
+                # >> base version (as in the article)
                 delta = sum(he.spike_frequency for he in node_inbound_set if he.source() in part)*100 + sum(he.spike_frequency for he in node_outbound_set for dst in he.destinations() if dst in part)*100 - 1 - 2*len(part)
+                # >> bonus for putting nodes with no inbound connections together
+                delta += 100 if len(node_inbound_set) == 0 and len(part_inbount_set) == 0 else 0
+                # >> looking at second order locality (nodes with the same set of connected nodes, this is synaptic reuse - instead of first order, where you only look at directly connected nodes)
+                #delta = sum(...)*100 - 1 - 2*len(part)
                 if delta > best_delta:
                     best_part_idx = part_idx
                     best_delta = delta
@@ -1229,5 +1243,5 @@ def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbo
     # enforce max_partitions constraint
     if next_partition_idx + 1 > max_partitions:
         raise Exception(f"Partitioning could only form {next_partition_idx} > {max_partitions} clusters under the provided constraints.")
-    
+    # S;G
     return partitions

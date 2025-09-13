@@ -1,3 +1,4 @@
+from typing import Optional
 import json
 import os
 
@@ -22,6 +23,7 @@ class Result:
     part_valid : bool
     part_cost : float # lower is better
     part_count : int
+    part_synaptic_reuse: float
     # INITIAL PLACEMENT
     init_valid : bool
     init_energy : float
@@ -29,6 +31,7 @@ class Result:
     init_max_lat : float
     init_avg_cong : float
     init_max_cong : float
+    init_connections_locality: float
     # FINAL PLACEMENT
     plac_valid : bool
     plac_energy : float
@@ -36,6 +39,7 @@ class Result:
     plac_max_lat : float
     plac_avg_cong : float
     plac_max_cong : float
+    plac_connections_locality: float
     # EXTRA
     note : str
     # TIME
@@ -56,26 +60,29 @@ class Result:
         self.hw_spc = spc
         self.hw_cpc = cpc
 
-    def setPart(self, valid : bool, cost : float, count : int) -> None:
+    def setPart(self, valid : bool, cost : float, count : int, part_synaptic_reuse : float) -> None:
         self.part_valid = valid
         self.part_cost = cost
         self.part_count = count
-    
-    def setInitPlac(self, valid : bool, energy : float, avg_latency : float, max_latency : float, avg_congestion : float, max_congestion : float) -> None:
+        self.part_synaptic_reuse = part_synaptic_reuse
+
+    def setInitPlac(self, valid : bool, energy : float, avg_latency : float, max_latency : float, avg_congestion : float, max_congestion : float, connections_locality : float) -> None:
         self.init_valid = valid
         self.init_energy = energy
         self.init_avg_lat = avg_latency
         self.init_max_lat = max_latency
         self.init_avg_cong = avg_congestion
         self.init_max_cong = max_congestion
-    
-    def setPlac(self, valid : bool, energy : float, avg_latency : float, max_latency : float, avg_congestion : float, max_congestion : float) -> None:
+        self.init_connections_locality = connections_locality
+
+    def setPlac(self, valid : bool, energy : float, avg_latency : float, max_latency : float, avg_congestion : float, max_congestion : float, connections_locality : float) -> None:
         self.plac_valid = valid
         self.plac_energy = energy
         self.plac_avg_lat = avg_latency
         self.plac_max_lat = max_latency
         self.plac_avg_cong = avg_congestion
         self.plac_max_cong = max_congestion
+        self.plac_connections_locality = connections_locality
 
     def setNote(self, note : str) -> None:
         self.note = note
@@ -131,7 +138,7 @@ def run_sequential_topo_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareMod
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     if isTopologicallySorted(part_snn):
         topological_order = part_snn
@@ -154,7 +161,7 @@ def run_sequential_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, s
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
@@ -174,7 +181,7 @@ def run_sequential_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, s
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
@@ -194,7 +201,7 @@ def run_sequential_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, 
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -213,7 +220,7 @@ def run_sequential_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, 
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -232,7 +239,7 @@ def run_sequential_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, se
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = trueNorthPlacement(ordered_part_snn, hw)
@@ -248,7 +255,7 @@ def run_hehiding_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, see
     part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
@@ -266,7 +273,7 @@ def run_hehiding_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, see
     part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
@@ -284,7 +291,7 @@ def run_hehiding_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, se
     part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -301,7 +308,7 @@ def run_hehiding_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, se
     part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -318,7 +325,7 @@ def run_hehiding_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = trueNorthPlacement(ordered_part_snn, hw)
@@ -334,7 +341,7 @@ def run_swap_particleswarm(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = swapPartitioner(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = particleSwarmPlacement(part_snn, hw, num_iterations = 20)
     res.endTime()
@@ -349,7 +356,7 @@ def run_multistart_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, se
     part = partitionGreedyMultilevelRefinedMultistart(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = trueNorthPlacement(ordered_part_snn, hw)
@@ -365,7 +372,7 @@ def run_multistart_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, 
     part = partitionGreedyMultilevelRefinedMultistart(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -382,7 +389,7 @@ def run_setlist_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
@@ -400,7 +407,7 @@ def run_setlist_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
@@ -418,7 +425,7 @@ def run_setlist_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, see
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -435,7 +442,7 @@ def run_setlist_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, see
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -452,7 +459,7 @@ def run_setlist_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed 
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = trueNorthPlacement(ordered_part_snn, hw)
@@ -468,7 +475,7 @@ def run_hmetis_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed 
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
@@ -486,7 +493,7 @@ def run_hmetis_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed 
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = hilbertPlacement(ordered_part_snn.nodes, hw.coresAlongX(), hw.coresAlongY())
@@ -504,7 +511,7 @@ def run_hmetis_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -521,7 +528,7 @@ def run_hmetis_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, seed
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     plac = spectralPlacementScipy(part_snn, hw.coresAlongX(), hw.coresAlongY())
     res.setInitPlac(**hw.getAllMetrics(part_snn, plac))
@@ -538,7 +545,7 @@ def run_hmetis_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed :
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
     del hg
     ordered_part_snn = feedForwardOrder(part_snn)
     plac = trueNorthPlacement(ordered_part_snn, hw)
@@ -549,7 +556,7 @@ def run_hmetis_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed :
 
 # PARTITIONING:
 
-def run_unordered_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_unordered_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str] = None) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
@@ -557,10 +564,12 @@ def run_unordered_sequential(name : str, hg : HyperGraph, hw : HardwareModel, se
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
+    if save:
+        part_snn.save(os.path.join(save, name))
     return res
 
-def run_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str] = None) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
@@ -570,10 +579,12 @@ def run_sequential(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) 
     part = partitionSequential(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
+    if save:
+        part_snn.save(os.path.join(save, name))
     return res
 
-def run_edgehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_edgehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str] = None) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
@@ -581,10 +592,12 @@ def run_edgehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) 
     part = partitionEdgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
+    if save:
+        part_snn.save(os.path.join(save, name))
     return res
 
-def run_hehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_hehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str] = None) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
@@ -592,10 +605,12 @@ def run_hehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) ->
     part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
+    if save:
+        part_snn.save(os.path.join(save, name))
     return res
 
-def run_swap(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_swap(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str] = None) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
@@ -603,10 +618,12 @@ def run_swap(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Res
     part = swapPartitioner(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
+    if save:
+        part_snn.save(os.path.join(save, name))
     return res
 
-def run_multistart(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_multistart(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str] = None) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
@@ -614,10 +631,12 @@ def run_multistart(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) 
     part = partitionGreedyMultilevelRefinedMultistart(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
+    if save:
+        part_snn.save(os.path.join(save, name))
     return res
 
-def run_setlist(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_setlist(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str] = None) -> Result:
     res = Result(name)
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
@@ -625,10 +644,12 @@ def run_setlist(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> 
     part = partitionSetlistMiniHashWeightsForest(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
+    if save:
+        part_snn.save(os.path.join(save, name))
     return res
 
-def run_hmetis(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> Result:
+def run_hmetis(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str] = None) -> Result:
     res = Result(name)
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
@@ -636,7 +657,9 @@ def run_hmetis(name : str, hg : HyperGraph, hw : HardwareModel, seed : int) -> R
     part = partitionHMETIS(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount(), seed = seed)
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
-    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1)
+    res.setPart(hw.checkPartitionValidity(hg, part), part_snn.totalSpikeFrequency(), max(part) + 1, hw.synapticReuse(hg, part))
+    if save:
+        part_snn.save(os.path.join(save, name))
     return res
 
 

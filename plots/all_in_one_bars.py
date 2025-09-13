@@ -72,6 +72,23 @@ def help_options() -> None:
         "The default extension is '.png', add an extension to <name> to override the file type, supported ones are '.pdf', '.eps', '.svg', '.png'."))
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
+def rename_label(label : str) -> str:
+    result = ""
+    for piece in label.split("-"):
+        if piece == "sequential": result += "ordered sequential"
+        elif piece == "hmetis": result += "hierarchical"
+        elif piece == "hehiding": result += "h-edge overlap"
+        elif piece == "hilbert": result += "hilbert"
+        elif piece == "spectral": result += "spectral"
+        elif piece == "truenorth": result += "minimum distance"
+        elif piece == "fd": result += "force-directed"
+        elif piece == "ps": result += "particle swarm"
+        else:
+            result += piece
+            print("Could not fully rename label:", label, "-> technique note recognized:", piece)
+        result += " + "
+    return result[:-3]
+
 
 # MATPLOTLIB SETTINGS:
 
@@ -145,7 +162,13 @@ if __name__ == "__main__":
         init_congestion : dict[str, list[Optional[float]]] = defaultdict(list)
 
         # Optional: specify techniques to omit
-        omit_techniques = {"sequential-truenorth"}
+        omit_techniques = {"hmetis-truenorth", "hmetis-spectral-ps", "edgehiding", "unordered-sequential"}
+        # Optional: specify techniques that must be kept
+        must_keep_techniques = {"sequential-truenorth"}
+        # Optional: specify partitioning techniques to omit
+        omit_part_techniques = {"setlist"}
+        # Optional: disable "shades" for initial layout
+        no_initial_layout = True
 
         # Read files
         for file in files:
@@ -173,6 +196,7 @@ if __name__ == "__main__":
 
                 if graph_nodes is None and "graph_nodes" in entry:
                     graph_nodes = entry["graph_nodes"]
+                    #graph_nodes = entry["graph_edges"]
 
                 if not entry.get("part_valid", True):
                     print(f"WARNING: Invalid partitioning for {file} -> {name}")
@@ -200,9 +224,9 @@ if __name__ == "__main__":
                     times[technique].append(entry.get("time", None))
                     connectivity[technique].append(entry.get("part_cost", None))
                     part_times[technique].append(entry.get("part_time", None))
-                    init_energy[technique].append(entry.get("init_energy", None))
-                    init_latency[technique].append(entry.get("init_avg_lat", None))
-                    init_congestion[technique].append(entry.get("init_avg_cong", None))
+                    init_energy[technique].append(entry.get("init_energy", None) if not no_initial_layout else None)
+                    init_latency[technique].append(entry.get("init_avg_lat", None) if not no_initial_layout else None)
+                    init_congestion[technique].append(entry.get("init_avg_cong", None) if not no_initial_layout else None)
                 else:
                     energy[technique].append(None)
                     latency[technique].append(None)
@@ -236,8 +260,6 @@ if __name__ == "__main__":
 
         # Optional: keep only the best placement by EDP for each partitioning technique
         best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
-        # Optional: specify partitioning techniques to omit
-        omit_part_techniques = {"setlist"}
         for technique in sorted(energy_delay_product.keys()):
             edp = energy_delay_product[technique]
             partitioning_technique = technique.split('-', 1)[0]
@@ -252,7 +274,7 @@ if __name__ == "__main__":
                     best_techniques[partitioning_technique].remove(other_technique)
             if not best_techniques[partitioning_technique]:
                 best_techniques[partitioning_technique].add(technique)
-        pareto_techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values())
+        pareto_techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values()) | must_keep_techniques
         print("Dominated (excluded) techniques:", ', '.join(techniques - pareto_techniques))
         techniques = pareto_techniques
         energy = {k : v for k, v in energy.items() if k in techniques}
@@ -505,6 +527,8 @@ if __name__ == "__main__":
         max_legend_rows = 2
         # HP: all axis have the same entries!
         handles, labels = ax1.get_legend_handles_labels()
+        # Rename labels
+        labels = list(map(rename_label, labels))
         # UNLESS: you use lines for time, instead of bars
         handles_lines, _ = ax6.get_legend_handles_labels()
         combined_handles = list(zip(handles, handles_lines))

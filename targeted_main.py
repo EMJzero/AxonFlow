@@ -50,6 +50,7 @@ def parse_options() -> dict[str, Any]:
         "interactive": args_match_and_remove(["-i", "--interactive"]),
         "load": args_match_and_remove(["-l", "--load"], with_value = True),
         "save": args_match_and_remove(["-s", "--save"], with_value = True),
+        "save-par": args_match_and_remove(["-sr", "--save-par"], with_value = True),
         "reload": args_match_and_remove(["-r", "--reload"], with_value = True),
         "output": args_match_and_remove(["-o", "--output"], with_value = True),
         "partitioning": args_match_and_remove(["-p", "--partitioning"]),
@@ -65,7 +66,8 @@ def help_options() -> None:
     print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print(("-l, --load <?path>\tLoads a true SNN graph instead of randomly generating one. If omitted, the default path is './snn_models/simple_cnn'.\n"
            "\t\t\tThe given path is concatenated with '_0.npz', '_input.npz', '.graphml', these are the three files expected to be found."))
-    print("-s, --save <path>\tSaves the used SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'.")
+    print("-s, --save <path>\tSaves the input SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'.")
+    print("-sp, --save-par <dir>\tSaves the partitioned hypergraphs in 'dir'. Each file will be named after the methods. Works only with option '-p'.")
     print("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load.")
     print("-o, --output <file>\tName of the '.json' file where to write results.")
     print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement (takes priority over '-pp').")
@@ -97,6 +99,13 @@ if __name__ == "__main__":
     if os.name != "posix":
         print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
 
+    if options["save-par"] and not options["partitioning"]:
+        options["save-par"] = False
+        print(f"WARNING: option '-sp' was ignored since option '-p' is missing.")
+    if options["save-par"] and not os.path.isdir(options["save-par"]):
+        os.mkdir(options["save-par"])
+        print(f"WARNING: directory '{options["save-par"]}' did not exist, it has now been created.")
+
     if not options["output"]:
         options["output"] = "targeted_results.json"
         print(f"WARNING: missing '-o' option, defaulting to '{options["output"]}'.")
@@ -117,6 +126,8 @@ if __name__ == "__main__":
     try:
         seed = 192 #79
         print("Seed:", seed)
+        save = options["save-par"]
+        if save: print("Saving partitioned hypergraphs in:", save)
         
         if options["reload"]:
             print("\n------- reloading graph ------")
@@ -225,7 +236,8 @@ if __name__ == "__main__":
         
         workers : dict[str, Worker] = {}
         for name, method in methods.items():
-            workers[name] = Worker(method, name, snn, hardware, seed)
+            args = (method, name, snn, hardware, seed) + (save if save else tuple())
+            workers[name] = Worker(*args)
             if Settings.MULTIPROCESSING:
                 print(f"Process {workers[name].getPid()} started for {name}...")
             

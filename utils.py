@@ -459,3 +459,92 @@ def counting_sort_by_key(arr: Iterable[T], key: Callable[[T], int]) -> list[T]:
         output[pos] = element
         positions[k - min_key] += 1
     return output
+
+"""
+Compute the 2D cross product (o->a) x (o->b).
+Positive if o->a->b makes a counter-clockwise turn, negative if clockwise, and zero if collinear.
+"""
+def cross(o : Coord2D, a : Coord2D, b : Coord2D) -> int:
+    return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x)
+
+"""
+Construct the convex hull of a set of 2D integer points
+using Andrew's monotone chain algorithm (O(n log n)).
+
+Returns the vertices of the convex hull in counter-clockwise order.
+"""
+def convex_hull(points : list[Coord2D]) -> list[Coord2D]:
+    points = sorted(set(points), key=lambda p: (p.x, p.y))
+    if len(points) <= 1:
+        return points
+
+    # Build lower hull
+    lower = []
+    for p in points:
+        # Pop last point while we make a non-left turn
+        while len(lower) >= 2 and cross(lower[-2], lower[-1], p) <= 0:
+            lower.pop()
+        lower.append(p)
+
+    # Build upper hull
+    upper = []
+    for p in reversed(points):
+        # Pop last point while we make a non-left turn
+        while len(upper) >= 2 and cross(upper[-2], upper[-1], p) <= 0:
+            upper.pop()
+        upper.append(p)
+
+    # Concatenate lower and upper hulls, removing duplicates
+    return lower[:-1] + upper[:-1]
+
+"""
+Test whether a point lies inside (or on the boundary of) a convex polygon.
+Works by checking that the point lies consistently to the left (or right)
+of all directed edges of the polygon.
+"""
+def point_in_convex_polygon(pt : Coord2D, poly : list[Coord2D]) -> bool:
+    n = len(poly)
+    if n == 0:
+        return False
+
+    sign = None
+    for i in range(n):
+        a, b = poly[i], poly[(i + 1) % n]
+        c = cross(a, b, pt)
+        if c != 0:
+            if sign is None:
+                # Set reference orientation
+                sign = c > 0
+            elif (c > 0) != sign:
+                # If orientation differs, point is outside
+                return False
+    return True
+
+"""
+Count how many lattice points (x, y) with 0 <= x < width and 0 <= y < height
+lie inside (or on the boundary of) the convex hull of 'hull_points'.
+"""
+def intersection_with_convex_hull(hull_points : list[Coord2D], width : int, height : int) -> int:
+    if not hull_points:
+        return 0
+
+    hull = convex_hull(hull_points)
+
+    # Handle degenerate hulls: a single point
+    if len(hull) == 1:
+        return 1 if 0 <= hull[0].x < width and 0 <= hull[0].y < height else 0
+
+    # Restrict search to bounding box of hull to avoid scanning entire grid
+    min_x = max(0, min(p.x for p in hull))
+    max_x = min(width - 1,  max(p.x for p in hull))
+    min_y = max(0, min(p.y for p in hull))
+    max_y = min(height - 1, max(p.y for p in hull))
+
+    count = 0
+    for x in range(min_x, max_x + 1):
+        for y in range(min_y, max_y + 1):
+            pt = Coord2D(x, y)
+            if point_in_convex_polygon(pt, hull):
+                count += 1
+
+    return count

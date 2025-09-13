@@ -1,6 +1,7 @@
 from typing import Union
 
 from collections import Counter
+import numpy as np
 
 from partitioner import partitionSequential
 from datastructures import Coord2D
@@ -175,11 +176,48 @@ class HardwareModel:
         return True
     
     """
+    Given a partitioning for a SNN, quantify its usage of synaptic reuse.
+    The metric is defined as the total number of individual inbound connections
+    (synapses) per partition over the number of distinct inbound hedges (axons).
+    """
+    def synapticReuse(self, snn : HyperGraph, partitions : list[int]) -> float:
+        partitions_count = max(partitions) + 1
+        synapses_count_per_partition = np.zeros(partitions_count, dtype = np.int32)
+        axons_count_per_partition = np.zeros(partitions_count, dtype = np.int32)
+        for he in snn.hyperedges:
+            already_seen = set()
+            for neuron in he.destinations():
+                partition = partitions[neuron]
+                if partition not in already_seen:
+                    axons_count_per_partition[partition] += 1
+                    already_seen.add(partition)
+                synapses_count_per_partition[partition] += 1
+        reuse = np.divide(
+            synapses_count_per_partition,
+            axons_count_per_partition,
+            out = np.zeros_like(synapses_count_per_partition, dtype = np.float64),
+            where = axons_count_per_partition != 0
+        )
+        return reuse.sum()/partitions_count
+    
+    """
+    Given a placement for a partitioned SNN, quantify its connections locality.
+    The metric is defined as the average number of core coordinates enclosed by
+    the convex hull defined around the cores connected by each hedge.
+    """
+    def connectionsLocality(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
+        result = 0.0
+        for he in part_snn:
+            result += intersection_with_convex_hull([placement[p] for p in he], self.coresAlongX(), self.coresAlongY())
+        result /= len(part_snn.hyperedges)
+        return result
+    
+    """
     Given a placement for a partitioned SNN, estimates its energy consumption.
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
     def placementEnergyConsumption(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
-        result = 0
+        result = 0.0
         for he in part_snn.hyperedges:
             src = he.source()
             for dst in he.destinations():
@@ -192,8 +230,8 @@ class HardwareModel:
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
     def placementAverageLatency(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
-        result = 0
-        tot_spike_frequency = 0
+        result = 0.0
+        tot_spike_frequency = 0.0
         for he in part_snn.hyperedges:
             src = he.source()
             tot_spike_frequency += he.spike_frequency*he.connections()
@@ -207,7 +245,7 @@ class HardwareModel:
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
     def placementMaximumLatency(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
-        result = 0
+        result = 0.0
         for he in part_snn.hyperedges:
             src = he.source()
             for dst in he.destinations():
@@ -220,7 +258,7 @@ class HardwareModel:
     Let the placement be a pair of X and Y coordinates for each node in the hypergraph.
     """
     def placementAverageCongestion(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
-        result = 0
+        result = 0.0
         # Note: calculation refactored as the "average probability of spike transit".
         for he in part_snn.hyperedges:
             src_core = placement[he.source()]
@@ -284,7 +322,8 @@ class HardwareModel:
                 'avg_latency': self.placementAverageLatency(part_snn, placement),
                 'max_latency': self.placementMaximumLatency(part_snn, placement),
                 'avg_congestion': self.placementAverageCongestion(part_snn, placement),
-                'max_congestion': self.placementMaximumCongestion(part_snn, placement)
+                'max_congestion': self.placementMaximumCongestion(part_snn, placement),
+                'connections_locality' : self.connectionsLocality(part_snn, placement)
             }
         else:
             return {'valid': valid}

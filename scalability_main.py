@@ -49,6 +49,7 @@ def parse_options() -> dict[str, Any]:
         "help": args_match_and_remove(["-h", "--help"]),
         "interactive": args_match_and_remove(["-i", "--interactive"]),
         "output": args_match_and_remove(["-o", "--output"], with_value = True),
+        "save-par": args_match_and_remove(["-sr", "--save-par"], with_value = True),
         "partitioning": args_match_and_remove(["-p", "--partitioning"]),
         "placement": args_match_and_remove(["-pp", "--placement"]),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
@@ -60,6 +61,7 @@ def help_options() -> None:
     print("-h, --help\t\tDisplay this help menu.")
     print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print("-o, --output <file>\tName of the '.json' file where to write results.")
+    print("-sp, --save-par <dir>\tSaves the partitioned hypergraphs in 'dir'. Each file will be named after the methods. Works only with option '-p'.")
     print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement (takes priority over '-pp').")
     print("-pp, --placement\tOnly runs the partitioning algorithms part, assumes the input to be already a partitioned hypergraph.")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
@@ -88,6 +90,13 @@ if __name__ == "__main__":
     if os.name != "posix":
         print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
 
+    if options["save-par"] and not options["partitioning"]:
+        options["save-par"] = False
+        print(f"WARNING: option '-sp' was ignored since option '-p' is missing.")
+    if options["save-par"] and not os.path.isdir(options["save-par"]):
+        os.mkdir(options["save-par"])
+        print(f"WARNING: directory '{options["save-par"]}' did not exist, it has now been created.")
+
     if not options["output"]:
         options["output"] = "scalability_results.json"
         print(f"WARNING: missing '-o' option, defaulting to '{options["output"]}'.")
@@ -108,6 +117,8 @@ if __name__ == "__main__":
     try:
         seed = 192 #79
         print("Seed:", seed)
+        save = options["save-par"]
+        if save: print("Saving partitioned hypergraphs in:", save)
         
         sizes : dict[dict[str, int]] = {
             # LOGIC:
@@ -231,7 +242,8 @@ if __name__ == "__main__":
             workers : dict[str, Worker] = {}
             for name, method in methods.items():
                 full_name = experiment + '-' + name
-                workers[full_name] = Worker(method, full_name, hypergraph, hardware, seed)
+                args = (method, full_name, hypergraph, hardware, seed) + (save if save else tuple())
+                workers[full_name] = Worker(*args)
                 if Settings.MULTIPROCESSING:
                     print(f"Process {workers[full_name].getPid()} started for {full_name}...")
             
