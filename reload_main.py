@@ -52,8 +52,9 @@ def parse_options() -> dict[str, Any]:
         "save": args_match_and_remove(["-s", "--save"], with_value = True),
         "save-map": args_match_and_remove(["-sm", "--save-map"], with_value = True),
         "reload": args_match_and_remove(["-r", "--reload"], with_value = True),
+        "reload-map": args_match_and_remove(["-rm", "--reload-map"], with_value = True),
         "output": args_match_and_remove(["-o", "--output"], with_value = True),
-        "partitioning": args_match_and_remove(["-p", "--partitioning"]),
+        #"partitioning": args_match_and_remove(["-p", "--partitioning"]),
         "placement": args_match_and_remove(["-pp", "--placement"]),
         "fraction": args_match_and_remove(["-f", "--fraction"], with_value = True, value_type = float),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
@@ -61,18 +62,20 @@ def parse_options() -> dict[str, Any]:
     return options
 
 def help_options() -> None:
-    print("This main aims loads a specific SNN ('-load', '-reload', otherwise it is randomly generated) and runs it through a selection of mapping algorithms.")
+    print("This main aims to reload previously computed partitionings and/or placements, that were saved through '--save-map'.")
+    print("After reloading them, it recomputes their statistics (except execution time) and optionally ('-p', '-pp') reruns part of the mapping flow.")
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
     print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print(("-l, --load <?path>\tLoads a true SNN graph instead of randomly generating one. If omitted, the default path is './snn_models/simple_cnn'.\n"
            "\t\t\tThe given path is concatenated with '_0.npz', '_input.npz', '.graphml', these are the three files expected to be found."))
     print("-s, --save <path>\tSaves the input SNN graph efficiently in 'path' after having built it. Recommended extension: '.hgr'.")
-    print("-sm, --save-map <dir>\tSaves the partitions ('.part') and/or placement ('.plac') lists in 'dir'. Each in a file named after the methods.")
+    print("-sm, --save-map <dir>\tIf new placements are computed ('-pp'), saves the placement ('.plac') lists in 'dir'. Each in a file named after the methods.")
     print("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load.")
+    print("-rm, --reload-map <dir>\tReloads previously saved (--save-map) partitions and/or placement lists from 'dir'.")
     print("-o, --output <file>\tName of the '.json' file where to write results.")
-    print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement (takes priority over '-pp').")
-    print("-pp, --placement\tOnly runs the partitioning algorithms part, assumes the input to be already a partitioned hypergraph.")
+    #print("-p, --partitioning\tReruns (does not reload) the partitioning algorithms part, uses reloaded placement (takes priority over '-pp').")
+    print("-pp, --placement\tReruns (does not reload) the placement algorithms part, uses reloaded partitioning (give a normal SNN as input).")
     print("-f, --fraction <num>\tFraction of the lowest-spike-frequency hyperedges to ignore (still count for costs), let it be a number in [0, 1].")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
@@ -91,18 +94,24 @@ if __name__ == "__main__":
     if options["quiet"]:
         Settings.VERBOSE = False
     else:
-        print("┌─┐   AXON   ┌──┐   FLOW   ┌─┐")
-        print("│ └──┐    ┌──┘  └──┐    ┌──┘ │")
-        print("└────┴────┴────────┴────┴────┘\n")
+        print("┌────┬────┬────────┬────┬────┐")
+        print("│ ┌──┘    └──┐  ┌──┘    └──┐ │")
+        print("└─┘   AXON   └──┘   FLOW   └─┘\n")
 
     Settings.CORE_TIMEOUT = 3600*100
 
     if os.name != "posix":
         print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
 
-    if options["save-map"] and not os.path.isdir(options["save-map"]):
-        os.mkdir(options["save-map"])
-        print(f"WARNING: directory '{options["save-map"]}' did not exist, it has now been created.")
+    if options["save-map"]:
+        if not os.path.isdir(options["save-map"]):
+            os.mkdir(options["save-map"])
+            print(f"WARNING: directory '{options["save-map"]}' did not exist, it has now been created.")
+        elif len(os.listdir(options["save-map"])) != 0:
+            print(f"WARNING: directory '{options["save-map"]}' is not empty, some files may get overwritten.")
+    if options["reload-map"] and not os.path.isdir(options["reload-map"]):
+        print(f"ERROR: directory '{options["reload-map"]}' does not exist, can't reload previous partitioning and/or placement lists.")
+        sys.exit(0)
 
     if not options["output"]:
         options["output"] = "targeted_results.json"
@@ -110,10 +119,6 @@ if __name__ == "__main__":
     elif not options["output"].endswith(".json"):
         options["output"] += ".json"
         print(f"WARNING: the output file was missing the '.json' extension, it has updated to '{options["output"]}'.")
-
-    if options["partitioning"] and options["placement"]:
-        options["placement"] = False
-        print(f"WARNING: option '-p' overrode option '-pp'.")
 
     if Settings.MULTIPROCESSING:
         multiprocessing.current_process().name = '0'
@@ -162,18 +167,6 @@ if __name__ == "__main__":
             print("Saved, file size:", fileSizeString(os.path.getsize(path)))
         
         print("\n------- hardware model -------")
-        #hardware = HardwareModel(
-        #    neurons_per_core = 32, #8
-        #    synapses_per_core = 128, #32
-        #    cores_per_chip_x = 64,
-        #    cores_per_chip_y = 64,
-        #    chips_per_system_x = 1,
-        #    chips_per_system_y = 1,
-        #    energy_per_routing = 1.0,
-        #    energy_per_wire = 0.1,
-        #    latency_per_routing = 1.0,
-        #    latency_per_wire = 0.1
-        #)
         hardware = loihi_jin_84
         print((f"Neurons per core: {hardware.neurons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
                f"Cores along x: {hardware.cores_per_chip_x}\tCores along y: {hardware.cores_per_chip_y}\n"
@@ -181,50 +174,43 @@ if __name__ == "__main__":
                f"Routing energy: {hardware.energy_per_routing}\tWire energy: {hardware.energy_per_wire}\n"
                f"Routing latency: {hardware.latency_per_routing}\tWire latency: {hardware.latency_per_wire}"))
         
-        print("\n------ experiment setup ------")
-        methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
-            #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
-            "sequential-hilbert-fd": run_sequential_hilbert_fd,
-            "sequential-hilbert-ps": run_sequential_hilbert_ps,
-            "sequential-spectral-fd": run_sequential_spectral_fd,
-            "sequential-spectral-ps": run_sequential_spectral_ps,
-            "sequential-truenorth": run_sequential_truenorth,
-            "hehiding-hilbert-fd": run_hehiding_hilbert_fd,
-            "hehiding-hilbert-ps": run_hehiding_hilbert_ps,
-            "hehiding-spectral-fd": run_hehiding_spectral_fd,
-            "hehiding-spectral-ps": run_hehiding_spectral_ps,
-            "hehiding-truenorth": run_hehiding_truenorth,
-            ##"swap-particleswarm": run_swap_particleswarm,
-            ##"multistart-truenorth": run_multistart_truenorth,
-            ##"multistart-spectral-fd": run_multistart_spectral_fd,
-            #"setlist-hilbert-fd": run_setlist_hilbert_fd,
-            #"setlist-hilbert-ps": run_setlist_hilbert_ps,
-            #"setlist-spectral-fd": run_setlist_spectral_fd,
-            #"setlist-spectral-ps": run_setlist_spectral_ps,
-            #"setlist-truenorth": run_setlist_truenorth,
-            "hmetis-hilbert-fd": run_hmetis_hilbert_fd,
-            "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
-            "hmetis-spectral-fd": run_hmetis_spectral_fd,
-            "hmetis-spectral-ps": run_hmetis_spectral_ps,
-            "hmetis-truenorth": run_hmetis_truenorth
-        } if not (options["partitioning"] or options["placement"]) else {
-            #"unordered-sequential": run_unordered_sequential,
-            "sequential": run_sequential,
-            ##"edgehiding": run_edgehiding,
-            "hehiding": run_hehiding,
-            ##"swap": run_swap,
-            ##"multistart": run_multistart,
-            #"setlist": run_setlist,
-            "hmetis": run_hmetis
-        } if options["partitioning"] else {
+        methods : list[str] = [
+            #"sequential-topo-hilbert-fd",
+            "sequential-hilbert-fd",
+            "sequential-hilbert-ps",
+            "sequential-spectral-fd",
+            "sequential-spectral-ps",
+            "sequential-truenorth",
+            "hehiding-hilbert-fd",
+            "hehiding-hilbert-ps",
+            "hehiding-spectral-fd",
+            "hehiding-spectral-ps",
+            "hehiding-truenorth",
+            ###"swap-particleswarm",
+            ###"multistart-truenorth",
+            ###"multistart-spectral-fd",
+            ##"setlist-hilbert-fd",
+            ##"setlist-hilbert-ps",
+            ##"setlist-spectral-fd",
+            ##"setlist-spectral-ps",
+            ##"setlist-truenorth",
+            "hmetis-hilbert-fd",
+            "hmetis-hilbert-ps",
+            "hmetis-spectral-fd",
+            "hmetis-spectral-ps",
+            "hmetis-truenorth"
+        ]
+        placement_methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
             "hilbert-fd": run_hilbert_fd,
             "hilbert-ps": run_hilbert_ps,
             "spectral-fd": run_spectral_fd,
             "spectral-ps": run_spectral_ps,
             "truenorth": run_truenorth
         }
-        print("Methods to test:")
-        prettyPrintIterable(methods.keys(), 3, left_aligned = True)
+        if options["placement"]:
+            print("\n------ experiment setup ------")
+            print("Methods to test:")
+            prettyPrintIterable(placement_methods.keys(), 3, left_aligned = True)
         
         print("\n---- checking feasibility ----")
         if not hardware.checkSnnFit(snn, already_partitioned = options["placement"], verbose = True):
@@ -233,10 +219,35 @@ if __name__ == "__main__":
             print("Passed!")
         
         workers : dict[str, Worker] = {}
-        for name, method in methods.items():
-            workers[name] = Worker(method, name, snn, hardware, seed, save)
-            if Settings.MULTIPROCESSING:
-                print(f"Process {workers[name].getPid()} started for {name}...")
+        temp_result : dict[str, Result] = {}
+        for name in methods:
+            res = Result(name)
+            res.setHw(hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
+            res.setGraph(snn.nodes, snn.totalConnections(), snn.totalSpikeFrequency())
+            part_path = os.path.join(options["reload-map"], name + ".part")
+            if not os.path.isfile(part_path):
+                print("\n---------------")
+                print(f"Skipping method '{name}', since there is not file '{part_path}'...")
+                continue
+            part = load_list(part_path)
+            part_snn = snn.getPartitionsHypergraph(part, squish_hyperedges = True)
+            res.setPart(hardware.checkPartitionValidity(snn, part), part_snn.totalSpikeFrequency(), max(part) + 1, hardware.synapticReuse(snn, part))
+            plac_path = os.path.join(options["reload-map"], name + ".plac")
+            if not options["placement"]:
+                if not os.path.isfile(plac_path):
+                    print(f"Skipping method '{name}', since there is not file '{plac_path}'...")
+                    continue
+                plac = load_coords(plac_path)
+                res.setPlac(**hardware.getAllMetrics(part_snn, plac))
+                res.toFile(options["output"])
+                print("\n---------------")
+                prettyPrintDict(res.__dict__)
+            else:
+                method = placement_methods[name.split('-', 1)[-1]]
+                workers[name] = Worker(method, name, part_snn, hardware, seed, save)
+                if Settings.MULTIPROCESSING:
+                    print(f"Process {workers[name].getPid()} started for {name}...")
+                temp_result[name] = res
             
         while len(workers) > 0:
             for name, worker in list(workers.items()):
@@ -248,6 +259,8 @@ if __name__ == "__main__":
                     res.setApproxTime(time.time() - worker._start_time)
                     res.setNote("Failed. Exception: " + str(e))
                 if outcome:
+                    res.setPart(temp_result[name].part_valid, temp_result[name].part_cost, temp_result[name].part_count, temp_result[name].part_synaptic_reuse)
+                    res.setNote("Execution time is for placement only...")
                     res.toFile(options["output"])
                     print("\n---------------")
                     prettyPrintDict(res.__dict__)

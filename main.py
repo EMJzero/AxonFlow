@@ -57,6 +57,7 @@ def parse_options() -> dict[str, Any]:
     return options
 
 def help_options() -> None:
+    print("[DEPRECATED] This main loads or randomly generates a SNN and runs it through our mapping algorithms.")
     print("Supported options:")
     print("-h, --help\t\tDisplay this help menu.")
     print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")

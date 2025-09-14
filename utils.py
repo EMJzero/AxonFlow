@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Generator, Callable, Iterable, Optional, Any, Union
+from typing import Generator, Callable, Iterable, Optional, Any, Union, Sequence, Literal
 from collections import defaultdict
 import multiprocessing
 import numpy as np
@@ -10,6 +10,7 @@ import traceback
 import textwrap
 import inspect
 import weakref
+import struct
 import signal
 import ast
 import sys
@@ -548,3 +549,45 @@ def intersection_with_convex_hull(hull_points : list[Coord2D], width : int, heig
                 count += 1
 
     return count
+
+"""
+Save a list of numbers to a binary file.
+
+Arguments:
+- data: list/sequence of numbers
+- path: target binary file path
+- dtype: struct format character:
+    - 'i' -> 4-byte signed int
+    - 'q' -> 8-byte signed long long
+    - 'f' -> 4-byte float
+    - 'd' -> 8-byte double
+"""
+def save_list(data : Sequence, path : str, dtype : Literal['i', 'q', 'f', 'd'] = 'i'):
+    n = len(data)
+    fmt = f"{n}{dtype}"
+    packed = struct.pack(fmt, *data)
+    with open(path, "wb") as f:
+        f.write(packed)
+
+"""
+Load a list of numbers saved with 'save_list'.
+"""
+def load_list(path : str, dtype : Literal['i', 'q', 'f', 'd'] = 'i') -> list:
+    with open(path, "rb") as f:
+        buf = f.read()
+    n = len(buf) // struct.calcsize(dtype)
+    fmt = f"{n}{dtype}"
+    return list(struct.unpack(fmt, buf))
+
+"""
+Wrapper to save a list of coordinates with 'save_list'.
+"""
+def save_coords(data : Sequence[Coord2D], path : str):
+    save_list(list(itertools.chain.from_iterable(data)), path, dtype = 'i')
+
+"""
+Wrapper to load a list of coordinates with 'load_list'.
+"""
+def load_coords(path : str) -> list[Coord2D]:
+    data = load_list(path, dtype = 'i')
+    return [Coord2D(x, y) for x, y in zip(data[::2], data[1::2])]
