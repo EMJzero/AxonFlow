@@ -304,9 +304,9 @@ if __name__ == "__main__":
         offset = (len(techniques) - 1)/2
         techniques = sorted(techniques, key = lambda s: (''.join(chr(255 - ord(c)) for c in s.split('-')[0]), s.split('-')[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
 
-        # Plotting
+        # Plotting (note: 25.6 = 2560 pixel)
         #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
-        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize = (20, 12), sharex = True, tight_layout = True)
+        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize = (25.6, 12), sharex = True, tight_layout = True)
 
         # Assign style to partitioning techniques
         possible_colors = [

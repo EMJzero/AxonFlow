@@ -88,7 +88,7 @@ def rename_label(label : str) -> str:
         else:
             result += piece
             print("Could not fully rename label:", label, "-> technique note recognized:", piece)
-        result += " + "
+        result += "\n+ "
     return result[:-3]
 
 
@@ -273,9 +273,10 @@ if __name__ == "__main__":
             init_connections_locality[technique] = list(map(lambda x : x if x != None else math.nan, init_connections_locality[technique]))
             energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, energy_delay_product[technique]))
 
-        # Plotting
-        # TODO: FIX THIS LAYOUT FOR 2 PLOTS WITH LEGENDS TO THE SIDES!
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (20, 6), sharex = True, tight_layout = True)
+        # Plotting (note: 25.6 = 2560 pixel)
+        fig, (ghost_ax1, ax1, ax2, ghost_ax2) = plt.subplots(1, 4, figsize = (25.6, 7*(1 - 0.065)), sharex = True, tight_layout = True, width_ratios = [1/6, 1/3, 1/3, 1/6])
+        ghost_ax1.remove()
+        ghost_ax2.remove()
 
         # Decide the y-axis bounds by ignoring outliers (lower sigma is more brutal)
         def set_bounds(ax : matplotlib.axes.Axes, techniques : list[str], data : Optional[dict[str, float]], shapes : Optional[list[matplotlib.patches.Patch]], bar_width : float, sigma : float = 0.5, margin : float = 0.2):
@@ -323,8 +324,8 @@ if __name__ == "__main__":
         def format_y_bars(ax : matplotlib.axes.Axes):
             ax.set_yscale("log", base = 10)
             ax.grid(axis = 'y', which = 'both')
-            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = "all", numticks = 10))
-            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = [1.0, 2.0, 5.0], numticks = 10))
+            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = [1.0, 2.0, 4.0, 6.0, 8.0], numticks = 10))
+            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = [1.0, 2.0], numticks = 10))
             #formatter = FuncFormatter(lambda v, _: f"{v*100:.0f}%" if v > 0 else "")
             formatter = FuncFormatter(lambda v, _: f"{v:.1f}" if v > 0 else "")
             ax.yaxis.set_major_formatter(formatter)
@@ -386,7 +387,6 @@ if __name__ == "__main__":
             ax.set_xlabel("SNN (least → most nodes)")
             ax.set_ylabel("Partitioning Synaptic Reuse")
             ax.set_title("Reuse vs Problem Size")
-            ax.legend(ncol = 1)
             format_y_bars(ax)
             set_bounds(ax, list(part_techniques.values()), synaptic_reuse, rects, BAR_WIDTH_PART)
 
@@ -446,15 +446,18 @@ if __name__ == "__main__":
             ax.set_xlabel("SNN (least → most nodes)")
             ax.set_ylabel("Placement Connections Locality")
             ax.set_title("Locality vs Problem Size")
-            ax.legend(ncol = 1)
             format_y_bars(ax)
             set_bounds(ax, plac_techniques, connections_locality, rects, BAR_WIDTH_PLAC)
         
         synpatic_reuse_plot(ax1)
         connections_locality_plot(ax2)
         
-        # Show the plot
+        # Setup legends AFTER the tight layout
         plt.tight_layout(rect = [0, 0, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
+        ax1.legend(ncol = 1, loc = "center", bbox_to_anchor = (-0.33 - 0.1, 0.5))
+        ax2.legend(ncol = 1, loc = "center", bbox_to_anchor = (1.33, 0.5))
+        
+        # Show the plot
         if options["save"]:
             filename = options["save"]
             if not any(filename.endswith(ext) for ext in SUPPORTED_EXTENSIONS):

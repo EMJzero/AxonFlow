@@ -484,20 +484,24 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
     """
     Source: "Multilevel k-way Hypergraph Partitioning" by George Karypis
     Updates the candidate 'partitioning' in place!
-    => Basic version!
     """
     def greedy_FM_refinement(hg: HyperGraph, partitioning: list[int], partition_sizes : list[int], nodes_in_node : list[int], inbound_he_ids : list[Counter[int]], max_nodes: int, max_inbound_edges: int, seed : Optional[int] = None) -> None:
         rng = np.random.default_rng(seed)
         nodes = np.arange(hg.nodes)
         rng.shuffle(nodes)
-        # TODO: should iterate until no more moves occur? Likely yes, but put a cap on the number of iterations (e.g. 8)...
+        # For each hedge, track how many nodes it connects to per-partition (cost to build: e * d)
+        connections_counts = {he : Counter(partitioning[n] for n in he.destinations()) for he in hg}
         for n in nodes:
+            my_partition = partitioning[n]
             connectivity_w_partitions = defaultdict(float) # partition -> sum of spike frequency of connections
             for he in hg.getTouchingHyperedges(n):
-                for m in he:
-                    if m != n:
-                        connectivity_w_partitions[partitioning[m]] += he.spike_frequency
-            my_partition = partitioning[n]
+                for p, c in connections_counts[he].items():
+                    if p == my_partition:
+                        c -= 1
+                    connectivity_w_partitions[p] += c*he.spike_frequency
+                # NOTE: the hgraph can have self-cycles, the same node can occur both as source and destination => handle source separately
+                if he.source() != n:
+                    connectivity_w_partitions[partitioning[he.source()]] += he.spike_frequency
             loss = connectivity_w_partitions.pop(my_partition) if my_partition in connectivity_w_partitions else 0
             while connectivity_w_partitions:
                 best_partition = max(connectivity_w_partitions, key = connectivity_w_partitions.get)
@@ -509,6 +513,9 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
                     partition_sizes[my_partition] -= nodes_in_node[n]
                     inbound_he_ids[best_partition] = best_inbound
                     inbound_he_ids[my_partition] -= my_inbound
+                    for he in hg.getTouchingHyperedges(n):
+                        connections_counts[he][my_partition] -= 1
+                        connections_counts[he][best_partition] += 1
                     break
                 connectivity_w_partitions.pop(best_partition)
 

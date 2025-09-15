@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from typing import Optional, Self, Union
 
-from collections import defaultdict
+from collections import defaultdict, Counter
 from scipy.sparse import coo_array
 from array import array
 import networkx as nx
@@ -340,6 +340,7 @@ class HyperGraph(Iterable):
     Given a node's index, returns the list of hyperedges touching that node.
     Throws an exception if the node's index is invalid.
     """
+    # TODO: this does not deduplicate in case of self-cycles!
     def getTouchingHyperedges(self, node : int) -> tuple[HyperEdge, ...]:
         if node < 0 or node >= self.nodes:
             raise Exception("Invalid node.")
@@ -537,6 +538,25 @@ class HyperGraph(Iterable):
         return sum(len(he) for he in self.hyperedges)
     
     """
+    Returns the average number of nodes in common between two hyperedges.
+    """
+    def averageHyperedgeOverlap(self) -> float:
+        he_count = len(self.hyperedges)
+        if he_count < 2:
+            return 0.0
+        # count for each node, how many hyperedges contain it
+        counts = Counter()
+        for he in self.hyperedges:
+            src = he.source()
+            counts[src] += 1
+            for dst in he.destinations():
+                if dst != src:
+                    counts[dst] += 1
+        total_overlap = sum(math.comb(c, 2) for c in counts.values())
+        # normalize by number of pairs of hyperedges
+        return total_overlap / math.comb(he_count, 2)
+    
+    """
     Returns a summary of the hypergraph's statistics.
     """
     def getStatistics(self) -> dict[str, float]:
@@ -549,6 +569,7 @@ class HyperGraph(Iterable):
             'hedges_per_node_mean': connections/self.nodes,
             'outbound_hedges_per_node_mean': sum(len(node_hes) for node_hes in self._outbound)/self.nodes,
             'inbound_hedges_per_node_mean': sum(len(node_hes) for node_hes in self._inbound)/self.nodes,
+            'average_hedge_overlap': self.averageHyperedgeOverlap(),
             'spike_frequency_mean': self.totalSpikeFrequency()/len(self.hyperedges), # this is per connection, divide by the avg. number of connections per hyperedge to get the avg. spike frequency per hyperedge
         }
     

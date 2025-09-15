@@ -234,9 +234,8 @@ if __name__ == "__main__":
                 techniques.remove(fo)
                 techniques.insert(0, fo)
 
-        # Plotting
-        #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
-        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (20, 7), sharex = True, tight_layout = True)
+        # Plotting (note: 25.6 = 2560 pixel)
+        fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (25.6, 7), sharex = True, tight_layout = True)
 
         # Assign style to partitioning techniques
         possible_colors = [
