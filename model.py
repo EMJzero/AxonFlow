@@ -180,7 +180,7 @@ class HardwareModel:
     The metric is defined as the total number of individual inbound connections
     (synapses) per partition over the number of distinct inbound hedges (axons).
     """
-    def synapticReuse(self, snn : HyperGraph, partitions : list[int]) -> float:
+    def synapticReuse(self, snn : HyperGraph, partitions : list[int]) -> dict[str, float]:
         partitions_count = max(partitions) + 1
         synapses_count_per_partition = np.zeros(partitions_count, dtype = np.int32)
         axons_count_per_partition = np.zeros(partitions_count, dtype = np.int32)
@@ -198,19 +198,52 @@ class HardwareModel:
             out = np.zeros_like(synapses_count_per_partition, dtype = np.float64),
             where = axons_count_per_partition != 0
         )
-        return reuse.sum()/partitions_count
+        return {"ar_mean": reuse.mean(), "geo_mean": np.exp(np.log(reuse[reuse > 0]).sum()/partitions_count)}
+    
+    #"""
+    #Like 'synapticReuse', but each connection is weighted by its spike frequency.
+    #"""
+    #def synapticReuseWeighted(self, snn : HyperGraph, partitions : list[int]) -> float:
+    #    partitions_count = max(partitions) + 1
+    #    synapses_count_per_partition = np.zeros(partitions_count, dtype = np.float32)
+    #    axons_count_per_partition = np.zeros(partitions_count, dtype = np.float32)
+    #    for he in snn.hyperedges:
+    #        already_seen = set()
+    #        for neuron in he.destinations():
+    #            partition = partitions[neuron]
+    #            if partition not in already_seen:
+    #                axons_count_per_partition[partition] += he.spike_frequency
+    #                already_seen.add(partition)
+    #            synapses_count_per_partition[partition] += he.spike_frequency
+    #    reuse = np.divide(
+    #        synapses_count_per_partition,
+    #        axons_count_per_partition,
+    #        out = np.zeros_like(synapses_count_per_partition, dtype = np.float32),
+    #        where = axons_count_per_partition != 0
+    #    )
+    #    # WARNING: the mean should not be "divide by instances", but should be "divide by total weight", do it manually!
+    #    return (reuse.mean(), np.exp(np.mean(np.log(reuse))), reuse.max(), reuse.min(), reuse)
     
     """
     Given a placement for a partitioned SNN, quantify its connections locality.
     The metric is defined as the average number of core coordinates enclosed by
     the convex hull defined around the cores connected by each hedge.
     """
-    def connectionsLocality(self, part_snn : HyperGraph, placement : list[Coord2D]) -> float:
-        result = 0.0
+    def connectionsLocality(self, part_snn : HyperGraph, placement : list[Coord2D]) -> dict[str, float]:
+        ar_mean, geo_mean, ar_mean_weighted, geo_mean_weighted = 0.0, 0.0, 0.0, 0.0
+        weights_sum = 0.0
         for he in part_snn:
-            result += intersection_with_convex_hull([placement[p] for p in he], self.coresAlongX(), self.coresAlongY())
-        result /= len(part_snn.hyperedges)
-        return result
+            traversed_cores = intersection_with_convex_hull([placement[p] for p in he], self.coresAlongX(), self.coresAlongY())
+            ar_mean += traversed_cores
+            geo_mean += math.log(traversed_cores)
+            ar_mean_weighted += traversed_cores*he.spike_frequency
+            geo_mean_weighted += math.log(traversed_cores)*he.spike_frequency
+            weights_sum += he.spike_frequency
+        ar_mean /= len(part_snn.hyperedges)
+        geo_mean = math.exp(geo_mean/len(part_snn.hyperedges))
+        ar_mean_weighted /= weights_sum
+        geo_mean_weighted = math.exp(geo_mean_weighted/weights_sum)
+        return {"ar_mean": ar_mean, "geo_mean": geo_mean, "ar_mean_weighted": ar_mean_weighted, "geo_mean_weighted": geo_mean_weighted}
     
     """
     Given a placement for a partitioned SNN, estimates its energy consumption.
@@ -388,6 +421,31 @@ loihi = HardwareModel(
     synapses_per_core = 4096,
     cores_per_chip_x = 16,
     cores_per_chip_y = 8,
+    chips_per_system_x = 1,
+    chips_per_system_y = 1,
+    energy_per_routing = 1.7,
+    energy_per_wire = 3.5,
+    latency_per_routing = 2.1,
+    latency_per_wire = 5.3
+)
+loihi_large = HardwareModel(
+    neurons_per_core = 1024,
+    synapses_per_core = 4096,
+    cores_per_chip_x = 64,
+    cores_per_chip_y = 64,
+    chips_per_system_x = 1,
+    chips_per_system_y = 1,
+    energy_per_routing = 1.7,
+    energy_per_wire = 3.5,
+    latency_per_routing = 2.1,
+    latency_per_wire = 5.3
+)
+# Test configuration to see if the mapper can handle well synaptic reuse.
+loihi_reuse_test = HardwareModel(
+    neurons_per_core = 1024*1024,
+    synapses_per_core = 4096,
+    cores_per_chip_x = 64,
+    cores_per_chip_y = 64,
     chips_per_system_x = 1,
     chips_per_system_y = 1,
     energy_per_routing = 1.7,

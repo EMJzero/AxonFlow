@@ -44,6 +44,8 @@ When you run any main file, you can save the hypergraph it will work on via the 
 | partitioning | cuts     | spike multicast    | synaptic reuse       | 2nd order affinity |
 | layout       | hops     | manhattan distance | connections locality | 1st order affinity |
 
+<img src="static/affinities.png" width="350px" padding-left="15px" align="right"/>
+
 #### Defined as:
 - **synaptic reuse** occurs when multiple neurons in the same partition, and therefore hardware core, receive spikes from a common source (axon).
 - **connections locality** occurs when many hedges can be fully resolved within a small neighborhood of cores.
@@ -63,7 +65,6 @@ Practically, this hinders the quantification and realization of synaptic reuse, 
 With hypergraphs, instead, hyperedges naturally group together nodes under a joint source.
 
 > In short, merely using a graph would make synaptic reuse invisible and leads to overestimation of communication costs.
-
 
 ## TODOS BEFORE RELEASING THIS CODE:
 

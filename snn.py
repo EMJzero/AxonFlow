@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable, Iterator
 from typing import Optional, Self, Union
 
-from collections import defaultdict, Counter
+from collections import defaultdict, deque, Counter
 from scipy.sparse import coo_array
 from array import array
 import networkx as nx
@@ -223,7 +223,7 @@ class HyperGraph(Iterable):
                 probs[i] = 0.0 # prevent self-cycles
                 if probs.sum() > 0:
                     probs /= probs.sum()
-                    local_targets = rng.choice(n, size = n_local, replace = False, p = probs)
+                    local_targets = rng.choice(n, size = min(n_local, len(probs[probs != 0.0])), replace = False, p = probs)
                     targets.extend(local_targets.tolist())
             if n_long > 0: # long-range random targets
                 long_targets = rng.choice(n, size = n_long, replace = False)
@@ -509,6 +509,41 @@ class HyperGraph(Iterable):
             self._inbound[node] = tuple(he for he in self._inbound[node] if he not in removed)
             self._outbound[node] = tuple(he for he in self._outbound[node] if he not in removed)
         return removed, removed_conn, removed_sf
+    
+    """
+    Estimate the expected shortest-path distance between two random nodes
+    using BFS sampling. Unreachable pairs are ignored.
+    Here 'sample_size' indicates how many random source nodes to sample.
+    """
+    @core
+    def averagePathLengthApprox(self, sample_size : int = 100, seed : Optional[int] = None) -> float:
+        if self.nodes == 0 or len(self.hyperedges) == 0:
+            return math.inf
+        rng = random.Random(seed)
+        timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+        sample_nodes = rng.sample(range(self.nodes), min(sample_size, self.nodes))
+        total_distance = 0
+        reachable_pairs = 0
+        for i, src in enumerate(sample_nodes):
+            # breadth-first search
+            dist = [-1] * self.nodes
+            dist[src] = 0
+            queue = deque([src])
+            while queue:
+                u = queue.popleft()
+                for he in self._outbound[u]:
+                    for v in he.destinations():
+                        if dist[v] == -1:
+                            dist[v] = dist[u] + 1
+                            queue.append(v)
+            for d in dist:
+                if d > 0: # exclude self (d = 0) and unreachable (-1)
+                    total_distance += d
+                    reachable_pairs += 1
+            timerPrint(f"Average path length calculation progress: sample {i + 1}/{sample_size}")
+        if reachable_pairs == 0:
+            return math.inf
+        return total_distance / reachable_pairs
     
     """
     Returns the total spike frequency on the hypergraph's connections.

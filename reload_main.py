@@ -57,6 +57,7 @@ def parse_options() -> dict[str, Any]:
         #"partitioning": args_match_and_remove(["-p", "--partitioning"]),
         "placement": args_match_and_remove(["-pp", "--placement"]),
         "fraction": args_match_and_remove(["-f", "--fraction"], with_value = True, value_type = float),
+        "path-length": args_match_and_remove(["-pl", "--path-length"]),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
@@ -77,6 +78,7 @@ def help_options() -> None:
     #print("-p, --partitioning\tReruns (does not reload) the partitioning algorithms part, uses reloaded placement (takes priority over '-pp').")
     print("-pp, --placement\tReruns (does not reload) the placement algorithms part, uses reloaded partitioning (give a normal SNN as input).")
     print("-f, --fraction <num>\tFraction of the lowest-spike-frequency hyperedges to ignore (still count for costs), let it be a number in [0, 1].")
+    print("-pl, --path-length\tEstimates the average path length for the graph, adding it to the statistics (requires some time).")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -156,6 +158,8 @@ if __name__ == "__main__":
             snn_stats["nodes_per_edge_mean"] = nodes_per_edge_mean
             snn_stats["nodes_per_edge_variation"] = nodes_per_edge_variation
             #acyclic_snn = makeAcyclic(snn)
+        if options["path-length"]:
+            snn_stats["average_path_length"] = snn.averagePathLengthApprox(seed = seed)
         prettyPrintDict(snn_stats, formatter = lambda v : f"{v:.3f}")
         
         if options["save"]:
@@ -207,6 +211,14 @@ if __name__ == "__main__":
             "spectral-ps": run_spectral_ps,
             "truenorth": run_truenorth
         }
+        need_sorting : dict[str, bool] = defaultdict(lambda : False, {
+            "sequential": not isTopologicallySorted(snn),
+            "hilbert-fd": True,
+            "hilbert-ps": True,
+            "spectral-fd": False,
+            "spectral-ps": False,
+            "truenorth": True
+        })
         if options["placement"]:
             print("\n------ experiment setup ------")
             print("Methods to test:")
@@ -221,6 +233,7 @@ if __name__ == "__main__":
         workers : dict[str, Worker] = {}
         temp_result : dict[str, Result] = {}
         for name in methods:
+            part_name, plac_name = name.split('-', 1)
             res = Result(name)
             res.setHw(hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
             res.setGraph(snn.nodes, snn.totalConnections(), snn.totalSpikeFrequency())
@@ -230,20 +243,23 @@ if __name__ == "__main__":
                 print(f"Skipping method '{name}', since there is not file '{part_path}'...")
                 continue
             part = load_list(part_path)
-            part_snn = snn.getPartitionsHypergraph(part, squish_hyperedges = True)
-            res.setPart(hardware.checkPartitionValidity(snn, part), part_snn.totalSpikeFrequency(), max(part) + 1, hardware.synapticReuse(snn, part))
+            ordered_snn = feedForwardOrder(snn) if need_sorting[part_name] else snn
+            part_snn = ordered_snn.getPartitionsHypergraph(part, squish_hyperedges = True)
+            res.setPart(hardware.checkPartitionValidity(ordered_snn, part), part_snn.totalSpikeFrequency(), max(part) + 1, hardware.synapticReuse(ordered_snn, part))
             plac_path = os.path.join(options["reload-map"], name + ".plac")
             if not options["placement"]:
                 if not os.path.isfile(plac_path):
                     print(f"Skipping method '{name}', since there is not file '{plac_path}'...")
                     continue
                 plac = load_coords(plac_path)
+                if need_sorting[plac_name]:
+                    part_snn = feedForwardOrder(part_snn)
                 res.setPlac(**hardware.getAllMetrics(part_snn, plac))
                 res.toFile(options["output"])
                 print("\n---------------")
                 prettyPrintDict(res.__dict__)
             else:
-                method = placement_methods[name.split('-', 1)[-1]]
+                method = placement_methods[plac_name]
                 workers[name] = Worker(method, name, part_snn, hardware, seed, save)
                 if Settings.MULTIPROCESSING:
                     print(f"Process {workers[name].getPid()} started for {name}...")

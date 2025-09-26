@@ -136,7 +136,9 @@ if __name__ == "__main__":
         # Organize data
         files = []
         for f in os.listdir(path):
-            if f.endswith(".json"):
+            if f.startswith("_"):
+                print("Ignored file (starts with '_'):", f)
+            elif f.endswith(".json"):
                 files.append(f)
                 print("Added file:", f)
             else:
@@ -175,6 +177,7 @@ if __name__ == "__main__":
             file_path = os.path.join(path, file)
 
             with open(file_path, "r") as f:
+                print("Parsing:", file_path)
                 data : list[dict[str, float]] = json.load(f)
 
             graph_nodes = None
@@ -302,7 +305,7 @@ if __name__ == "__main__":
         # Prepare for bar-plot
         index = np.arange(len(x_labels))
         offset = (len(techniques) - 1)/2
-        techniques = sorted(techniques, key = lambda s: (''.join(chr(255 - ord(c)) for c in s.split('-')[0]), s.split('-')[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+        techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
 
         # Plotting (note: 25.6 = 2560 pixel)
         #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
@@ -311,22 +314,23 @@ if __name__ == "__main__":
         # Assign style to partitioning techniques
         possible_colors = [
                 "#6C8EBF", # BLUE
-                "#48617A", # DARK-BLUE
-                "#336699", # DARKER-BLUE
+                "#48617A", # DARK BLUE
+                "#336699", # DARKER BLUE
                 #"#FFB700", # YELLOW # alts: D79B00
                 #"#B38000", # DARK YELLOW
                 #"#FF6978", # PINK
                 #"#A8516E", # DARK PINK
                 "#82B366", # GREEN
-                "#169E1B", # DARK-GREEN
-                "#2F762F", # DARKER-GREEN
+                "#169E1B", # DARK GREEN
+                "#2F762F", # DARKER GREEN
                 "#EB6050", # RED # alts: cc3300, e63900, ec3c00, ff531a, ff3c2d, f03c2d, ea382a, ea3b2e, e7473a, e9493d, e94e3d, eb5847
-                "#8E2B25", # DARKER RED
+                "#8E2B25", # DARK RED
+                "#9F140D", # DARKER RED
                 "#C2E812", # LIME
                 "#768E0B", # DARK LIME
             ]
         #possible_hatches = cycle(['', '/', '\\', 'x', '.']) #['', '/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*']
-        possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
+        possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'D', 'X', 'p'])
         possible_linestyles = cycle(['-', ':', '--', '-.'])
         part_techniques_to_hatch = defaultdict(lambda : '', hehiding = '/')
         style = {}

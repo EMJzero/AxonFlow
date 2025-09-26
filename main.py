@@ -52,6 +52,7 @@ def parse_options() -> dict[str, Any]:
         "reload": args_match_and_remove(["-r", "--reload"], with_value = True),
         "dryrun": args_match_and_remove(["-d", "--dryrun"]),
         "fraction": args_match_and_remove(["-f", "--fraction"], with_value = True, value_type = float),
+        "path-length": args_match_and_remove(["-pl", "--path-length"]),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
@@ -67,6 +68,7 @@ def help_options() -> None:
     print("-r, --reload <path>\tReloads a previously saved (--save) SNN graph from 'path'. This takes priority on --load.")
     print("-d, --dryrun\t\tOnly loads the model and algorithms, runs the model import/export/generation, and checks mapping feasibility.")
     print("-f, --fraction <num>\tFraction of the lowest-spike-frequency hyperedges to ignore (still count for costs), let it be a number in [0, 1].")
+    print("-pl, --path-length\tEstimates the average path length for the graph, adding it to the statistics (requires some time).")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -124,6 +126,8 @@ if __name__ == "__main__":
             snn_stats["nodes_per_edge_mean"] = nodes_per_edge_mean
             snn_stats["nodes_per_edge_variation"] = nodes_per_edge_variation
             #acyclic_snn = makeAcyclic(snn)
+        if options["path-length"]:
+            snn_stats["average_path_length"] = snn.averagePathLengthApprox(seed = seed)
         prettyPrintDict(snn_stats, formatter = lambda v : f"{v:.3f}")
         
         if options["save"]:

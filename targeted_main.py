@@ -56,6 +56,7 @@ def parse_options() -> dict[str, Any]:
         "partitioning": args_match_and_remove(["-p", "--partitioning"]),
         "placement": args_match_and_remove(["-pp", "--placement"]),
         "fraction": args_match_and_remove(["-f", "--fraction"], with_value = True, value_type = float),
+        "path-length": args_match_and_remove(["-pl", "--path-length"]),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
@@ -74,6 +75,7 @@ def help_options() -> None:
     print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement (takes priority over '-pp').")
     print("-pp, --placement\tOnly runs the partitioning algorithms part, assumes the input to be already a partitioned hypergraph.")
     print("-f, --fraction <num>\tFraction of the lowest-spike-frequency hyperedges to ignore (still count for costs), let it be a number in [0, 1].")
+    print("-pl, --path-length\tEstimates the average path length for the graph, adding it to the statistics (requires some time).")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -151,6 +153,8 @@ if __name__ == "__main__":
             snn_stats["nodes_per_edge_mean"] = nodes_per_edge_mean
             snn_stats["nodes_per_edge_variation"] = nodes_per_edge_variation
             #acyclic_snn = makeAcyclic(snn)
+        if options["path-length"]:
+            snn_stats["average_path_length"] = snn.averagePathLengthApprox(seed = seed)
         prettyPrintDict(snn_stats, formatter = lambda v : f"{v:.3f}")
         
         if options["save"]:

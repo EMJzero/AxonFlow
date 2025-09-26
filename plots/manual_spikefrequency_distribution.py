@@ -1,6 +1,7 @@
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
 from scipy.stats import lognorm
+from scipy.ndimage import gaussian_filter1d
 from functools import reduce
 import matplotlib.axes
 import numpy as np
@@ -103,6 +104,12 @@ if __name__ == "__main__":
 
         # Count the number of values in each bin
         counts, bin_edges = np.histogram(values, bins = bins)
+
+        # Optional: Smooth the counts with a Gaussian kernel
+        #raw_counts = counts
+        #local = gaussian_filter1d(counts, sigma = 2)
+        #wide = gaussian_filter1d(counts, sigma = 10)
+        #counts = 0.5 * raw_counts + 0.3 * local + 0.2 * wide
 
         # Prepare data points for the "dash-like" plot
         # For each bin, we need two points: one for the start and one for the end of the bin

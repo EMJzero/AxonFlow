@@ -3,6 +3,7 @@ from types import FrameType
 
 import matplotlib.patches as mpatches
 import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter1d
 from scipy.stats import lognorm
 import numpy as np
 import matplotlib
@@ -73,7 +74,7 @@ def help_options() -> None:
            "\t\t\tThe given path is concatenated with '_0.npz', '_input.npz', '.graphml', these are the three files expected to be found."))
     print("-r, --reload <path>\tReloads a previously saved SNN graph from 'path'. This takes priority on --load.")
     print(("-s, --save <name>\tSaves the produced plot with the given name, instead of showing it. There is automatic file overwrite prevention.\n"
-           "The default extension is '.png', add an extension to <name> to override the file type, supported ones are '.pdf', '.eps', '.svg', '.png'."))
+           "\t\t\tThe default extension is '.png', add an extension to <name> to override the file type, supported ones are '.pdf', '.eps', '.svg', '.png'."))
     print("-f, --fraction <num>\tFraction of the lowest-valued spike frequencies to mark as ignored, let it be a number in [0, 1].")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
@@ -179,6 +180,9 @@ if __name__ == "__main__":
 
             # Count the number of values in each bin
             counts, bin_edges = np.histogram(values, bins = bins)
+
+            # Optional: Smooth the counts with a Gaussian kernel
+            #counts = gaussian_filter1d(counts, sigma = 2) # sigma controls smoothness
 
             # Prepare data points for the "dash-like" plot
             # For each bin, we need two points: one for the start and one for the end of the bin

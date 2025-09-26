@@ -128,7 +128,9 @@ if __name__ == "__main__":
         # Organize data
         files = []
         for f in os.listdir(path):
-            if f.endswith(".json"):
+            if f.startswith("_"):
+                print("Ignored file (starts with '_'):", f)
+            elif f.endswith(".json"):
                 files.append(f)
                 print("Added file:", f)
             else:
@@ -157,6 +159,7 @@ if __name__ == "__main__":
             file_path = os.path.join(path, file)
 
             with open(file_path, "r") as f:
+                print("Parsing:", file_path)
                 data : list[dict[str, float]] = json.load(f)
 
             graph_nodes = None

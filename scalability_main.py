@@ -49,9 +49,10 @@ def parse_options() -> dict[str, Any]:
         "help": args_match_and_remove(["-h", "--help"]),
         "interactive": args_match_and_remove(["-i", "--interactive"]),
         "output": args_match_and_remove(["-o", "--output"], with_value = True),
-        "save-par": args_match_and_remove(["-sr", "--save-par"], with_value = True),
+        "save-map": args_match_and_remove(["-sm", "--save-map"], with_value = True),
         "partitioning": args_match_and_remove(["-p", "--partitioning"]),
         "placement": args_match_and_remove(["-pp", "--placement"]),
+        "path-length": args_match_and_remove(["-pl", "--path-length"]),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
@@ -62,9 +63,10 @@ def help_options() -> None:
     print("-h, --help\t\tDisplay this help menu.")
     print("-i, --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print("-o, --output <file>\tName of the '.json' file where to write results.")
-    print("-sp, --save-par <dir>\tSaves the partitioned hypergraphs in 'dir'. Each file will be named after the methods. Works only with option '-p'.")
+    print("-sm, --save-map <dir>\tSaves the partitions ('.part') and/or placement ('.plac') lists in 'dir'. Each in a file named after the methods.")
     print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement (takes priority over '-pp').")
     print("-pp, --placement\tOnly runs the partitioning algorithms part, assumes the input to be already a partitioned hypergraph.")
+    print("-pl, --path-length\tEstimates the average path length for the graph, adding it to the statistics (requires some time).")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -91,12 +93,9 @@ if __name__ == "__main__":
     if os.name != "posix":
         print("WARNING: this program was developed for a UNIX-like environment, expect bugs (especially with signals and multiprocessing) on other systems.")
 
-    if options["save-par"] and not options["partitioning"]:
-        options["save-par"] = False
-        print(f"WARNING: option '-sp' was ignored since option '-p' is missing.")
-    if options["save-par"] and not os.path.isdir(options["save-par"]):
-        os.mkdir(options["save-par"])
-        print(f"WARNING: directory '{options["save-par"]}' did not exist, it has now been created.")
+    if options["save-map"] and not os.path.isdir(options["save-map"]):
+        os.mkdir(options["save-map"])
+        print(f"WARNING: directory '{options["save-map"]}' did not exist, it has now been created.")
 
     if not options["output"]:
         options["output"] = "scalability_results.json"
@@ -118,8 +117,8 @@ if __name__ == "__main__":
     try:
         seed = 192 #79
         print("Seed:", seed)
-        save = options["save-par"]
-        if save: print("Saving partitioned hypergraphs in:", save)
+        save = options["save-map"]
+        if save: print("Saving partitioning and placement lists in:", save)
         
         sizes : dict[dict[str, int]] = {
             # LOGIC:
@@ -236,15 +235,22 @@ if __name__ == "__main__":
             #hypergraph = HyperGraph.generate_random(size["nodes_count"], size["nodes_per_edge_mean"], size["nodes_per_edge_variation"], spike_frequency_range = (0.1, 1000), seed = seed)
             # reference: Allen V1 cv = 1.37, 8k model cv = 0.96, 64k_model cv = 1.58, lenet cv = 0.89, alexnet cv = 1.84 => we use 1.58
             hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 2, locality_sigma = 0.35, long_range_fraction = 0.1, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
+            #hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 2, locality_sigma = 0.05, long_range_fraction = 0.2, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
             #acyclic_snn = makeAcyclic(snn)
+            hypergraph_stats = hypergraph.getStatistics()
+            hypergraph_stats["nodes_per_edge_mean"] = size["nodes_per_edge_mean"]
+            hypergraph_stats["nodes_per_edge_variation"] = size["nodes_per_edge_variation"]
+            if options["path-length"]:
+                hypergraph_stats["average_path_length"] = hypergraph.averagePathLengthApprox(seed = seed)
+            print("Hypergraph statistics:")
+            prettyPrintDict(hypergraph_stats, 1, formatter = lambda v : f"{v:.3f}")
             if not hardware.checkSnnFit(hypergraph, already_partitioned = options["placement"], verbose = True):
                 print(f"WARNING: the generated SNN of experiment '{experiment}' may not fit on the given HW, change either's configuration or the seed.")
             
             workers : dict[str, Worker] = {}
             for name, method in methods.items():
                 full_name = experiment + '-' + name
-                args = (method, full_name, hypergraph, hardware, seed) + (save if save else tuple())
-                workers[full_name] = Worker(*args)
+                workers[full_name] = Worker(method, full_name, hypergraph, hardware, seed, save)
                 if Settings.MULTIPROCESSING:
                     print(f"Process {workers[full_name].getPid()} started for {full_name}...")
             

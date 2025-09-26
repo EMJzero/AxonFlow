@@ -139,7 +139,9 @@ if __name__ == "__main__":
         # Organize data
         files = []
         for f in os.listdir(path):
-            if f.endswith(".json"):
+            if f.startswith("_"):
+                print("Ignored file (starts with '_'):", f)
+            elif f.endswith(".json"):
                 files.append(f)
                 print("Added file:", f)
             else:
@@ -151,18 +153,20 @@ if __name__ == "__main__":
         techniques = set()
         file_data = []  # will hold tuples: (num_nodes, filename, technique_entries)
         x_labels = []
-        x_indices = list(range(len(files)))
 
         # Metrics to collect
-        synaptic_reuse : dict[str, list[Optional[float]]] = defaultdict(list)
-        connections_locality : dict[str, list[Optional[float]]] = defaultdict(list)
-        init_connections_locality : dict[str, list[Optional[float]]] = defaultdict(list)
+        synaptic_reuse_mean : dict[str, list[Optional[float]]] = defaultdict(list)
+        synaptic_reuse_geomean : dict[str, list[Optional[float]]] = defaultdict(list)
+        connections_locality_mean : dict[str, list[Optional[float]]] = defaultdict(list)
+        connections_locality_geomean : dict[str, list[Optional[float]]] = defaultdict(list)
+        init_connections_locality_mean : dict[str, list[Optional[float]]] = defaultdict(list)
+        init_connections_locality_geomean : dict[str, list[Optional[float]]] = defaultdict(list)
         energy_delay_product : dict[str, list[Optional[float]]] = defaultdict(list)
 
         # Optional: specify techniques to omit
         omit_techniques = {"hmetis-truenorth", "hmetis-spectral-ps", "hehiding-hilbert-ps"}
         # Optional: specify techniques that must be kept
-        must_keep_techniques = {"sequential-truenorth"}
+        must_keep_techniques = {"sequential-truenorth", "edgehiding", "unordered"}
         # Optional: specify partitioning techniques to omit
         omit_part_techniques = {"setlist"}
         # Optinal: specify placement techniques to omit
@@ -171,12 +175,15 @@ if __name__ == "__main__":
         no_initial_layout = True
         # Optional: specify techniques to put first in the order, others will follow in descending alphabetical order
         forceful_order = ["sequential", "unordered", "edgehiding"]
+        # Optional: divide the connections locality by the partitions count
+        norm_by_part_count = True
 
         # Read files
         for file in files:
             file_path = os.path.join(path, file)
 
             with open(file_path, "r") as f:
+                print("Parsing:", file_path)
                 data : list[dict[str, float]] = json.load(f)
 
             graph_nodes = None
@@ -220,27 +227,50 @@ if __name__ == "__main__":
             for technique in techniques:
                 entry = technique_entries.get(technique)
                 if entry:
-                    synaptic_reuse[technique].append(entry.get("part_synaptic_reuse", None))
-                    connections_locality[technique].append(entry.get("plac_connections_locality", None))
-                    init_connections_locality[technique].append(entry.get("init_connections_locality", None) if not no_initial_layout else None)
+                    synaptic_reuse_mean[technique].append(entry.get("part_synaptic_reuse", None))
+                    if isinstance(synaptic_reuse_mean[technique][-1], dict):
+                        synaptic_reuse_geomean[technique].append(synaptic_reuse_mean[technique][-1]["geo_mean"])
+                        synaptic_reuse_mean[technique][-1] = synaptic_reuse_mean[technique][-1]["ar_mean"]
+                    else:
+                        synaptic_reuse_geomean[technique].append(synaptic_reuse_mean[technique][-1])
+                    connections_locality_mean[technique].append(entry.get("plac_connections_locality", None))
+                    if isinstance(connections_locality_mean[technique][-1], dict):
+                        connections_locality_geomean[technique].append(connections_locality_mean[technique][-1]["geo_mean_weighted"]/(entry["part_count"] if norm_by_part_count else 1))
+                        connections_locality_mean[technique][-1] = connections_locality_mean[technique][-1]["ar_mean_weighted"]/(entry["part_count"] if norm_by_part_count else 1)
+                    else:
+                        connections_locality_geomean[technique].append(connections_locality_mean[technique][-1])
+                    init_connections_locality_mean[technique].append(entry.get("init_connections_locality", None) if not no_initial_layout else None)
+                    if isinstance(init_connections_locality_mean[technique][-1], dict):
+                        init_connections_locality_geomean[technique].append(init_connections_locality_mean[technique][-1]["geo_mean"]/(entry["part_count"] if norm_by_part_count else 1))
+                        init_connections_locality_mean[technique][-1] = init_connections_locality_mean[technique][-1]["ar_mean"]/(entry["part_count"] if norm_by_part_count else 1)
+                    else:
+                        init_connections_locality_geomean[technique].append(init_connections_locality_mean[technique][-1])
                     en, lat = entry.get("plac_energy", None), entry.get("plac_avg_lat", None)
                     energy_delay_product[technique].append(en * lat if en != None and lat != None else None)
                 else:
-                    synaptic_reuse[technique].append(None)
-                    connections_locality[technique].append(None)
-                    init_connections_locality[technique].append(None)
+                    synaptic_reuse_mean[technique].append(None)
+                    synaptic_reuse_geomean[technique].append(None)
+                    connections_locality_mean[technique].append(None)
+                    connections_locality_geomean[technique].append(None)
+                    init_connections_locality_mean[technique].append(None)
+                    init_connections_locality_geomean[technique].append(None)
                     energy_delay_product[technique].append(None)
         
+        x_indices = list(range(len(x_labels)))
+        
         # Optional: normalize w.r.t. the best partitioning
-        #best_synaptic_reuse = [min([synaptic_reuse[technique][i] for technique in techniques if synaptic_reuse[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        #best_connections_locality = [min([connections_locality[technique][i] for technique in techniques if connections_locality[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        #best_edp = [min([energy_delay_product[technique][i] for technique in techniques if energy_delay_product[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        #for technique in techniques:
-        #    synaptic_reuse[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(synaptic_reuse[technique], best_synaptic_reuse)))
-        #    connections_locality[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(connections_locality[technique], best_connections_locality)))
-        #    energy_delay_product[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(energy_delay_product[technique], best_edp)))
-        #    # still normalize them w.r.t. the eventual best for their metric since they will be in the same plot
-        #    init_connections_locality[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_connections_locality[technique], best_connections_locality)))
+        best_synaptic_reuse_geomean = [max([synaptic_reuse_geomean[technique][i] for technique in techniques if synaptic_reuse_geomean[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_connections_locality_geomean = [min([connections_locality_geomean[technique][i] for technique in techniques if connections_locality_geomean[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_edp = [min([energy_delay_product[technique][i] for technique in techniques if energy_delay_product[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        for technique in techniques:
+            synaptic_reuse_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(synaptic_reuse_mean[technique], best_synaptic_reuse_geomean)))
+            synaptic_reuse_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(synaptic_reuse_geomean[technique], best_synaptic_reuse_geomean)))
+            connections_locality_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(connections_locality_mean[technique], best_connections_locality_geomean)))
+            connections_locality_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(connections_locality_geomean[technique], best_connections_locality_geomean)))
+            energy_delay_product[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(energy_delay_product[technique], best_edp)))
+            # still normalize them w.r.t. the eventual best for their metric since they will be in the same plot
+            init_connections_locality_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_connections_locality_mean[technique], best_connections_locality_geomean)))
+            init_connections_locality_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_connections_locality_geomean[technique], best_connections_locality_geomean)))
 
         # Optional: keep only the best placement by EDP for each partitioning technique
         best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
@@ -261,16 +291,22 @@ if __name__ == "__main__":
         pareto_techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values()) | must_keep_techniques
         print("Dominated (excluded) techniques:", ', '.join(techniques - pareto_techniques))
         techniques = pareto_techniques
-        synaptic_reuse = {k : v for k, v in synaptic_reuse.items() if k in techniques}
-        connections_locality = {k : v for k, v in connections_locality.items() if k in techniques}
-        init_connections_locality = {k : v for k, v in init_connections_locality.items() if k in techniques}
+        synaptic_reuse_mean = {k : v for k, v in synaptic_reuse_mean.items() if k in techniques}
+        synaptic_reuse_geomean = {k : v for k, v in synaptic_reuse_geomean.items() if k in techniques}
+        connections_locality_mean = {k : v for k, v in connections_locality_mean.items() if k in techniques}
+        connections_locality_geomean = {k : v for k, v in connections_locality_geomean.items() if k in techniques}
+        init_connections_locality_mean = {k : v for k, v in init_connections_locality_mean.items() if k in techniques}
+        init_connections_locality_geomean = {k : v for k, v in init_connections_locality_geomean.items() if k in techniques}
         energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
 
         # Replace 'None' with zero
         for technique in techniques:
-            synaptic_reuse[technique] = list(map(lambda x : x if x != None else math.nan, synaptic_reuse[technique]))
-            connections_locality[technique] = list(map(lambda x : x if x != None else math.nan, connections_locality[technique]))
-            init_connections_locality[technique] = list(map(lambda x : x if x != None else math.nan, init_connections_locality[technique]))
+            synaptic_reuse_mean[technique] = list(map(lambda x : x if x != None else math.nan, synaptic_reuse_mean[technique]))
+            synaptic_reuse_geomean[technique] = list(map(lambda x : x if x != None else math.nan, synaptic_reuse_geomean[technique]))
+            connections_locality_mean[technique] = list(map(lambda x : x if x != None else math.nan, connections_locality_mean[technique]))
+            connections_locality_geomean[technique] = list(map(lambda x : x if x != None else math.nan, connections_locality_geomean[technique]))
+            init_connections_locality_mean[technique] = list(map(lambda x : x if x != None else math.nan, init_connections_locality_mean[technique]))
+            init_connections_locality_geomean[technique] = list(map(lambda x : x if x != None else math.nan, init_connections_locality_geomean[technique]))
             energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, energy_delay_product[technique]))
 
         # Plotting (note: 25.6 = 2560 pixel)
@@ -376,28 +412,34 @@ if __name__ == "__main__":
             for technique in part_techniques_list:
                 ongoing_linestyle = next(possible_linestyles)
                 color = next(ongoing_color)
-                style[technique] = {"color": color, "hatch": part_techniques_to_hatch[technique], "edgecolor": "white", "alpha": 1.0}
+                style[technique] = {"color": color, "hatch": part_techniques_to_hatch[technique], "edgecolor": "white"}
                 line_style[technique] = {"color": color, "marker" : next(possible_markers), "linestyle" : ongoing_linestyle, "markersize" : 8, "alpha" : 1.0}
+            shadow_bars_alpha = 0.3
             
             rects = []
             for j, technique in enumerate(part_techniques_list):
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH_PART, synaptic_reuse[part_techniques[technique]], BAR_WIDTH_PART, label = rename_label(technique), **style[technique])
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH_PART, synaptic_reuse_mean[part_techniques[technique]], BAR_WIDTH_PART, label = None, alpha = shadow_bars_alpha, **style[technique])
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH_PART, synaptic_reuse_geomean[part_techniques[technique]], BAR_WIDTH_PART, label = rename_label(technique), alpha = 1.0, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("SNN (least → most nodes)")
-            ax.set_ylabel("Partitioning Synaptic Reuse")
+            #ax.set_ylabel("Partitioning Synaptic Reuse (higher is better)")
+            ax.set_ylabel("Partitioning Synaptic Reuse\n(normalized on highest geo. mean, higher is better)")
             ax.set_title("Reuse vs Problem Size")
             format_y_bars(ax)
-            set_bounds(ax, list(part_techniques.values()), synaptic_reuse, rects, BAR_WIDTH_PART)
+            #set_bounds(ax, list(part_techniques.values()), synaptic_reuse_mean, rects, BAR_WIDTH_PART)
 
         # Connections locality plot
         def connections_locality_plot(ax : matplotlib.axes.Axes):
             # Prepare for bar-plot
             index = np.arange(len(x_labels))
-            plac_techniques = sorted(techniques, key = lambda s: (''.join(chr(255 - ord(c)) for c in s.split('-')[0]), s.split('-')[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+            plac_techniques = techniques
             for plac_technique in omit_plac_techniques:
                 if plac_technique in plac_techniques:
                     plac_techniques.remove(plac_technique)
+            print(plac_techniques)
+            plac_techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+            print(plac_techniques)
             offset = (len(plac_techniques) - 1)/2
 
             # Assign style to partitioning techniques
@@ -439,23 +481,38 @@ if __name__ == "__main__":
             
             rects = []
             for j, technique in enumerate(plac_techniques):
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH_PLAC, init_connections_locality[technique], BAR_WIDTH_PLAC, label = None, alpha = shadow_bars_alpha, **style[technique])
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH_PLAC, connections_locality[technique], BAR_WIDTH_PLAC, label = rename_label(technique), **style[technique])
+                #rects += ax.bar(index + (j - offset) * BAR_WIDTH_PLAC, init_connections_locality[technique], BAR_WIDTH_PLAC, label = None, alpha = shadow_bars_alpha, **style[technique])
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH_PLAC, connections_locality_mean[technique], BAR_WIDTH_PLAC, label = None, alpha = shadow_bars_alpha, **style[technique])
+                rects += ax.bar(index + (j - offset) * BAR_WIDTH_PLAC, connections_locality_geomean[technique], BAR_WIDTH_PLAC, label = rename_label(technique), alpha = 1.0, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("SNN (least → most nodes)")
-            ax.set_ylabel("Placement Connections Locality")
+            #ax.set_ylabel("Placement Connections Locality (lower is better)")
+            ax.set_ylabel("Placement Connections Locality\n(normalized on lowest geo. mean, lower is better)")
             ax.set_title("Locality vs Problem Size")
+            ax.set_ylim(0.8, 5)
             format_y_bars(ax)
-            set_bounds(ax, plac_techniques, connections_locality, rects, BAR_WIDTH_PLAC)
+            #set_bounds(ax, plac_techniques, connections_locality_mean, rects, BAR_WIDTH_PLAC)
         
         synpatic_reuse_plot(ax1)
         connections_locality_plot(ax2)
         
         # Setup legends AFTER the tight layout
         plt.tight_layout(rect = [0, 0, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
-        ax1.legend(ncol = 1, loc = "center", bbox_to_anchor = (-0.33 - 0.1, 0.5))
-        ax2.legend(ncol = 1, loc = "center", bbox_to_anchor = (1.33, 0.5))
+        custom_handles = [
+            #matplotlib.patches.Rectangle((0, 0,), 0, 0, color = "black", edgecolor = "white", label = "full: geometric mean"),
+            #matplotlib.patches.Rectangle((0, 0,), 0, 0, color = "black", edgecolor = "white", label = "shade: average mean", alpha = 0.3)
+            matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, label = "full: geometric mean"),
+            matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, alpha = 0.3, label = "shade: average mean")
+        ]
+        handles1, labels1 = ax1.get_legend_handles_labels()
+        handles1 = custom_handles + handles1
+        labels1 = [h.get_label() for h in handles1]
+        handles2, labels2 = ax2.get_legend_handles_labels()
+        handles2 = custom_handles + handles2
+        labels2 = [h.get_label() for h in handles2]
+        ax1.legend(handles1, labels1, ncol = 1, loc = "center", bbox_to_anchor = (-0.33 - 0.1, 0.5))
+        ax2.legend(handles2, labels2, ncol = 1, loc = "center", bbox_to_anchor = (1.33, 0.4)) # was (1.33, 0.5)
         
         # Show the plot
         if options["save"]:
