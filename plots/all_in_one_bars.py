@@ -2,7 +2,7 @@ from typing import TypeVar, Any, Optional
 from types import FrameType
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import LogLocator, FuncFormatter
+from matplotlib.ticker import LogLocator, FuncFormatter, NullFormatter
 import matplotlib.legend_handler
 import matplotlib.patches
 import matplotlib.axes
@@ -394,13 +394,15 @@ if __name__ == "__main__":
         # Sets the y-scale for bar plots to be in percentage
         def format_y_bars(ax : matplotlib.axes.Axes):
             ax.set_yscale("log", base = 10)
-            ax.grid(axis = 'y', which = 'both')
-            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = "all", numticks = 10))
-            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = [1.0, 2.0, 5.0], numticks = 10))
+            ax.grid(axis = 'y', which = 'major')
+            ax.grid(axis = 'y', which = 'minor', alpha = 0.5)
+            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = np.arange(1.0, 10.0, 1.0), numticks = 10))
+            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = np.arange(1.0, 9.0, 0.1), numticks = 10))
             #formatter = FuncFormatter(lambda v, _: f"{v*100:.0f}%" if v > 0 else "")
             formatter = FuncFormatter(lambda v, _: f"{v:.1f}" if v > 0 else "")
             ax.yaxis.set_major_formatter(formatter)
-            ax.yaxis.set_minor_formatter(formatter)
+            #ax.yaxis.set_minor_formatter(formatter)
+            ax.yaxis.set_minor_formatter(NullFormatter())
 
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):
@@ -446,7 +448,7 @@ if __name__ == "__main__":
             ax.set_title("Congestion vs Problem Size")
             #ax.legend()
             format_y_bars(ax)
-            set_bounds(ax, congestion, rects)
+            set_bounds(ax, congestion, rects, sigma = 0.8)
 
         # TODO: does it even make sense to look at this? It is not like, the longer you run, the more you consume here...
         # Energy x Delay Product plot

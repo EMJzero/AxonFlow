@@ -357,13 +357,20 @@ if __name__ == "__main__":
                 ax.set_xlim(min_x - bar_width, max_x + 2*bar_width)
 
         # Sets the y-scale for bar plots to be in percentage
-        def format_y_bars(ax : matplotlib.axes.Axes):
+        def format_y_bars(ax : matplotlib.axes.Axes, which : Union[str, list[float]] = "all", dec_digits : int = 1):
             ax.set_yscale("log", base = 10)
             ax.grid(axis = 'y', which = 'both')
-            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = [1.0, 2.0, 4.0, 6.0, 8.0], numticks = 10))
-            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = [1.0, 2.0], numticks = 10))
+            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = which, numticks = 10))
+            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = which, numticks = 10))
             #formatter = FuncFormatter(lambda v, _: f"{v*100:.0f}%" if v > 0 else "")
-            formatter = FuncFormatter(lambda v, _: f"{v:.1f}" if v > 0 else "")
+            def printer(v, _):
+                d = dec_digits
+                if v < 0:
+                    return ""
+                while v * 10**d < 1:
+                    d += 1
+                return f"{v:.{d}f}"
+            formatter = FuncFormatter(printer)
             ax.yaxis.set_major_formatter(formatter)
             ax.yaxis.set_minor_formatter(formatter)
 
@@ -423,10 +430,10 @@ if __name__ == "__main__":
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("SNN (least → most nodes)")
-            #ax.set_ylabel("Partitioning Synaptic Reuse (higher is better)")
-            ax.set_ylabel("Partitioning Synaptic Reuse\n(normalized on highest geo. mean, higher is better)")
+            ax.set_ylabel("Partitioning Synaptic Reuse (higher is better)")
+            #ax.set_ylabel("Partitioning Synaptic Reuse\n(normalized on highest geo. mean, higher is better)")
             ax.set_title("Reuse vs Problem Size")
-            format_y_bars(ax)
+            format_y_bars(ax, which = [1.0, 2.0, 4.0, 6.0, 8.0])
             #set_bounds(ax, list(part_techniques.values()), synaptic_reuse_mean, rects, BAR_WIDTH_PART)
 
         # Connections locality plot
@@ -487,11 +494,12 @@ if __name__ == "__main__":
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel("SNN (least → most nodes)")
-            #ax.set_ylabel("Placement Connections Locality (lower is better)")
-            ax.set_ylabel("Placement Connections Locality\n(normalized on lowest geo. mean, lower is better)")
+            ax.set_ylabel("Placement Connections Locality (lower is better)")
+            #ax.set_ylabel("Placement Connections Locality\n(normalized on lowest geo. mean, lower is better)")
             ax.set_title("Locality vs Problem Size")
-            ax.set_ylim(0.8, 5)
-            format_y_bars(ax)
+            #ax.set_ylim(0.8, 5)
+            ax.set_ylim(0.01, 1)
+            format_y_bars(ax, which = [1.0, 2.0, 4.0, 6.0, 8.0])
             #set_bounds(ax, plac_techniques, connections_locality_mean, rects, BAR_WIDTH_PLAC)
         
         synpatic_reuse_plot(ax1)

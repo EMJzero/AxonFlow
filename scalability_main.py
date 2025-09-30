@@ -166,7 +166,16 @@ if __name__ == "__main__":
                 "neurons_per_core": 1024, "synapses_per_core" : 12288, "cores_per_chip_1d": 96},
             f"{1024**2}":
                 {"nodes_count": 1024**2, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 128,
-                "neurons_per_core": 1536, "synapses_per_core" : 16384, "cores_per_chip_1d": 128}
+                "neurons_per_core": 1536, "synapses_per_core" : 16384, "cores_per_chip_1d": 128},
+            f"{1024*16}L":
+                {"nodes_count": 1024*16, "nodes_per_edge_mean": 128, "nodes_per_edge_variation": 16,
+                "neurons_per_core": 32, "synapses_per_core" : 4096, "cores_per_chip_1d": 64},
+            f"{1024*32}L":
+                {"nodes_count": 1024*32, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 24,
+                "neurons_per_core": 64, "synapses_per_core" : 8192, "cores_per_chip_1d": 64},
+            f"{1024*64}L":
+                {"nodes_count": 1024*64, "nodes_per_edge_mean": 512, "nodes_per_edge_variation": 32,
+                "neurons_per_core": 128, "synapses_per_core" : 16384, "cores_per_chip_1d": 64}
         }
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
             #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
@@ -234,8 +243,9 @@ if __name__ == "__main__":
             )
             #hypergraph = HyperGraph.generate_random(size["nodes_count"], size["nodes_per_edge_mean"], size["nodes_per_edge_variation"], spike_frequency_range = (0.1, 1000), seed = seed)
             # reference: Allen V1 cv = 1.37, 8k model cv = 0.96, 64k_model cv = 1.58, lenet cv = 0.89, alexnet cv = 1.84 => we use 1.58
-            hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 2, locality_sigma = 0.35, long_range_fraction = 0.1, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
-            #hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 2, locality_sigma = 0.05, long_range_fraction = 0.2, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
+            #hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 2, locality_sigma = 0.35, long_range_fraction = 0.1, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
+            hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 3, locality_sigma = 0.05, long_range_fraction = 0.2, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
+            #hypergraph = HyperGraph.generate_hierarchical_random(n = size["nodes_count"], avg_degree = size["nodes_per_edge_mean"], seed = seed, levels = 3, local_sigma = 6, lognorm_mu = 1.0, lognorm_sigma = 1.9)
             #acyclic_snn = makeAcyclic(snn)
             hypergraph_stats = hypergraph.getStatistics()
             hypergraph_stats["nodes_per_edge_mean"] = size["nodes_per_edge_mean"]

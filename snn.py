@@ -192,12 +192,15 @@ class HyperGraph(Iterable):
     """
     @classmethod
     @core
-    def generate_reservoir_random(cls, n: int, mean_fanout: int = 100, space_dim: int = 2, locality_sigma: float = 0.05, long_range_fraction: float = 0.05, spike_rate_median: float = 1.0, spike_rate_cv: float = 2.0, seed: Optional[int] = None) -> Self:
+    def generate_reservoir_random(cls, n : int, mean_fanout : int = 100, space_dim : int = 2, locality_sigma : float = 0.05, long_range_fraction : float = 0.05, spike_rate_median : float = 1.0, spike_rate_cv : float = 2.0, seed : Optional[int] = None) -> Self:
         rng = np.random.default_rng(seed)
 
         if space_dim == 1: coords = rng.random((n, 1)) # [0, 1] ring
         elif space_dim == 2: coords = rng.random((n, 2)) # unit square
-        else: raise Exception(f"Argument 'space_dim' must be 1 or 2, not {space_dim}.")
+        elif space_dim == 3: # unit cube
+            coords = rng.random((n, 3))
+            direction = rng.choice((-1, 1), n, p = (0.1, 0.9))
+        else: raise Exception(f"Argument 'space_dim' must be 1, 2 or 3, not {space_dim}.")
 
         # choose spike rates from lognormal - convert median & cv to mu, sigma
         mu = np.log(spike_rate_median)
@@ -218,6 +221,8 @@ class HyperGraph(Iterable):
                 diffs = coords - coords[i]
                 if space_dim == 1:
                     diffs = np.minimum(np.abs(diffs), 1 - np.abs(diffs)) # ring metric
+                elif space_dim == 3:
+                    diffs[diffs[:, 2]*direction < 0, 2] = np.inf # see axons as "pillars" and connect them only if you are above their base (I call thee, z-clipping)
                 dists = np.linalg.norm(diffs, axis = 1)
                 probs = np.exp(-0.5 * (dists / locality_sigma)**2) # sample according to Gaussian kernel
                 probs[i] = 0.0 # prevent self-cycles
@@ -229,6 +234,174 @@ class HyperGraph(Iterable):
                 long_targets = rng.choice(n, size = n_long, replace = False)
                 targets.extend(t for t in long_targets if t != i)
             hyperedges.append(HyperEdge(i, tuple(targets), spike_freq[i]))
+        return cls(n, hyperedges)
+
+    """
+    Generate a random hierarchical, small-world, bio-plausible, directed hypergraph.
+    
+    Arguments:
+    - n: number of neurons (nodes).
+    - avg_degree: desired average out-degree per node (total across levels).
+    - levels: number of hierarchical levels below coarse/top (fine levels count).
+              The generator will split the avg_degree across (levels + 1) levels (fine to coarse).
+    - modules_per_level: sequence length (levels+1) or None.
+                         Number of modules at each level, ordered as [top_coarse, ..., fine].
+                         If None, a default balanced split will be used.
+    - shortcut_prob: Probability for an attempted edge at a level to be a long-range shortcut (target outside the module).
+    - local_sigma: standard deviation (in ordered positions) used when sampling local neighbors inside a module.
+                   Larger sigma => less locality. Small values (e.g. 4-16) produce tight local neighborhoods.
+    - intra_boost: increment applied to spike frequency if the edge is within the finest-level module.
+    - lognorm_mu, lognorm_sigma: parameters for the log-normal spike frequency distribution.
+    """
+    @classmethod
+    @core
+    def generate_hierarchical_random(cls, n : int, avg_degree : float = 100.0, levels : int = 2, modules_per_level : Optional[list[int]] = None, shortcut_prob : float = 0.01, local_sigma : float = 8.0, intra_boost : float = 0.01, lognorm_mu : float = 1.0, lognorm_sigma : float = 1.0, seed : Optional[int] = None) -> Self:
+        rng = np.random.default_rng(seed)
+        
+        def _validate_modules_spec(n : int, modules_per_level: Optional[list[int]], levels: int) -> list[int]:
+            if modules_per_level is None:
+                # default: balanced branching factor ~ sqrt at each level
+                modules_per_level = [int(round(n ** (1.0 / (levels + 1))))] * (levels + 1)
+            if len(modules_per_level) != (levels + 1):
+                raise ValueError("modules_per_level must have length levels+1 (one entry per level).")
+            if any(m < 1 for m in modules_per_level):
+                raise ValueError("modules_per_level entries must be >= 1.")
+            return modules_per_level
+        
+        """
+        Pick a target from module_nodes_ordered by sampling a Gaussian offset around the
+        source's position (src_local_pos). Positions are clamped to module bounds.
+        This is a cheap approximation of spatial locality (O(1) per sample).
+        """
+        def _sample_target_within_module_local(src_local_pos : int, module_nodes_ordered : np.ndarray, rng : np.random.Generator, local_sigma : float) -> int:
+            m = module_nodes_ordered.shape[0]
+            if m == 1:
+                return int(module_nodes_ordered[0])
+            # gaussian offset in units of positions:
+            offset = int(round(rng.normal(loc = 0.0, scale = local_sigma)))
+            tgt_pos = src_local_pos + offset
+            if tgt_pos < 0:
+                tgt_pos = 0
+            elif tgt_pos >= m:
+                tgt_pos = m - 1
+            return int(module_nodes_ordered[tgt_pos])
+        
+        """
+        Returns:
+        module_maps: list of arrays of length N, module_maps[l][i] = module id of node i at level l
+        module_members: list of dicts mapping module_id -> np.array(node_indices)
+        Level 0 should be the finest scale (most modules), and higher level indexes coarser.
+        """
+        def build_module_assignments(n : int, modules_per_level : list[int], rng : np.random.Generator) -> tuple[list[np.ndarray], list[np.ndarray]]:
+            mods = modules_per_level[::-1] # now mods[0] = finest (many small modules)
+            module_maps = []
+            module_members = []
+
+            nodes = np.arange(n)
+            rng.shuffle(nodes)  # randomize global ordering to prevent index artifacts
+
+            # create modules by splitting the shuffled list into contiguous blocks for each level
+            for mcount in mods:
+                # split nodes into mcount roughly equal parts
+                sizes = [n // mcount] * mcount
+                for i in range(n % mcount):
+                    sizes[i] += 1
+                arr = np.empty(n, dtype = np.int64)
+                members = {}
+                pos = 0
+                for mid, s in enumerate(sizes):
+                    segment = nodes[pos: pos + s]
+                    members[mid] = np.array(segment, dtype = np.int64)
+                    arr[segment] = mid
+                    pos += s
+                module_maps.append(arr)
+                module_members.append(members)
+            # return levels ordered fine -> coarse (level 0 = finest)
+            return module_maps, module_members
+
+        if n <= 0:
+            raise Exception("Can't create a graph with zero or less nodes.")
+
+        hyperedges : list[HyperEdge] = []
+        
+        # validate module-related arguments
+        # modules_per_level here is caorse -> fine
+        modules_per_level = _validate_modules_spec(n, modules_per_level, levels)
+        # build module assignments (returned arrays ordering: fine -> coarse)
+        module_maps, module_members = build_module_assignments(n, modules_per_level, rng)
+        fine_to_coarse_count = len(module_maps) # this is levels + 1
+
+        # create a "local ordering" for each module via a random shuffle of its members
+        ordered_module_nodes = []
+        module_node_positions = [] # at level l, map node_id -> position in ordered array
+        for l, members in enumerate(module_members):
+            ordered_for_level = {}
+            positions_for_level = {}
+            for mid, nodes in members.items():
+                if nodes.size == 0:
+                    ordered = nodes
+                else:
+                    ordered = nodes.copy()
+                    rng.shuffle(ordered)
+                ordered_for_level[mid] = ordered
+                # create position map for nodes in this module (gives O(1) lookup)
+                pos_map = np.empty(ordered.shape[0], dtype=np.int64)
+                node_to_pos = {int(node): idx for idx, node in enumerate(ordered)}
+                positions_for_level[mid] = node_to_pos
+            ordered_module_nodes.append(ordered_for_level)
+            module_node_positions.append(positions_for_level)
+
+        # per-node expected edges per level:
+        levels_count = fine_to_coarse_count
+        lam_per_level = float(avg_degree) / float(levels_count) # mean outgoing edges per node per level
+
+        if Settings.VERBOSE:
+            print(f"Generating graph with: nodes = {n}, levels = {levels_count}, avg_degree = {avg_degree}, edges_per_level_mean = {lam_per_level:.3f}, shortcut_prob = {shortcut_prob}")
+
+        # iterate nodes src = 0, ... n - 1
+        for src in range(n):
+            targets = []
+            spike_frequency = 1.0
+            # for each level (finest -> coarsest)
+            for l in range(levels_count):
+                # number of outgoing edges from this node at this level
+                k = rng.poisson(lam_per_level)
+                if k == 0:
+                    continue
+
+                # determine source's module id at this level
+                module_id = int(module_maps[l][src]) # module_maps ordering: fine -> coarse
+                ordered_nodes = ordered_module_nodes[l][module_id]
+                pos_map = module_node_positions[l][module_id]
+                src_local_pos = pos_map.get(src, None)
+                msize = ordered_nodes.shape[0]
+                for _ in range(k):
+                    # choose whether to create local intra-module edge or a shortcut
+                    if (msize > 0) and (rng.random() >= shortcut_prob):
+                        # if src not found in this module, pick a target at random
+                        if src_local_pos is None:
+                            tgt = int(ordered_nodes[rng.integers(msize)])
+                        else:
+                            # local choice (within same module): sample by gaussian offset on ordered positions
+                            tgt = _sample_target_within_module_local(src_local_pos, ordered_nodes, rng, local_sigma)
+                    else:
+                        # global shortcut: pick a random node from whole network (avoid self-cycles)
+                        tgt = int(rng.integers(n))
+                        if tgt == src:
+                            tgt = (tgt + 1) % n
+                    # ensure no self-cycles
+                    if tgt == src:
+                        continue
+                    # boost intra-module spike frequency at the finest scale (l == 0 corresponds to the finest level)
+                    if l == 0:
+                        # check if this edge is within the finest module containing src
+                        if module_maps[0][tgt] == module_maps[0][src]:
+                            spike_frequency += intra_boost
+                    targets.append(tgt)
+            # sample spike frequency (log-normal)
+            spike_frequency = spike_frequency*float(np.exp(rng.normal(loc = lognorm_mu, scale = lognorm_sigma)))
+            hyperedges.append(HyperEdge(src, tuple(targets), spike_frequency))
+        
         return cls(n, hyperedges)
 
     """

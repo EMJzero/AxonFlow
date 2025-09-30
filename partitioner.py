@@ -1178,6 +1178,43 @@ def partitionHyperedgeHidingCompact(hg: HyperGraph, max_nodes: int, max_inbound_
     
     return partitions
 
+# CONSIDERATION:
+# The LSH-based setlist method did a query for the highest overlapping node among all nodes to create pairs, and repeat.
+# This hehiding does the query manually, but limits the scope to nodes in the same hyperedge, pushing the problem a second
+# query level that selects hyperedges, it then builds partitions sequentially instead of pairing nodes.
+# A middle-ground could be all-nodes max-overlap queries with LSH and constructing partitions sequentially?
+# However, nodes in the same hyperedge are also very likely to have high overlap, is there really a need to extend
+# the query beyond the boundaries of the hyperedge? Likely yes, the question is how much it pays off tho.
+#
+# Another way to interpret hehiding is that we limit queries for the highest overlap node to only those connected by the
+# presented hyperedge. The idea being that co-membership in one hyperedge leads to a high likelihood of co-membership in
+# others for most involved nodes. Possible limitation: we force in the same sequence of partitions all nodes from one
+# hyperedge before moving to the next one, this is fatal in case the above idea doesn't hold for every node.
+#
+# Ultimately, the key is selecting the scope of the search for the highest overlap node efficiently.
+# Hehiding uses the "tail/spill" of the previous hyperedge to seed the next partition and thus do the scope selection
+# w.r.t. other hyperedges overlap with those "tail" nodes. But this is far from optimal...
+#
+# Once we have a partition, the hehiding logic for filling it up via ranking of other hyperedges and least extra inbound
+# connections nodes works well. The issue is how do we seed new partitions.
+# Idea: seed them by picking the hyperedge that presents the highest average overlap with others.
+# Final result: two continous nested searches, one for the best hyperedge to act as the current scope. The others
+# for the highest overlap node within the present partition and hyperedge.
+#
+# NOTE: a good method must be robust even to the "all spike frequencies are 1.0" case!
+#
+# Simply put, sequential + feed forward greedy ordering puts down a node once it has been reached by many (w) connections,
+# and likely the same connections will be the reason for which the next node will be placed, leading to good overlap!
+# This is even more so true when nodes are highly clustered (small-world), so, to improve on it, hehiding must manage
+# to immediately spot and exploits groups of hyperedges with high mutual overlap.
+#
+# Idea, let's try to identify "communities" of densely connected nodes from the hyperedge's perspective.
+# Partitions are constrained by distinct inbound hyperedges. So the ideal community definition is:
+# "A set of nodes that are covered by mostly the same set of inbound hyperedges."
+# That's what we could also call an hyperedge-local cluster. Hence, the job of the heuristic becomes is not only to maximize
+# overlap in general, but also to identify groups of hyperedges that strongly co-occur across the same set of nodes, and to
+# expand partitions from there.
+
 @core
 def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
     partitions : list[int] = [-1 for _ in range(hg.nodes)]
@@ -1195,6 +1232,9 @@ def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbo
     sorted_hes_iterator = (he for he in sorted_hes if he not in seen_hes)
     # next hyperedge: the one with the highest overlap ratio
     ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : he.spike_frequency*cnt/hes_length[he], int) # with or w/out 'he.spike_frequency*cnt/len(he)'?
+    #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : (cnt - hes_length[he])/he.spike_frequency, int) # minimize new nodes
+    # likely better:
+    #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt*he.spike_frequency, int) # strictly highest (weighted) overlap
     nodes_count = 0 # tracks nodes involved in the present partition
     inbound_set = set() # tracks the inbound hyperedges to the present partition
     while True:
@@ -1226,6 +1266,8 @@ def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbo
                 best_node, inbound = min(nodes.items(), key = lambda item : (len(item[1] - inbound_set), -len(item[1]))) # TODO: in case of further tie, maybe also break it by total spike frequency?
                 ## this gives the maximum relative overlap node, if it can't fit, no other node can, thus we need a new partition
                 #best_node, inbound = max(nodes.items(), key = lambda item : len(item[1] & inbound_set)/len(item[1]) if item[1] else 0)
+                ## among nodes that fit, pick the one with the most overlapping hyperedges
+                #best_node, inbound = max(nodes.items(), key = lambda item : ((new := len(item[1] - inbound_set)) <= max_inbound_edges, len(item[1]) - new, -new))
             inbound_set.update(inbound)
             if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges:
                 if nodes_count == 0:
@@ -1246,6 +1288,103 @@ def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbo
                         ranking.pop(other_he)
                     else:
                         ranking[other_he] += 1
+    
+    # enforce max_partitions constraint
+    if next_partition_idx + 1 > max_partitions:
+        raise Exception(f"Partitioning could only form {next_partition_idx} > {max_partitions} clusters under the provided constraints.")
+    # S;G
+    return partitions
+
+@core
+# IDEA: re-pick from the top of the ranking the current hyperedge every time you assign a node
+def partitionHyperedgeHidingHeReset(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+    partitions : list[int] = [-1 for _ in range(hg.nodes)]
+    remaining_nodes = hg.nodes # just for logging
+    # counter of each hyperedge's yet-to-assign nodes
+    hes_length = {he : len(he) for he in hg.hyperedges}
+    he_co_occurence = {he : 0 for he in hg.hyperedges}
+    for n in range(hg.nodes):
+        co_occurrences = len(hg.getInboundHyperedges(n))
+        for he in hg.getInboundHyperedges(n):
+            he_co_occurence[he] += co_occurrences
+    # ordering hyperedges by co-occurrence
+    # TODO: replace with most seen hyperedges during a random walk! When empty, redo the random walk on unassigned nodes!
+    he_priority = sorted(hg.hyperedges, key = lambda he : he_co_occurence[he])
+    del he_co_occurence
+
+    timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
+
+    next_partition_idx = 0
+    #sorted_hes_iterator = (he for he in sorted_hes if he not in seen_hes)
+    # next hyperedge: the one with the highest overlap
+    ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt*he.spike_frequency, int) # strictly highest (weighted) overlap
+    #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : he.spike_frequency*cnt/hes_length[he], int) # Jaccard-like (weighted) overlap ratio
+    nodes_count = 0 # tracks nodes involved in the present partition
+    inbound_set = set() # tracks the inbound hyperedges to the present partition
+    candidate_nodes : dict[int, set[HyperEdge]] = {} # current set of candidate nodes seen across visited hyperedges for the present partition
+    previous_candidate = None # if a node is skipped because it had too many additions, it is placed here and used anyway if it happens to be chosen twice in a row
+    while len(hes_length) > 0:
+        if len(ranking) != 0:
+            #he, _ = ranking.popMax()
+            he, _ = ranking.peekMax()
+            if nodes_count == 0:
+                ranking.clear()
+        else:
+            while he_priority[-1] not in hes_length:
+                he_priority.pop()
+                if len(he_priority) == 0:
+                    raise Exception("Something impossible happened. No helpful error message can be provided here.")
+            he = he_priority[-1]
+        
+        timerPrint(f"Remaining nodes to assign: {remaining_nodes}/{hg.nodes}...")
+        
+        # next node: the one with least new hyperedges, and then the most common hyperedges
+        for node in he: # he.destinations():
+            if partitions[node] == -1 and node not in candidate_nodes:
+                candidate_nodes[node] = set(hg.getInboundHyperedges(node))
+        #if len(hg.getInboundHyperedges(src := he.source())) == 0 and partitions[src] == -1 and src not in candidate_nodes:
+        #    candidate_nodes[src] = set()
+        if len(candidate_nodes) == 0:
+            hes_length.pop(he)
+            ranking.pop(he)
+            continue
+        
+        if len(inbound_set) == 0:
+            # empty inbound set? Pick the node with the smallest inbound set
+            best_node, inbound = min(candidate_nodes.items(), key = lambda item : len(item[1]))
+        else:
+            # pick the node with the least new inbound hedges, if it can't fit, no other node can, thus we need a new partition; as a tiebreaker, pick the node with the largest inbound set overlap
+            best_node, inbound = min(candidate_nodes.items(), key = lambda item : (len(item[1] - inbound_set), -len(item[1]))) # TODO: in case of further tie, maybe also break it by total spike frequency?
+            #candidate_overlaps = [(node, additions, inbound) for node, inbound in candidate_nodes.items() if len(additions := inbound - inbound_set) <= len(inbound)/2] # skip nodes with more than 50% new hyperedges
+            #candidate_overlaps = [(node, inbound - inbound_set, inbound) for node, inbound in candidate_nodes.items()] # skip nodes with more than 25% (12.5% was too aggressive) new hyperedges
+            #best_node, additions, inbound = min(candidate_overlaps, key = lambda item : (len(item[1]), -len(item[2])))
+            #if (len(additions) > len(inbound)/4 or len(additions) + len(inbound_set) > max_inbound_edges) and previous_candidate != best_node:
+            #    # TODO: speedup by retaining 'candidate_overlaps'!
+            #    previous_candidate = best_node
+            #    continue
+            #else: # same candidated picked twice, ignoring pre-check and using it anyway
+            #    previous_candidate = None
+        inbound_set.update(inbound)
+        if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges:
+            if nodes_count == 0:
+                raise Exception(f"Node {best_node} has more inbound hyperedges than the hardware can handle per-core: {len(inbound_set)} > {max_inbound_edges}.")
+            inbound_set.clear()
+            candidate_nodes.clear()
+            nodes_count = 0
+            next_partition_idx += 1
+            continue
+        candidate_nodes.pop(best_node)
+        nodes_count += 1
+        partitions[best_node] = next_partition_idx
+        remaining_nodes -= 1
+        for other_he in hg.getTouchingHyperedges(best_node):
+            if other_he in hes_length:
+                hes_length[other_he] -= 1
+                if hes_length[other_he] == 0:
+                    hes_length.pop(other_he)
+                    ranking.pop(other_he)
+                else:
+                    ranking[other_he] += 1
     
     # enforce max_partitions constraint
     if next_partition_idx + 1 > max_partitions:
