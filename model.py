@@ -356,10 +356,10 @@ class HardwareModel:
                 'max_latency': self.placementMaximumLatency(part_snn, placement),
                 'avg_congestion': self.placementAverageCongestion(part_snn, placement),
                 'max_congestion': self.placementMaximumCongestion(part_snn, placement),
-                'connections_locality' : self.connectionsLocality(part_snn, placement)
+                'connections_locality': self.connectionsLocality(part_snn, placement)
             }
         else:
-            return {'valid': valid}
+            return {'valid': valid, 'energy': None, 'avg_latency': None, 'max_latency': None, 'avg_congestion': None, 'max_congestion': None, 'connections_locality': None}
     
     """
     Returns a compound cost metric that is the product of energy, latency, and congestion, all of which shall be minimized.

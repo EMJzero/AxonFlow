@@ -170,7 +170,9 @@ if __name__ == "__main__":
         # Optional: specify partitioning techniques to omit
         omit_part_techniques = {"setlist"}
         # Optional: disable "shades" for initial layout
-        no_initial_layout = True
+        no_initial_layout = False
+        # Must: decide x-axis SNNs sort order, options are "nodes", "connections"/"edges"
+        x_axis_order = "connections"
 
         # Read files
         for file in files:
@@ -180,7 +182,7 @@ if __name__ == "__main__":
                 print("Parsing:", file_path)
                 data : list[dict[str, float]] = json.load(f)
 
-            graph_nodes = None
+            graph_size = None
             technique_entries = {}
 
             for entry in data:
@@ -197,25 +199,27 @@ if __name__ == "__main__":
                 techniques.add(technique)
                 technique_entries[technique] = entry
 
-                if graph_nodes is None and "graph_nodes" in entry:
-                    graph_nodes = entry["graph_nodes"]
-                    #graph_nodes = entry["graph_edges"]
+                if graph_size is None and "graph_nodes" in entry and "graph_edges" in entry :
+                    if x_axis_order == "nodes":
+                        graph_size = entry["graph_nodes"]
+                    else:
+                        graph_size = entry["graph_edges"]
 
                 if not entry.get("part_valid", True):
                     print(f"WARNING: Invalid partitioning for {file} -> {name}")
                 if not entry.get("plac_valid", True):
                     print(f"WARNING: Invalid placement for {file} -> {name}")
 
-            if graph_nodes is not None:
-                file_data.append((graph_nodes, file, technique_entries))
+            if graph_size is not None:
+                file_data.append((graph_size, file, technique_entries))
             else:
-                print(f"WARNING: Could not determine graph_nodes for {file}")
+                print(f"WARNING: Could not determine graph size (edges, nodes) for {file}")
 
         file_data.sort(key = lambda x : x[0]) # Sort by number of nodes
 
         # Extract data in increasing graph size order
-        for idx, (graph_nodes, file, technique_entries) in enumerate(file_data):
-            label = f"{os.path.splitext(file)[0]}" # .replace('_', '-') #\n({graph_nodes})"
+        for idx, (_, file, technique_entries) in enumerate(file_data):
+            label = f"{os.path.splitext(file)[0]}"
             x_labels.append(label)
 
             for technique in techniques:
@@ -413,9 +417,9 @@ if __name__ == "__main__":
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             #ax.set_xlabel("Problem Size (nodes)")
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
-            ax.set_title("Energy vs Problem Size")
+            ax.set_title("Energy across SNNs")
             #ax.legend()
             format_y_bars(ax)
             set_bounds(ax, energy, rects)
@@ -428,12 +432,12 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, latency[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
-            ax.set_title("Latency vs Problem Size")
+            ax.set_title("Latency across SNNs")
             #ax.legend()
             format_y_bars(ax)
-            set_bounds(ax, latency, rects)
+            set_bounds(ax, latency, rects, sigma = 1.0)
 
         # Congestion plot
         def congestion_plot(ax : matplotlib.axes.Axes):
@@ -443,9 +447,9 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, congestion[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Avg. congestion (normalized w.r.t. lowest)")
-            ax.set_title("Congestion vs Problem Size")
+            ax.set_title("Congestion across SNNs")
             #ax.legend()
             format_y_bars(ax)
             set_bounds(ax, congestion, rects, sigma = 0.8)
@@ -459,9 +463,9 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy_delay_product[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Placement Energy x Latency (normalized w.r.t. lowest)")
-            ax.set_title("Energy-Latency Product vs Problem Size")
+            ax.set_title("Energy-Latency Product across SNNs")
             #ax.legend()
             format_y_bars(ax)
             set_bounds(ax, energy_delay_product, rects)
@@ -473,9 +477,9 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, connectivity[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Partitioning Connectivity (normalized w.r.t. lowest)")
-            ax.set_title("Connectivity vs Problem Size")
+            ax.set_title("Connectivity across SNNs")
             #ax.legend()
             format_y_bars(ax)
             set_bounds(ax, connectivity, rects)
@@ -486,10 +490,10 @@ if __name__ == "__main__":
                 ax.plot(x_indices, part_times[technique], label = technique, **line_style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Time [s]")
-            ax.set_title("Partitioning Time vs Problem Size")
+            ax.set_title("Partitioning Time across SNNs")
             #ax.legend()
             ax.grid(True)
 
@@ -499,10 +503,10 @@ if __name__ == "__main__":
                 ax.plot(x_indices, list(map(lambda t : t[0] - t[1], zip(times[technique], part_times[technique]))), label = technique, **line_style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Time [s]")
-            ax.set_title("Placement Time vs Problem Size")
+            ax.set_title("Placement Time across SNNs")
             #ax.legend()
             ax.grid(True)
 
@@ -512,10 +516,10 @@ if __name__ == "__main__":
                 ax.plot(x_indices, times[technique], label = technique, **line_style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Time [s]")
-            ax.set_title("Total Time vs Problem Size")
+            ax.set_title("Total Time across SNNs")
             #ax.legend()
             ax.grid(True)
         
@@ -537,6 +541,16 @@ if __name__ == "__main__":
         labels = list(map(rename_label, labels))
         # UNLESS: you use lines for time, instead of bars
         handles_lines, _ = ax6.get_legend_handles_labels()
+        if not no_initial_layout:
+            handles += [
+                matplotlib.patches.Rectangle((0, 0,), 0, 0, facecolor = "gray", edgecolor = "white", alpha = 0.0),
+                matplotlib.patches.Rectangle((0, 0,), 0, 0, facecolor = "gray", edgecolor = "white", alpha = 0.0)
+            ]
+            labels += ["full: refined placement", "shade: initial placement"]
+            handles_lines += [
+                matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10),
+                matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, alpha = 0.3)
+            ]
         combined_handles = list(zip(handles, handles_lines))
         ncols = math.ceil(len(labels) / max_legend_rows)
         fig.legend(combined_handles, labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0) # handlelength = 4.0

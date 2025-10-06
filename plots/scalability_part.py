@@ -80,6 +80,8 @@ matplotlib.rc('font', **font)
 # MAIN:
 
 if __name__ == "__main__":
+    print("WARNING: THIS PLOTTING SCRIPT IS DEPRECATED!!")
+    
     signal.signal(signal.SIGINT, signal_handler)
 
     options = parse_options()

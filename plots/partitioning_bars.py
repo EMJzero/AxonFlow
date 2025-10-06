@@ -2,7 +2,7 @@ from typing import TypeVar, Any, Optional
 from types import FrameType
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import LogLocator, FuncFormatter
+from matplotlib.ticker import LogLocator, FuncFormatter, NullFormatter
 import matplotlib.legend_handler
 import matplotlib.patches
 import matplotlib.axes
@@ -153,6 +153,8 @@ if __name__ == "__main__":
         omit_part_techniques = {"setlist"}
         # Optional: specify techniques to put first in the order, others will follow in descending alphabetical order
         forceful_order = ["sequential", "unordered", "edgehiding"]
+        # Must: decide x-axis SNNs sort order, options are "nodes", "connections"/"edges"
+        x_axis_order = "connections"
 
         # Read files
         for file in files:
@@ -162,7 +164,7 @@ if __name__ == "__main__":
                 print("Parsing:", file_path)
                 data : list[dict[str, float]] = json.load(f)
 
-            graph_nodes = None
+            graph_size = None
             technique_entries = {}
 
             for entry in data:
@@ -179,25 +181,27 @@ if __name__ == "__main__":
                 techniques.add(technique)
                 technique_entries[technique] = entry
 
-                if graph_nodes is None and "graph_nodes" in entry:
-                    graph_nodes = entry["graph_nodes"]
-                    #graph_nodes = entry["graph_edges"]
+                if graph_size is None and "graph_nodes" in entry and "graph_edges" in entry :
+                    if x_axis_order == "nodes":
+                        graph_size = entry["graph_nodes"]
+                    else:
+                        graph_size = entry["graph_edges"]
 
                 if not entry.get("part_valid", True):
                     print(f"WARNING: Invalid partitioning for {file} -> {name}")
                 if not entry.get("plac_valid", True):
                     print(f"WARNING: Invalid placement for {file} -> {name}")
 
-            if graph_nodes is not None:
-                file_data.append((graph_nodes, file, technique_entries))
+            if graph_size is not None:
+                file_data.append((graph_size, file, technique_entries))
             else:
-                print(f"WARNING: Could not determine graph_nodes for {file}")
+                print(f"WARNING: Could not determine graph size (edges, nodes) for {file}")
 
         file_data.sort(key = lambda x : x[0])  # Sort by number of nodes
 
         # Extract data in increasing graph size order
-        for idx, (graph_nodes, file, technique_entries) in enumerate(file_data):
-            label = f"{os.path.splitext(file)[0]}" # .replace('_', '-') #\n({graph_nodes})"
+        for idx, (_, file, technique_entries) in enumerate(file_data):
+            label = f"{os.path.splitext(file)[0]}"
             x_labels.append(label)
 
             for technique in techniques:
@@ -316,13 +320,15 @@ if __name__ == "__main__":
         # Sets the y-scale for bar plots to be in percentage
         def format_y_bars(ax : matplotlib.axes.Axes):
             ax.set_yscale("log", base = 10)
-            ax.grid(axis = 'y', which = 'both')
-            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = "all", numticks = 10))
-            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = [1.0, 2.0, 5.0], numticks = 10))
+            ax.grid(axis = 'y', which = 'major')
+            ax.grid(axis = 'y', which = 'minor', alpha = 0.5)
+            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = np.arange(1.0, 10.0, 1.0), numticks = 10))
+            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = np.arange(1.0, 9.0, 0.1), numticks = 10))
             #formatter = FuncFormatter(lambda v, _: f"{v*100:.0f}%" if v > 0 else "")
             formatter = FuncFormatter(lambda v, _: f"{v:.1f}" if v > 0 else "")
             ax.yaxis.set_major_formatter(formatter)
-            ax.yaxis.set_minor_formatter(formatter)
+            #ax.yaxis.set_minor_formatter(formatter)
+            ax.yaxis.set_minor_formatter(NullFormatter())
 
         # Partitioned Hypergraph Connectivity plot
         def conn_plot(ax : matplotlib.axes.Axes):
@@ -331,12 +337,13 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, connectivity[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Partitioning Connectivity (normalized w.r.t. lowest)")
-            ax.set_title("Connectivity vs Problem Size")
+            ax.set_title("Connectivity across SNNs Hypergraphs")
             #ax.legend()
             format_y_bars(ax)
-            set_bounds(ax, connectivity, rects)
+            #set_bounds(ax, connectivity, rects)
+            ax.set_ybound(0.9, 5.0)
 
         # Partitions Count plot
         def count_plot(ax : matplotlib.axes.Axes):
@@ -345,13 +352,14 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, part_count[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Partitions Count")
-            ax.set_title("Partitions Count vs Problem Size")
+            ax.set_title("Partitions Count across SNNs Hypergraphs")
             #ax.legend()
             ax.set_yscale("log", base = 10)
             ax.grid(axis = 'y', which = 'both')
-            set_bounds(ax, part_count, rects)
+            ax.set_ybound(10, 4000)
+            #set_bounds(ax, part_count, rects)
 
         # Partitioning Time plot
         def part_time_plot(ax : matplotlib.axes.Axes):
@@ -359,10 +367,10 @@ if __name__ == "__main__":
                 ax.plot(x_indices, part_times[technique], label = technique, **line_style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Time [s]")
-            ax.set_title("Partitioning Time vs Problem Size")
+            ax.set_title("Partitioning Time across SNNs Hypergraphs")
             #ax.legend()
             ax.grid(True)
         

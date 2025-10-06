@@ -56,18 +56,27 @@ matplotlib.rc('font', **font)
 if __name__ == "__main__":
     data = {
         "lenet":      {"average_path_length": 3.191, "average_hedge_overlap": 0.649},
-        "16k_rand":   {"average_path_length": 3.091, "average_hedge_overlap": 0.068*3},
+        #"16k_rand":   {"average_path_length": 3.091, "average_hedge_overlap": 0.068}, # pre-3D-generator
+        "16k_rand":   {"average_path_length": 3.194, "average_hedge_overlap": 1.103},
         "16k_model":  {"average_path_length": 3.310, "average_hedge_overlap": 0.134},
-        "64k_rand":   {"average_path_length": 2.968, "average_hedge_overlap": 0.066*3},
+        #"64k_rand":   {"average_path_length": 2.968, "average_hedge_overlap": 0.066},
+        "64k_rand":   {"average_path_length": 3.243, "average_hedge_overlap": 0.603},
         "64k_model":  {"average_path_length": 2.956, "average_hedge_overlap": 0.704},
         "vgg11":      {"average_path_length": 6.933, "average_hedge_overlap": 7.722},
         "alexnet":    {"average_path_length": 4.232, "average_hedge_overlap": 6.593},
         "256k_model": {"average_path_length": 2.926, "average_hedge_overlap": 1.444},
         "allen_v1":   {"average_path_length": 4.436, "average_hedge_overlap": 0.489},
-        "256k_rand":  {"average_path_length": 2.941, "average_hedge_overlap": 0.065*3},
+        #"256k_rand":  {"average_path_length": 2.941, "average_hedge_overlap": 0.065},
+        "256k_rand":  {"average_path_length": 3.464, "average_hedge_overlap": 0.262},
         "1M_model":   {"average_path_length": 3.732, "average_hedge_overlap": 3.676},
         "mobilenet":  {"average_path_length": 18.549, "average_hedge_overlap": 0.005},
     }
+    
+    #order = ["lenet", "16k_rand", "16k_model", "64k_rand", "64k_model", "vgg11", "alexnet", "256k_model", "allen_v1", "256k_rand", "1M_model", "mobilenet"]
+    order = ["16k_model", "lenet", "16k_rand", "64k_rand", "64k_model", "256k_rand", "allen_v1", "256k_model", "vgg11", "alexnet", "1M_model", "mobilenet"]
+    for name in order:
+        tmp = data.pop(name)
+        data[name] = tmp
 
     possible_colors = [
         "#6C8EBF", # BLUE
@@ -165,7 +174,7 @@ if __name__ == "__main__":
     ax1.set_xlabel("SNN (least → most nodes)")
     #ax1.set_ylabel("SNN Average Hyperedge Overlap and Path Length")
     ax1.set_ylabel("SNN Average Path Length")
-    ax1.legend()
+    #ax1.legend()
     format_y_bars(ax1)
     set_bounds(ax1, "average_path_length", rects)
     ax1.set_ylim(2.0, 20.0)
@@ -175,7 +184,7 @@ if __name__ == "__main__":
     ax2.set_xticklabels(data.keys(), rotation = 45)
     ax2.set_xlabel("SNN (least → most nodes)")
     ax2.set_ylabel("SNN Average Hyperedge Overlap (# common destinations)")
-    ax2.legend()
+    #ax2.legend()
     format_y_bars(ax2, which = [1.0, 2.0, 4.0, 6.0, 8.0])
     set_bounds(ax2, "average_path_length", rects)
     ax2.set_ylim(0.004, 8.0)

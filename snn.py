@@ -765,6 +765,35 @@ class HyperGraph(Iterable):
         return total_overlap / math.comb(he_count, 2)
     
     """
+    Returns an approximate estimate of the local clustering coefficients.
+    Clustering = # of closed triplets / # of possible triplets
+    """
+    def clusteringCoefficient(self, sample_size : int = 100) -> float:
+        if self.nodes <= sample_size:
+            sample_nodes = range(self.nodes)
+        else:
+            sample_nodes = random.sample(range(self.nodes), sample_size)
+
+        clustering_vals = []
+        for n in sample_nodes:
+            neighs = set()
+            for he in self.getOutboundHyperedges(n):
+                neighs.update(he.destinations())
+            if len(neighs) < 2:
+                clustering_vals.append(0.0)
+                continue
+            links = 0
+            neighs_list = list(neighs)
+            for i in range(len(neighs_list)):
+                for j in range(i + 1, len(neighs_list)):
+                    # check if there is an edge between neighs_list[i], neighs_list[j]
+                    if any(neighs_list[i] in he.destinations() for he in self.getOutboundHyperedges(neighs_list[j])) or any(neighs_list[j] in he.destinations() for he in self.getOutboundHyperedges(neighs_list[i])):
+                        links += 1
+            possible = len(neighs)*(len(neighs) - 1)/2
+            clustering_vals.append(links / possible)
+        return np.mean(clustering_vals)
+    
+    """
     Returns a summary of the hypergraph's statistics.
     """
     def getStatistics(self) -> dict[str, float]:
@@ -778,8 +807,50 @@ class HyperGraph(Iterable):
             'outbound_hedges_per_node_mean': sum(len(node_hes) for node_hes in self._outbound)/self.nodes,
             'inbound_hedges_per_node_mean': sum(len(node_hes) for node_hes in self._inbound)/self.nodes,
             'average_hedge_overlap': self.averageHyperedgeOverlap(),
-            'spike_frequency_mean': self.totalSpikeFrequency()/len(self.hyperedges), # this is per connection, divide by the avg. number of connections per hyperedge to get the avg. spike frequency per hyperedge
+            'mean_clustering': self.clusteringCoefficient(),
+            'spike_frequency_mean': sum(he.spike_frequency for he in self.hyperedges)/len(self.hyperedges), # this is per connection, divide by the avg. number of connections per hyperedge to get the avg. spike frequency per hyperedge
         }
+    
+    """
+    Exports the hypergraph to a '.csv' file where each row is an hyperedge in the format:
+    'src;dst1;dst2;dst3;...'
+    This is meant primarily for compatibility with the Gephi (https://gephi.org/) visualizer.
+    """
+    def exportCSV(self, path: str) -> Self:
+        if not path.endswith('.csv'):
+            print(f"WARNING: the provided filename had not '.csv' extension, it has updated to '{path}.csv'.")
+            path += '.csv'
+        with open(path, 'w') as f:
+            for he in self.hyperedges:
+                line = f"{he.source()}"
+                for dst in he.destinations():
+                    line += f";{dst}"
+                line += '\n'
+                f.write(line)
+    
+    """
+    Exports the graph to a '.gdf' database-like file, each row is a spike-frequency-weighted edge.
+    This is meant primarily for compatibility with the Gephi (https://gephi.org/) visualizer.
+    A dictionary of named partitionings can be passed to be exported along with the graph.
+    """
+    def exportGDF(self, path: str, partitionings : Optional[dict[str, list[int]]] = None) -> Self:
+        if not path.endswith('.gdf'):
+            print(f"WARNING: the provided filename had not '.gdf' extension, it has updated to '{path}.gdf'.")
+            path += '.gdf'
+        with open(path, 'w') as f:
+            if not partitionings:
+                f.write("nodedef>name VARCHAR\n")
+                for i in range(self.nodes):
+                    f.write(f"{i}\n")
+            else:
+                f.write("nodedef>name VARCHAR," + ','.join(f"partition_{name} VARCHAR" for name in partitionings) + "\n")
+                for i in range(self.nodes):
+                    f.write(f"{i}," + ','.join(f"{part[i]}" for part in partitionings.values()) + "\n")
+            f.write("edgedef>node1 VARCHAR,node2 VARCHAR,weight DOUBLE\n")
+            for he in self.hyperedges:
+                src = he.source()
+                for dst in he.destinations():
+                    f.write(f"{src},{dst},{he.spike_frequency:.3f}\n")
     
     """
     Save the present hypergraph to 'path'.

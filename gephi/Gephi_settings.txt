@@ -1,0 +1,26 @@
+force atlas 2 settings:
+- threads: 12
+- tolerance: 1
+- approx. repulsion: yes
+- approximation: 1.2
+- scaling: 1.7
+- stronger gravity: no
+- gravity: 6.0
+- dissuade hubs: no
+- linlog mode: no
+- prevent overlap: no
+- edge weight influence: 1
+- normalize edge weights: no
+- inverted edge weights: no
+
+palette:
+-> generate
+--> unlimited number of colors
+---> pastel
+
+photo resolution:
+- 7680 x 4320 (8k)
+
+How to get the "nice umbrella shape":
+- start with "OpenOrd" layout, default parameters
+- let it finish, then run "Force Atlas 2" as above

@@ -53,6 +53,7 @@ def parse_options() -> dict[str, Any]:
         "partitioning": args_match_and_remove(["-p", "--partitioning"]),
         "placement": args_match_and_remove(["-pp", "--placement"]),
         "path-length": args_match_and_remove(["-pl", "--path-length"]),
+        "fix-hardware": args_match_and_remove(["-fh", "--fix-hardware"]),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
@@ -67,6 +68,7 @@ def help_options() -> None:
     print("-p, --partitioning\tOnly runs the partitioning algorithms part, skips placement (takes priority over '-pp').")
     print("-pp, --placement\tOnly runs the partitioning algorithms part, assumes the input to be already a partitioned hypergraph.")
     print("-pl, --path-length\tEstimates the average path length for the graph, adding it to the statistics (requires some time).")
+    print("-fh, --fix-hardware\tFixes the hardware model and constaints used across all tests.")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -170,12 +172,21 @@ if __name__ == "__main__":
             f"{1024*16}L":
                 {"nodes_count": 1024*16, "nodes_per_edge_mean": 128, "nodes_per_edge_variation": 16,
                 "neurons_per_core": 32, "synapses_per_core" : 4096, "cores_per_chip_1d": 64},
-            f"{1024*32}L":
-                {"nodes_count": 1024*32, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 24,
-                "neurons_per_core": 64, "synapses_per_core" : 8192, "cores_per_chip_1d": 64},
+            #f"{1024*32}M":
+            #    {"nodes_count": 1024*32, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 24,
+            #    "neurons_per_core": 64, "synapses_per_core" : 8192, "cores_per_chip_1d": 64},
+            #f"{1024*64}M":
+            #    {"nodes_count": 1024*64, "nodes_per_edge_mean": 512, "nodes_per_edge_variation": 32,
+            #    "neurons_per_core": 128, "synapses_per_core" : 16384, "cores_per_chip_1d": 64},
             f"{1024*64}L":
-                {"nodes_count": 1024*64, "nodes_per_edge_mean": 512, "nodes_per_edge_variation": 32,
-                "neurons_per_core": 128, "synapses_per_core" : 16384, "cores_per_chip_1d": 64}
+                {"nodes_count": 1024*64, "nodes_per_edge_mean": 192, "nodes_per_edge_variation": 24,
+                "neurons_per_core": 64, "synapses_per_core" : 6144, "cores_per_chip_1d": 64},
+            f"{1024*192}L":
+                {"nodes_count": 1024*192, "nodes_per_edge_mean": 288, "nodes_per_edge_variation": 32,
+                "neurons_per_core": 96, "synapses_per_core" : 7168, "cores_per_chip_1d": 64},
+            f"{1024*256}L":
+                {"nodes_count": 1024*256, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 32,
+                "neurons_per_core": 128, "synapses_per_core" : 8192, "cores_per_chip_1d": 64}
         }
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
             #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
@@ -225,26 +236,40 @@ if __name__ == "__main__":
         print("Methods to test:")
         prettyPrintIterable(methods.keys(), 3, left_aligned = True)
         
+        if options["fix-hardware"]:
+            hardware = loihi_large
+            print("\n---- fixed hardware model ----")
+            print((f"Neurons per core: {hardware.neurons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
+               f"Cores along x: {hardware.cores_per_chip_x}\tCores along y: {hardware.cores_per_chip_y}\n"
+               f"Chips along x: {hardware.chips_per_system_x}\tChips along y: {hardware.chips_per_system_y}\n"
+               f"Routing energy: {hardware.energy_per_routing}\tWire energy: {hardware.energy_per_wire}\n"
+               f"Routing latency: {hardware.latency_per_routing}\tWire latency: {hardware.latency_per_wire}"))
+            for _, size in sizes.items():
+                size.pop("neurons_per_core")
+                size.pop("synapses_per_core")
+                size.pop("cores_per_chip_1d")
+        
         for experiment, size in sizes.items():
             print("\n------------------------------")
             print("Preparing configuration:")
             prettyPrintDict(size, 1)
-            hardware = HardwareModel(
-                neurons_per_core = size["neurons_per_core"],
-                synapses_per_core = size["synapses_per_core"],
-                cores_per_chip_x = size["cores_per_chip_1d"],
-                cores_per_chip_y = size["cores_per_chip_1d"],
-                chips_per_system_x = 1,
-                chips_per_system_y = 1,
-                energy_per_routing = 1.0,
-                energy_per_wire = 0.1,
-                latency_per_routing = 1.0,
-                latency_per_wire = 0.1
-            )
+            if not options["fix-hardware"]:
+                hardware = HardwareModel(
+                    neurons_per_core = size["neurons_per_core"],
+                    synapses_per_core = size["synapses_per_core"],
+                    cores_per_chip_x = size["cores_per_chip_1d"],
+                    cores_per_chip_y = size["cores_per_chip_1d"],
+                    chips_per_system_x = 1,
+                    chips_per_system_y = 1,
+                    energy_per_routing = 1.0,
+                    energy_per_wire = 0.1,
+                    latency_per_routing = 1.0,
+                    latency_per_wire = 0.1
+                )
             #hypergraph = HyperGraph.generate_random(size["nodes_count"], size["nodes_per_edge_mean"], size["nodes_per_edge_variation"], spike_frequency_range = (0.1, 1000), seed = seed)
             # reference: Allen V1 cv = 1.37, 8k model cv = 0.96, 64k_model cv = 1.58, lenet cv = 0.89, alexnet cv = 1.84 => we use 1.58
             #hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 2, locality_sigma = 0.35, long_range_fraction = 0.1, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
-            hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 3, locality_sigma = 0.05, long_range_fraction = 0.2, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
+            hypergraph = HyperGraph.generate_reservoir_random(n = size["nodes_count"], mean_fanout = size["nodes_per_edge_mean"], space_dim = 3, locality_sigma = 0.01, long_range_fraction = 0.01, spike_rate_median = 1.0, spike_rate_cv = 1.58, seed = seed)
             #hypergraph = HyperGraph.generate_hierarchical_random(n = size["nodes_count"], avg_degree = size["nodes_per_edge_mean"], seed = seed, levels = 3, local_sigma = 6, lognorm_mu = 1.0, lognorm_sigma = 1.9)
             #acyclic_snn = makeAcyclic(snn)
             hypergraph_stats = hypergraph.getStatistics()

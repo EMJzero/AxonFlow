@@ -1391,3 +1391,16 @@ def partitionHyperedgeHidingHeReset(hg: HyperGraph, max_nodes: int, max_inbound_
         raise Exception(f"Partitioning could only form {next_partition_idx} > {max_partitions} clusters under the provided constraints.")
     # S;G
     return partitions
+
+# IDEA:
+# Let’s use the “flow” in AxonFlow by implementing the same algorithm as FactorFlow to do a one shot SNN->mapping
+# not divided in two NP-hard problems! This is the same idea as the last refinement round of hMETIS, leveraging
+# the fact that for each node you only check against permutations, not other nodes.
+# ||
+# Spectral layout of the SNN graph on the lattice, when a core is full place neurons on the first free nearby,
+# the mesh is allowed to exceed the real lattice at this stage. Use the KD-tree and all to pick the closets node that fits.
+# Refinement where for each node you check every other core and see if there is a benefit in moving it there, regardless
+# of constraints. If there is, move it, and if constraints are violated, you have up to M moves deep to go to fix them.
+# Obviously in those M moves you try to strictly move nodes away from cores that violate constraints.
+# Finalize the whole chain of moves only if the final result has lower overall metrics, otherwise revert it.
+# This should cost Mx what refinement in hMETIS costs, but is one step!

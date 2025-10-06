@@ -176,7 +176,9 @@ if __name__ == "__main__":
         # Optional: specify techniques to put first in the order, others will follow in descending alphabetical order
         forceful_order = ["sequential", "unordered", "edgehiding"]
         # Optional: divide the connections locality by the partitions count
-        norm_by_part_count = True
+        norm_by_part_count = False
+        # Must: decide x-axis SNNs sort order, options are "nodes", "connections"/"edges"
+        x_axis_order = "connections"
 
         # Read files
         for file in files:
@@ -186,7 +188,7 @@ if __name__ == "__main__":
                 print("Parsing:", file_path)
                 data : list[dict[str, float]] = json.load(f)
 
-            graph_nodes = None
+            graph_size = None
             technique_entries = {}
 
             for entry in data:
@@ -203,26 +205,30 @@ if __name__ == "__main__":
                 techniques.add(technique)
                 technique_entries[technique] = entry
 
-                if graph_nodes is None and "graph_nodes" in entry:
-                    graph_nodes = entry["graph_nodes"]
-                    #graph_nodes = entry["graph_edges"]
+                if graph_size is None and "graph_nodes" in entry and "graph_edges" in entry :
+                    if x_axis_order == "nodes":
+                        graph_size = entry["graph_nodes"]
+                    else:
+                        graph_size = entry["graph_edges"]
 
                 if not entry.get("part_valid", True):
                     print(f"WARNING: Invalid partitioning for {file} -> {name}")
                 if not entry.get("plac_valid", True):
                     print(f"WARNING: Invalid placement for {file} -> {name}")
 
-            if graph_nodes is not None:
-                file_data.append((graph_nodes, file, technique_entries))
+            if graph_size is not None:
+                file_data.append((graph_size, file, technique_entries))
             else:
-                print(f"WARNING: Could not determine graph_nodes for {file}")
+                print(f"WARNING: Could not determine graph size (edges, nodes) for {file}")
 
         file_data.sort(key = lambda x : x[0]) # Sort by number of nodes
 
         # Extract data in increasing graph size order
-        for idx, (graph_nodes, file, technique_entries) in enumerate(file_data):
-            label = f"{os.path.splitext(file)[0]}" # .replace('_', '-') #\n({graph_nodes})"
+        max_part_count = []
+        for idx, (_, file, technique_entries) in enumerate(file_data):
+            label = f"{os.path.splitext(file)[0]}"
             x_labels.append(label)
+            max_part_count.append(1)
 
             for technique in techniques:
                 entry = technique_entries.get(technique)
@@ -247,6 +253,8 @@ if __name__ == "__main__":
                         init_connections_locality_geomean[technique].append(init_connections_locality_mean[technique][-1])
                     en, lat = entry.get("plac_energy", None), entry.get("plac_avg_lat", None)
                     energy_delay_product[technique].append(en * lat if en != None and lat != None else None)
+                    if norm_by_part_count and (entry["part_count"] > max_part_count[-1]):
+                        max_part_count[-1] = entry["part_count"]
                 else:
                     synaptic_reuse_mean[technique].append(None)
                     synaptic_reuse_geomean[technique].append(None)
@@ -259,18 +267,23 @@ if __name__ == "__main__":
         x_indices = list(range(len(x_labels)))
         
         # Optional: normalize w.r.t. the best partitioning
-        best_synaptic_reuse_geomean = [max([synaptic_reuse_geomean[technique][i] for technique in techniques if synaptic_reuse_geomean[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        best_connections_locality_geomean = [min([connections_locality_geomean[technique][i] for technique in techniques if connections_locality_geomean[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        #best_synaptic_reuse_geomean = [max([synaptic_reuse_geomean[technique][i] for technique in techniques if synaptic_reuse_geomean[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        #best_connections_locality_geomean = [min([connections_locality_geomean[technique][i] for technique in techniques if connections_locality_geomean[technique][i] != None], default = 0) for i in range(len(x_indices))]
         best_edp = [min([energy_delay_product[technique][i] for technique in techniques if energy_delay_product[technique][i] != None], default = 0) for i in range(len(x_indices))]
         for technique in techniques:
-            synaptic_reuse_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(synaptic_reuse_mean[technique], best_synaptic_reuse_geomean)))
-            synaptic_reuse_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(synaptic_reuse_geomean[technique], best_synaptic_reuse_geomean)))
-            connections_locality_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(connections_locality_mean[technique], best_connections_locality_geomean)))
-            connections_locality_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(connections_locality_geomean[technique], best_connections_locality_geomean)))
+            #synaptic_reuse_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(synaptic_reuse_mean[technique], best_synaptic_reuse_geomean)))
+            #synaptic_reuse_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(synaptic_reuse_geomean[technique], best_synaptic_reuse_geomean)))
+            #connections_locality_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(connections_locality_mean[technique], best_connections_locality_geomean)))
+            #connections_locality_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(connections_locality_geomean[technique], best_connections_locality_geomean)))
             energy_delay_product[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(energy_delay_product[technique], best_edp)))
             # still normalize them w.r.t. the eventual best for their metric since they will be in the same plot
-            init_connections_locality_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_connections_locality_mean[technique], best_connections_locality_geomean)))
-            init_connections_locality_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_connections_locality_geomean[technique], best_connections_locality_geomean)))
+            #init_connections_locality_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_connections_locality_mean[technique], best_connections_locality_geomean)))
+            #init_connections_locality_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_connections_locality_geomean[technique], best_connections_locality_geomean)))
+            if norm_by_part_count:
+                connections_locality_mean[technique] = list(map(lambda c : c[0] * c[1] if c[0] != None else None, zip(connections_locality_mean[technique], max_part_count)))
+                connections_locality_geomean[technique] = list(map(lambda c : c[0] * c[1] if c[0] != None else None, zip(connections_locality_geomean[technique], max_part_count)))
+                init_connections_locality_mean[technique] = list(map(lambda c : c[0] * c[1] if c[0] != None else None, zip(init_connections_locality_mean[technique], max_part_count)))
+                init_connections_locality_geomean[technique] = list(map(lambda c : c[0] * c[1] if c[0] != None else None, zip(init_connections_locality_geomean[technique], max_part_count)))
 
         # Optional: keep only the best placement by EDP for each partitioning technique
         best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
@@ -429,12 +442,13 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH_PART, synaptic_reuse_geomean[part_techniques[technique]], BAR_WIDTH_PART, label = rename_label(technique), alpha = 1.0, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Partitioning Synaptic Reuse (higher is better)")
             #ax.set_ylabel("Partitioning Synaptic Reuse\n(normalized on highest geo. mean, higher is better)")
-            ax.set_title("Reuse vs Problem Size")
+            ax.set_title("Reuse across SNNs")
             format_y_bars(ax, which = [1.0, 2.0, 4.0, 6.0, 8.0])
             #set_bounds(ax, list(part_techniques.values()), synaptic_reuse_mean, rects, BAR_WIDTH_PART)
+            ax.set_ybound(0.8, 800)
 
         # Connections locality plot
         def connections_locality_plot(ax : matplotlib.axes.Axes):
@@ -493,12 +507,12 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH_PLAC, connections_locality_geomean[technique], BAR_WIDTH_PLAC, label = rename_label(technique), alpha = 1.0, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel("SNN (least → most nodes)")
+            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Placement Connections Locality (lower is better)")
             #ax.set_ylabel("Placement Connections Locality\n(normalized on lowest geo. mean, lower is better)")
-            ax.set_title("Locality vs Problem Size")
+            ax.set_title("Locality across SNNs")
             #ax.set_ylim(0.8, 5)
-            ax.set_ylim(0.01, 1)
+            ax.set_ylim(1.0, 100.0)
             format_y_bars(ax, which = [1.0, 2.0, 4.0, 6.0, 8.0])
             #set_bounds(ax, plac_techniques, connections_locality_mean, rects, BAR_WIDTH_PLAC)
         
