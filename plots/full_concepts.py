@@ -2,13 +2,15 @@ from typing import TypeVar, Any, Optional
 from types import FrameType
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import LogLocator, FuncFormatter
+from matplotlib.ticker import LogLocator, FixedLocator, FuncFormatter, NullFormatter
+from matplotlib.lines import Line2D
 import matplotlib.legend_handler
 import matplotlib.patches
 import matplotlib.axes
 import matplotlib
 
 from collections import defaultdict
+from scipy.stats import zscore, spearmanr
 from functools import reduce
 from itertools import cycle
 import numpy as np
@@ -83,8 +85,8 @@ def rename_label(label : str) -> str:
         elif piece == "hilbert": result += "hilbert"
         elif piece == "spectral": result += "spectral"
         elif piece == "truenorth": result += "minimum distance"
-        elif piece == "fd": result += "force-directed"
-        elif piece == "ps": result += "particle swarm"
+        elif piece == "fd": result = result[:-3] + " + force-directed"
+        elif piece == "ps": result = result[:-3] + " + particle swarm"
         else:
             result += piece
             print("Could not fully rename label:", label, "-> technique note recognized:", piece)
@@ -161,6 +163,7 @@ if __name__ == "__main__":
         connections_locality_geomean : dict[str, list[Optional[float]]] = defaultdict(list)
         init_connections_locality_mean : dict[str, list[Optional[float]]] = defaultdict(list)
         init_connections_locality_geomean : dict[str, list[Optional[float]]] = defaultdict(list)
+        connectivity : dict[str, list[Optional[float]]] = defaultdict(list)
         energy_delay_product : dict[str, list[Optional[float]]] = defaultdict(list)
 
         # Optional: specify techniques to omit
@@ -253,6 +256,8 @@ if __name__ == "__main__":
                         init_connections_locality_mean[technique][-1] = init_connections_locality_mean[technique][-1]["ar_mean"]/(entry["part_count"] if norm_by_part_count else 1)
                     else:
                         init_connections_locality_geomean[technique].append(init_connections_locality_mean[technique][-1])
+                    
+                    connectivity[technique].append(entry.get("part_cost", None))
                     en, lat = entry.get("plac_energy", None), entry.get("plac_avg_lat", None)
                     energy_delay_product[technique].append(en * lat if en != None and lat != None else None)
                     if norm_by_part_count and (entry["part_count"] > max_part_count[-1]):
@@ -265,18 +270,30 @@ if __name__ == "__main__":
                     init_connections_locality_mean[technique].append(None)
                     init_connections_locality_geomean[technique].append(None)
                     energy_delay_product[technique].append(None)
+                    connectivity[technique].append(None)
         
         x_indices = list(range(len(x_labels)))
         
         # Optional: normalize w.r.t. the best partitioning
         #best_synaptic_reuse_geomean = [max([synaptic_reuse_geomean[technique][i] for technique in techniques if synaptic_reuse_geomean[technique][i] != None], default = 0) for i in range(len(x_indices))]
         #best_connections_locality_geomean = [min([connections_locality_geomean[technique][i] for technique in techniques if connections_locality_geomean[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_connectivity = [min([connectivity[technique][i] for technique in techniques if connectivity[technique][i] != None], default = 0) for i in range(len(x_indices))]
         best_edp = [min([energy_delay_product[technique][i] for technique in techniques if energy_delay_product[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        # ALT: always pick hMETIS to normalize against!
+        #hmetis_connectivity = [connectivity["hmetis-hilbert-fd"][i] for i in range(len(x_indices))]
+        #hmetis_edp = [energy_delay_product["hmetis-hilbert-fd"][i] for i in range(len(x_indices))]
+        #best_synaptic_reuse_geomean = [synaptic_reuse_geomean["hmetis-hilbert-fd"][i] for i in range(len(x_indices))]
+        #best_connections_locality_geomean = [connections_locality_geomean["hmetis-hilbert-fd"][i] for i in range(len(x_indices))]
+        #connectivity_hmetis_norm : dict[str, list[Optional[float]]] = {}
+        #energy_delay_product_hmetis_norm : dict[str, list[Optional[float]]] = {}
         for technique in techniques:
             #synaptic_reuse_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(synaptic_reuse_mean[technique], best_synaptic_reuse_geomean)))
             #synaptic_reuse_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(synaptic_reuse_geomean[technique], best_synaptic_reuse_geomean)))
             #connections_locality_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(connections_locality_mean[technique], best_connections_locality_geomean)))
             #connections_locality_geomean[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(connections_locality_geomean[technique], best_connections_locality_geomean)))
+            #connectivity_hmetis_norm[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(connectivity[technique], hmetis_connectivity)))
+            #energy_delay_product_hmetis_norm[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(energy_delay_product[technique], hmetis_edp)))
+            connectivity[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(connectivity[technique], best_connectivity)))
             energy_delay_product[technique] = list(map(lambda c : c[0] / c[1] if c[0] else None, zip(energy_delay_product[technique], best_edp)))
             # still normalize them w.r.t. the eventual best for their metric since they will be in the same plot
             #init_connections_locality_mean[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_connections_locality_mean[technique], best_connections_locality_geomean)))
@@ -312,7 +329,10 @@ if __name__ == "__main__":
         connections_locality_geomean = {k : v for k, v in connections_locality_geomean.items() if k in techniques}
         init_connections_locality_mean = {k : v for k, v in init_connections_locality_mean.items() if k in techniques}
         init_connections_locality_geomean = {k : v for k, v in init_connections_locality_geomean.items() if k in techniques}
+        connectivity = {k : v for k, v in connectivity.items() if k in techniques}
         energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
+        #connectivity_hmetis_norm = {k : v for k, v in connectivity_hmetis_norm.items() if k in techniques}
+        #energy_delay_product_hmetis_norm = {k : v for k, v in energy_delay_product_hmetis_norm.items() if k in techniques}
 
         # Replace 'None' with zero
         for technique in techniques:
@@ -322,10 +342,14 @@ if __name__ == "__main__":
             connections_locality_geomean[technique] = list(map(lambda x : x if x != None else math.nan, connections_locality_geomean[technique]))
             init_connections_locality_mean[technique] = list(map(lambda x : x if x != None else math.nan, init_connections_locality_mean[technique]))
             init_connections_locality_geomean[technique] = list(map(lambda x : x if x != None else math.nan, init_connections_locality_geomean[technique]))
+            connectivity[technique] = list(map(lambda x : x if x != None else math.nan, connectivity[technique]))
             energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, energy_delay_product[technique]))
+            #connectivity_hmetis_norm[technique] = list(map(lambda x : x if x != None else math.nan, connectivity_hmetis_norm[technique]))
+            #energy_delay_product_hmetis_norm[technique] = list(map(lambda x : x if x != None else math.nan, energy_delay_product_hmetis_norm[technique]))
 
         # Plotting (note: 25.6 = 2560 pixel)
-        fig, (ghost_ax1, ax1, ax2, ghost_ax2) = plt.subplots(1, 4, figsize = (25.6, 7*(1 - 0.075)), sharex = True, tight_layout = True, width_ratios = [1/6, 1/3, 1/3, 1/6])
+        #fig, ((ghost_ax1, ax1, ax2), (ghost_ax2, ax3, ax4)) = plt.subplots(2, 3, figsize = (25.6, 2*7*(1 - 0.075)), tight_layout = True, width_ratios = [1/3, 1/3, 1/3])
+        fig, ((ghost_ax1, ax1, ax2, ax_s1), (ghost_ax2, ax3, ax4, ax_s2)) = plt.subplots(2, 4, figsize = (25.6, 2*6*(1 - 0.075)), tight_layout = True, width_ratios = [3/12, 4/12, 4/12, 1/12])
         ghost_ax1.remove()
         ghost_ax2.remove()
 
@@ -370,6 +394,47 @@ if __name__ == "__main__":
                     min_x = min(min_x, shape.get_x())
                     max_x = max(max_x, shape.get_x())
                 ax.set_xlim(min_x - bar_width, max_x + 2*bar_width)
+
+        # Logarithmic tick labels on linear-scale axis
+        """
+        Set axis ticks to look and behave like a log10 axis
+        when data are already transformed with np.log10.
+        """
+        def set_log10_ticks(ax : matplotlib.axes.Axes, axis : str = 'x', min_exp : float = None, max_exp : float = None):
+            ax.grid(axis = axis, which = 'major')
+            ax.grid(axis = axis, which = 'minor', alpha = 0.5)
+            
+            # Determine visible range
+            if axis == 'x':
+                lo, hi = ax.get_xlim()
+            else:
+                lo, hi = ax.get_ylim()
+
+            # Limit range to integers around current view
+            if min_exp is None:
+                min_exp = int(np.floor(lo))
+            if max_exp is None:
+                max_exp = int(np.ceil(hi))
+
+            # Major ticks = integer log10 values
+            major_locs = np.arange(min_exp, max_exp + 1)
+            # Minor ticks = log10 of 2..9 × each decade
+            minor_locs = []
+            for e in major_locs:
+                minor_locs.extend(np.log10(np.arange(2, 10) * np.float_power(10, e)))
+            minor_locs = [x for x in minor_locs if lo <= x <= hi]
+
+            # Apply locators and formatters
+            formatter = FuncFormatter(lambda val, _: f"$10^{{{int(val)}}}$")
+
+            if axis == 'x':
+                ax.xaxis.set_major_locator(FixedLocator(major_locs))
+                ax.xaxis.set_minor_locator(FixedLocator(minor_locs))
+                ax.xaxis.set_major_formatter(formatter)
+            else:
+                ax.yaxis.set_major_locator(FixedLocator(major_locs))
+                ax.yaxis.set_minor_locator(FixedLocator(minor_locs))
+                ax.yaxis.set_major_formatter(formatter)
 
         # Sets the y-scale for bar plots to be in percentage
         def format_y_bars(ax : matplotlib.axes.Axes, which : Union[str, list[float]] = "all", dec_digits : int = 1):
@@ -426,7 +491,7 @@ if __name__ == "__main__":
             #possible_hatches = cycle(['', '/', '\\', 'x', '.']) #['', '/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*']
             possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
             possible_linestyles = cycle(['-', ':', '--', '-.'])
-            part_techniques_to_hatch = defaultdict(lambda : '', hehiding = '/')
+            part_techniques_to_hatch = defaultdict(lambda : '') #, hehiding = '/')
             style = {}
             line_style = {}
             #prev_part_technique, ongoing_color, ongoing_hatch, ongoing_linestyle = None, cycle(possible_colors), next(possible_hatches), next(possible_linestyles)
@@ -442,8 +507,9 @@ if __name__ == "__main__":
             for j, technique in enumerate(part_techniques_list):
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH_PART, synaptic_reuse_mean[part_techniques[technique]], BAR_WIDTH_PART, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH_PART, synaptic_reuse_geomean[part_techniques[technique]], BAR_WIDTH_PART, label = rename_label(technique), alpha = 1.0, **style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
+            #ax.set_xticks(x_indices)
+            #ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xticks(x_indices, [None for _ in x_indices])
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Partitioning Synaptic Reuse (higher is better)")
             #ax.set_ylabel("Partitioning Synaptic Reuse\n(normalized on highest geo. mean, higher is better)")
@@ -456,12 +522,12 @@ if __name__ == "__main__":
         def connections_locality_plot(ax : matplotlib.axes.Axes):
             # Prepare for bar-plot
             index = np.arange(len(x_labels))
-            plac_techniques = techniques
+            plac_techniques = techniques.copy()
             for plac_technique in omit_plac_techniques:
                 if plac_technique in plac_techniques:
                     plac_techniques.remove(plac_technique)
-            #plac_techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
-            plac_techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), chr(255 - ord(s.split('-', 1)[1][2])))) # descending order on the word before the first '-', then stupid hack to get truenorth to be first, then hilbert, then spectral.
+            #plac_techniques = sorted(plac_techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+            plac_techniques = sorted(plac_techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), chr(255 - ord(s.split('-', 1)[1][2])))) # descending order on the word before the first '-', then ascending order as a tiebreak.
             offset = (len(plac_techniques) - 1)/2
 
             # Assign style to partitioning techniques
@@ -521,26 +587,250 @@ if __name__ == "__main__":
             ax.set_ylim(1.0, 100.0)
             format_y_bars(ax, which = [1.0, 2.0, 4.0, 6.0, 8.0])
             #set_bounds(ax, plac_techniques, connections_locality_mean, rects, BAR_WIDTH_PLAC)
+
+        # Synpatic reuse scatter plot
+        def synpatic_reuse_scatter_plot(ax : matplotlib.axes.Axes, ax_s : matplotlib.axes.Axes):
+            part_techniques = {}
+            for technique in techniques:
+                part_technique = technique.split('-', 1)[0]
+                if part_technique not in part_techniques:
+                    part_techniques[part_technique] = technique
+            part_techniques_list = list(part_techniques.keys())
+            part_techniques_list = sorted(part_techniques_list, reverse = True) # descending order on the word before the first '-', then ascending order as a tiebreak.
+            for fo in forceful_order[::-1]:
+                if fo in part_techniques_list:
+                    part_techniques_list.remove(fo)
+                    part_techniques_list.insert(0, fo)
+
+            # Assign style to partitioning techniques
+            possible_colors = [
+                    "#6C8EBF", # BLUE
+                    #"#48617A", # DARK-BLUE
+                    "#336699", # DARKER-BLUE
+                    #"#FFB700", # YELLOW # alts: D79B00
+                    "#B38000", # DARK YELLOW
+                    #"#FF6978", # PINK
+                    #"#A8516E", # DARK PINK
+                    #"#82B366", # GREEN
+                    "#169E1B", # DARK-GREEN
+                    #"#2F762F", # DARKER-GREEN
+                    #"#EB6050", # RED # alts: cc3300, e63900, ec3c00, ff531a, ff3c2d, f03c2d, ea382a, ea3b2e, e7473a, e9493d, e94e3d, eb5847
+                    "#8E2B25", # DARKER RED
+                    "#C2E812", # LIME
+                    #"#768E0B", # DARK LIME
+                ]
+            possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'p', 'X', 'D'])
+            possible_linestyles = cycle([':', '--', '-.', (5, (10, 3)), (4, (8, 1))])
+            marker_style = {}
+            line_style = {}
+            bar_style = {}
+            prev_part_technique, ongoing_color, ongoing_hatch = None, cycle(possible_colors), ''
+            for technique in part_techniques_list:
+                marker = next(possible_markers)
+                linestyle = next(possible_linestyles)
+                color = next(ongoing_color)
+                marker_style[technique] = {"color": color, "marker" : marker}
+                line_style[technique] = {"color": color, "linestyle" : linestyle}
+                bar_style[technique] = {"color": color, "edgecolor": "white"}
+            
+            combined_handles = []
+            text_idxs = defaultdict(int, {"hehiding" : 45, "sequential" : 0, "unordered" : 50, "hmetis" : 10, "edgehiding" : 54})
+            text_posns = defaultdict(lambda : ("bottom", "left"), {"hmetis" : ("top", "right"), "sequential" : ("bottom", "right")})
+            correlation = {}
+            clean_connectivity = {}
+            clean_reuse = {}
+            # Per-SNN normalization
+            for technique in part_techniques_list:
+                clean_connectivity[technique] = np.log10(connectivity[part_techniques[technique]])
+                clean_reuse[technique] = np.log10(synaptic_reuse_geomean[part_techniques[technique]])
+            for x_index in range(len(x_labels)):
+                snn_connectivity = [clean_connectivity[technique][x_index] for technique in part_techniques_list]
+                snn_connectivity = [clean_connectivity[technique][x_index] for technique in part_techniques_list]
+                snn_connectivity = zscore(snn_connectivity)
+                for i, technique in enumerate(part_techniques_list):
+                    clean_connectivity[technique][x_index] = snn_connectivity[i]
+                snn_reuse = [clean_reuse[technique][x_index] for technique in part_techniques_list]
+                snn_reuse = [clean_reuse[technique][x_index] for technique in part_techniques_list]
+                snn_reuse = zscore(snn_reuse)
+                for i, technique in enumerate(part_techniques_list):
+                    clean_reuse[technique][x_index] = snn_reuse[i]
+            # Plot!
+            for technique in part_techniques_list:
+                #srg = synaptic_reuse_geomean[part_techniques[technique]]
+                #con = connectivity[part_techniques[technique]]
+                #srg = np.log10(synaptic_reuse_geomean[part_techniques[technique]])
+                srg = clean_reuse[technique]
+                #con = np.log10(connectivity_hmetis_norm[part_techniques[technique]])
+                con = clean_connectivity[technique]
+                #srg = zscore(srg)
+                #con = zscore(con)
+                ax.scatter(srg, con, label = rename_label(technique), alpha = 0.8, **marker_style[technique])
+                z = np.polyfit(srg, con, 1)
+                x = np.linspace(min(srg), max(srg), 100)
+                y = np.poly1d(z)(x)
+                ax.plot(x, y, **line_style[technique])
+                combined_handles.append(Line2D([], [], **(marker_style[technique] | line_style[technique]), markersize = 8, label = rename_label(technique)))
+                rho, p = spearmanr(srg, con)
+                print(f"[PART] {technique}: Spearman ρ = {rho:.3f}, p = {p:.3g}")
+                correlation[technique] = rho
+                if not math.isnan(rho) and not math.isnan(p):
+                    text_idx = text_idxs[technique]
+                    va, ha = text_posns[technique]
+                    ax.text(x[text_idx], y[text_idx], f"ρ = {rho:.2f} p = {p:.2g}", color = line_style[technique]["color"], fontsize = 9, va = va, ha = ha, alpha = 0.9, fontweight = "medium")
+            ax.annotate("", xy = (0.3, -1), xytext = (0.6, -1.3), arrowprops = dict(arrowstyle = "<-", color = "red", lw = 2.5, shrinkA = 0, shrinkB = 0, alpha = 0.9), zorder = 5)
+            ax.text(0.55, -1.32, "goal", fontsize = 11, fontweight = "bold", color = "red", va = "top", ha = "right", zorder = 6)
+            ax.set_xlabel("Synaptic Reuse Geometric Mean (per-SNN z-score)")
+            ax.set_ylabel("Connectivity (per-SNN z-score)")
+            ax.set_title("Synaptic Reuse vs Connectivity")
+            #ax.set_yscale("log", base = 10)
+            #ax.set_xscale("log", base = 10)
+            set_log10_ticks(ax, 'x')
+            set_log10_ticks(ax, 'y')
+            #format_y_bars(ax)
+            #ax.set_ybound(0.8, 800)
+            
+            ax_s.set_title("Correlation")
+            ax_s.set_xticks([0], [None])
+            ax_s.set_xlabel("Algorithm")
+            ax_s.set_ylabel("Spearman Rank Correlation Coefficient (ρ)")
+            ax_s.invert_yaxis()
+            ax_s.set_ylim(0.0, -1.0)
+            offset = (len(part_techniques_list) - 1)/2
+            for j, technique in enumerate(part_techniques_list):
+                ax_s.bar((j - offset) * BAR_WIDTH_PART, correlation[technique], BAR_WIDTH_PART, label = rename_label(technique), alpha = 1.0, **bar_style[technique])
+            return combined_handles
+
+        # Connections locality scatter plot
+        def connections_locality_scatter_plot(ax : matplotlib.axes.Axes, ax_s : matplotlib.axes.Axes):
+            plac_techniques = techniques.copy()
+            for plac_technique in omit_plac_techniques:
+                if plac_technique in plac_techniques:
+                    plac_techniques.remove(plac_technique)
+            plac_techniques = sorted(plac_techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), chr(255 - ord(s.split('-', 1)[1][2])))) # descending order on the word before the first '-', then ascending order as a tiebreak.
+
+            # Assign style to partitioning techniques
+            possible_colors = [
+                    "#6C8EBF", # BLUE
+                    "#336699", # DARKER BLUE
+                    "#48617A", # DARK BLUE
+                    #"#FFB700", # YELLOW # alts: D79B00
+                    #"#B38000", # DARK YELLOW
+                    #"#FF6978", # PINK
+                    #"#A8516E", # DARK PINK
+                    "#82B366", # GREEN
+                    "#169E1B", # DARK GREEN
+                    "#2F762F", # DARKER GREEN
+                    "#EB6050", # RED # alts: cc3300, e63900, ec3c00, ff531a, ff3c2d, f03c2d, ea382a, ea3b2e, e7473a, e9493d, e94e3d, eb5847
+                    "#CD0A00", # DARK RED
+                    "#8E2B25", # DARKER RED
+                    "#C2E812", # LIME
+                    "#768E0B", # DARK LIME
+                ]
+            possible_markers = cycle(['o', 'v', '^', 's', 'p', 'H', 'D', 'P', 'X'])
+            possible_linestyles = cycle(['-', ':', '--', '-.'])
+            marker_style = {} 
+            line_style = {}
+            bar_style = {}
+            prev_part_technique, ongoing_color, ongoing_hatch, ongoing_linestyle = None, cycle(possible_colors), '', next(possible_linestyles)
+            for technique in plac_techniques:
+                part_technique, plac_technique = technique.split('-', 1)
+                init_plac_technique, plac_ref_technique = plac_technique.split('-', 1) if '-' in plac_technique else ('', plac_technique)
+                if prev_part_technique != part_technique:
+                    prev_part_technique = part_technique
+                    ongoing_linestyle = next(possible_linestyles)
+                color = next(ongoing_color)
+                marker_style[technique] = {"color": color, "marker" : next(possible_markers)}
+                line_style[technique] = {"color": color, "linestyle" : ongoing_linestyle}
+                bar_style[technique] = {"color": color, "edgecolor": "white"}
+            
+            combined_handles = []
+            text_idxs = defaultdict(int, {"hehiding-hilbert-fd" : 28, "hehiding-spectral-fd" : 8, "hehiding-truenorth" : 45,
+                                          "hmetis-hilbert-fd" : -1, "hmetis-spectral-fd" : -12, "hmetis-truenorth" : -1,
+                                          "sequential-hilbert-fd" : -1, "sequential-spectral-fd" : -10, "sequential-truenorth" : -8})
+            text_posns = defaultdict(lambda : ("top", "left"), {"hehiding-truenorth" : ("bottom", "right"), "hehiding-hilbert-fd" : ("bottom", "right"), "sequential-truenorth" : ("bottom", "right"), "sequential-hilbert-fd" : ("center", "left")})
+            correlation = {}
+            clean_edp = {}
+            clean_locality = {}
+            # Per-SNN normalization
+            for technique in plac_techniques:
+                clean_edp[technique] = np.log10(energy_delay_product[technique])
+                clean_locality[technique] = np.log10(connections_locality_geomean[technique])
+            for x_index in range(len(x_labels)):
+                snn_connectivity = [clean_edp[technique][x_index] for technique in plac_techniques]
+                snn_connectivity = [clean_edp[technique][x_index] for technique in plac_techniques]
+                snn_connectivity = zscore(snn_connectivity)
+                for i, technique in enumerate(plac_techniques):
+                    clean_edp[technique][x_index] = snn_connectivity[i]
+                snn_reuse = [clean_locality[technique][x_index] for technique in plac_techniques]
+                snn_reuse = [clean_locality[technique][x_index] for technique in plac_techniques]
+                snn_reuse = zscore(snn_reuse)
+                for i, technique in enumerate(plac_techniques):
+                    clean_locality[technique][x_index] = snn_reuse[i]
+            # Plot!
+            for technique in plac_techniques:
+                #clg = connections_locality_geomean[technique]
+                #edp = energy_delay_product[technique]
+                #clg = np.log10(connections_locality_geomean[technique])
+                clg = clean_locality[technique]
+                #edp = np.log10(energy_delay_product_hmetis_norm[technique])
+                edp = clean_edp[technique]
+                #clg = zscore(clg)
+                #edp = zscore(edp)
+                ax.scatter(clg, edp, label = rename_label(technique), alpha = 0.8, **marker_style[technique])
+                z = np.polyfit(clg, edp, 1)
+                x = np.linspace(min(clg), max(clg), 100)
+                y = np.poly1d(z)(x)
+                ax.plot(x, y, **line_style[technique])
+                combined_handles.append(Line2D([], [], **(marker_style[technique] | line_style[technique]), markersize = 8, label = rename_label(technique)))
+                rho, p = spearmanr(clg, edp)
+                print(f"[PLAC] {technique}: Spearman ρ = {rho:.3f}, p = {p:.3g}")
+                correlation[technique] = rho
+                if not math.isnan(rho) and not math.isnan(p):
+                    text_idx = text_idxs[technique]
+                    va, ha = text_posns[technique]
+                    ax.text(x[text_idx], y[text_idx], f"ρ = {rho:.2f} p = {p:.2g}", color = line_style[technique]["color"], fontsize = 9, va = va, ha = ha, alpha = 0.9, fontweight = "medium")
+            ax.annotate("", xy = (-0.7, -1.4), xytext = (-1.0, -1.7), arrowprops = dict(arrowstyle = "<-", color = "red", lw = 2.5, shrinkA = 0, shrinkB = 0, alpha = 0.9), zorder = 5)
+            ax.text(-0.95, -1.7, "goal", fontsize = 11, fontweight = "bold", color = "red", va = "top", ha = "left", zorder = 6)
+            ax.set_xlabel("Connections Locality Geometric Mean (per-SNN z-score)")
+            ax.set_ylabel("Energy-Delay Product (per-SNN z-score)")
+            ax.set_title("Connections Locality vs Energy-Latency Product")
+            #ax.set_yscale("log", base = 10)
+            #ax.set_xscale("log", base = 10)
+            set_log10_ticks(ax, 'x')
+            set_log10_ticks(ax, 'y')
+            #format_y_bars(ax)
+            
+            ax_s.set_title("Correlation")
+            ax_s.set_xticks([0], [None])
+            ax_s.set_xlabel("Algorithm")
+            ax_s.set_ylabel("Spearman Rank Correlation Coefficient (ρ)")
+            ax_s.set_ylim(0.0, 1.0)
+            offset = (len(plac_techniques) - 1)/2
+            for j, technique in enumerate(plac_techniques):
+                ax_s.bar((j - offset) * BAR_WIDTH_PLAC, correlation[technique], BAR_WIDTH_PLAC, label = rename_label(technique), alpha = 1.0, **bar_style[technique])
+            return combined_handles
         
         synpatic_reuse_plot(ax1)
-        connections_locality_plot(ax2)
+        connections_locality_plot(ax3)
+        handles1, _ = ax1.get_legend_handles_labels()
+        handles3, _ = ax3.get_legend_handles_labels()
+        handles2 = synpatic_reuse_scatter_plot(ax2, ax_s1)
+        handles4 = connections_locality_scatter_plot(ax4, ax_s2)
         
         # Setup legends AFTER the tight layout
         plt.tight_layout(rect = [0, 0, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
+        labels1 = [h.get_label() for h in handles1]
+        labels2 = [h.get_label() for h in handles3]
+        combined_handles_1 = list(zip(handles1, handles2))
+        combined_handles_2 = list(zip(handles3, handles4))
+        fig.legend(combined_handles_1, labels1, ncol = 1, loc = "center", bbox_to_anchor = (3/24, 0.80), handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0)
+        fig.legend(combined_handles_2, labels2, ncol = 1, loc = "center", bbox_to_anchor = (3/24, 0.30), handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0)
         custom_handles = [
-            #matplotlib.patches.Rectangle((0, 0,), 0, 0, color = "black", edgecolor = "white", label = "full: geometric mean"),
-            #matplotlib.patches.Rectangle((0, 0,), 0, 0, color = "black", edgecolor = "white", label = "shade: average mean", alpha = 0.3)
             matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, label = "full: geometric mean"),
             matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, alpha = 0.3, label = "shade: average mean")
         ]
-        handles1, labels1 = ax1.get_legend_handles_labels()
-        handles1 = custom_handles + handles1
-        labels1 = [h.get_label() for h in handles1]
-        handles2, labels2 = ax2.get_legend_handles_labels()
-        handles2 = custom_handles + handles2
-        labels2 = [h.get_label() for h in handles2]
-        ax1.legend(handles1, labels1, ncol = 1, loc = "center", bbox_to_anchor = (-0.33 - 0.1, 0.5))
-        ax2.legend(handles2, labels2, ncol = 1, loc = "center", bbox_to_anchor = (1.33, 0.4)) # was (1.33, 0.5)
+        custom_labels = [h.get_label() for h in custom_handles]
+        fig.legend(custom_handles, custom_labels, ncol = 1, loc = "center", bbox_to_anchor = (3/24, 0.62))
         
         # Show the plot
         if options["save"]:

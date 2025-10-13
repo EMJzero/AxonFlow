@@ -1235,6 +1235,7 @@ def partitionHyperedgeHidingOnlyInbound(hg: HyperGraph, max_nodes: int, max_inbo
     #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : (cnt - hes_length[he])/he.spike_frequency, int) # minimize new nodes
     # likely better:
     #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt*he.spike_frequency, int) # strictly highest (weighted) overlap
+    #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : he.spike_frequency*(1 + cnt/hes_length[he])**2, int) # in between highest overlap and overlap ratio
     nodes_count = 0 # tracks nodes involved in the present partition
     inbound_set = set() # tracks the inbound hyperedges to the present partition
     while True:

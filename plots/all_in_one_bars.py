@@ -97,7 +97,7 @@ DPI = 300 #800
 SAVE_NOT_SHOW = True
 
 FONTSIZE = 13
-BAR_WIDTH = 0.11
+BAR_WIDTH = 0.10
 
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
@@ -164,8 +164,10 @@ if __name__ == "__main__":
         init_congestion : dict[str, list[Optional[float]]] = defaultdict(list)
 
         # Optional: specify techniques to omit
-        omit_techniques = {"hmetis-truenorth", "hmetis-spectral-ps", "edgehiding", "unordered-sequential"}
+        #omit_techniques = {"sequential-hilbert-ps", "hmetis-truenorth", "hmetis-spectral-ps", "hehiding-spectral-ps", "hehiding-truenorth", "edgehiding", "unordered-sequential", "unordered"}
+        omit_techniques = {"sequential-hilbert-ps", "sequential-spectral-ps", "hmetis-hilbert-ps", "hmetis-spectral-ps", "hehiding-hilbert-ps", "hehiding-spectral-ps", "edgehiding", "unordered-sequential", "unordered"}
         # Optional: specify techniques that must be kept
+        #must_keep_techniques = {"sequential-truenorth", "hmetis-hilbert-ps"}
         must_keep_techniques = {"sequential-truenorth"}
         # Optional: specify partitioning techniques to omit
         omit_part_techniques = {"setlist"}
@@ -309,7 +311,8 @@ if __name__ == "__main__":
         # Prepare for bar-plot
         index = np.arange(len(x_labels))
         offset = (len(techniques) - 1)/2
-        techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+        #techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+        techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), chr(255 - ord(s.split('-', 1)[1][2])))) # descending order on the word before the first '-', then stupid hack to get truenorth to be first, then hilbert, then spectral.
 
         # Plotting (note: 25.6 = 2560 pixel)
         #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
@@ -318,8 +321,8 @@ if __name__ == "__main__":
         # Assign style to partitioning techniques
         possible_colors = [
                 "#6C8EBF", # BLUE
-                "#48617A", # DARK BLUE
                 "#336699", # DARKER BLUE
+                "#48617A", # DARK BLUE
                 #"#FFB700", # YELLOW # alts: D79B00
                 #"#B38000", # DARK YELLOW
                 #"#FF6978", # PINK
@@ -328,28 +331,32 @@ if __name__ == "__main__":
                 "#169E1B", # DARK GREEN
                 "#2F762F", # DARKER GREEN
                 "#EB6050", # RED # alts: cc3300, e63900, ec3c00, ff531a, ff3c2d, f03c2d, ea382a, ea3b2e, e7473a, e9493d, e94e3d, eb5847
+                "#CD0A00", # DARKER RED
                 "#8E2B25", # DARK RED
-                "#9F140D", # DARKER RED
                 "#C2E812", # LIME
                 "#768E0B", # DARK LIME
             ]
         #possible_hatches = cycle(['', '/', '\\', 'x', '.']) #['', '/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*']
-        possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'D', 'X', 'p'])
+        #possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'D', 'X', 'p'])
+        possible_markers = cycle(['o', 'v', '^', 's', 'p', 'H', 'D', 'P', 'X'])
         possible_linestyles = cycle(['-', ':', '--', '-.'])
-        part_techniques_to_hatch = defaultdict(lambda : '', hehiding = '/')
+        #part_techniques_to_hatch = defaultdict(lambda : '', hehiding = '/')
+        part_techniques_to_hatch = defaultdict(lambda : '')#, spectral = '/')
         style = {}
         line_style = {}
         #prev_part_technique, ongoing_color, ongoing_hatch, ongoing_linestyle = None, cycle(possible_colors), next(possible_hatches), next(possible_linestyles)
         prev_part_technique, ongoing_color, ongoing_hatch, ongoing_linestyle = None, cycle(possible_colors), '', next(possible_linestyles)
         for technique in techniques:
-            part_technique = technique.split('-', 1)[0]
+            part_technique, plac_technique = technique.split('-', 1)
+            init_plac_technique, plac_ref_technique = plac_technique.split('-', 1) if '-' in plac_technique else ('', plac_technique)
             if prev_part_technique != part_technique:
                 prev_part_technique = part_technique
                 #ongoing_color = cycle(possible_colors)
                 #ongoing_hatch = next(possible_hatches)
                 ongoing_linestyle = next(possible_linestyles)
             color = next(ongoing_color)
-            style[technique] = {"color": color, "hatch": part_techniques_to_hatch[part_technique], "edgecolor": "white"}
+            #style[technique] = {"color": color, "hatch": part_techniques_to_hatch[part_technique], "edgecolor": "white"}
+            style[technique] = {"color": color, "hatch": part_techniques_to_hatch[init_plac_technique], "edgecolor": "white"}
             line_style[technique] = {"color": color, "marker" : next(possible_markers), "linestyle" : ongoing_linestyle, "markersize" : 8}
         shadow_bars_alpha = 0.3
 
@@ -534,7 +541,7 @@ if __name__ == "__main__":
         #conn_plot(ax1)
         #part_time_plot_lines(ax2)
         
-        max_legend_rows = 2
+        max_legend_rows = 3
         # HP: all axis have the same entries!
         handles, labels = ax1.get_legend_handles_labels()
         # Rename labels
@@ -556,7 +563,7 @@ if __name__ == "__main__":
         fig.legend(combined_handles, labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0) # handlelength = 4.0
         
         # Show the plot
-        plt.tight_layout(rect = [0, 0.065, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
+        plt.tight_layout(rect = [0, 0.075, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
         if options["save"]:
             filename = options["save"]
             if not any(filename.endswith(ext) for ext in SUPPORTED_EXTENSIONS):

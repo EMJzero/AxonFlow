@@ -52,6 +52,7 @@ def parse_options() -> dict[str, Any]:
         "help": args_match_and_remove(["-h", "--help"]),
         "interactive": args_match_and_remove(["-i", "--interactive"]),
         "dir": args_match_and_remove(["-d", "--dir"], with_value = True),
+        "relative": args_match_and_remove(["-r", "--relative"]),
         "quiet": args_match_and_remove(["-q", "--quiet"]),
     }
     return options
@@ -61,7 +62,8 @@ def help_options() -> None:
     print("-h, --help\t\tDisplay this help menu.")
     print("-i --interactive\tOnce exploration has finished, instead of terminating the program, enter Python's interactive mode.")
     print(("-d, --dir <path>\tPath to the directory (folder) containing one or more '.json' files, each being the output of a run of 'targeted_main.py'."
-        "Only files immediately inside the directory (no nested directories) and with the '.json' extension will be considered."))
+           "\n\t\t\tOnly files immediately inside the directory (no nested directories) and with the '.json' extension will be considered."))
+    print("-r, --relative\tPrints values as percentage of improvement from the best's point of view.")
     print("-q, --quiet\t\tDisable verbose logging of optimization functions.")
 
 
@@ -92,6 +94,9 @@ if __name__ == "__main__":
         elif not os.path.isdir(path):
             raise Exception(f"The provided path is not a directory: {path}")
 
+        if options["relative"]:
+            print("WARNING: this is a shitty implementation made in a hurry, it detects values to print in percentage as those 'less than 100.0' because they have been likely normalized.")
+
         # Organize data
         files = []
         for f in os.listdir(path):
@@ -111,10 +116,10 @@ if __name__ == "__main__":
         snns = []
 
         # custom SNNs lists
-        layered = ["16k_model", "lenet", "64k_model", "256k_model", "vgg11", "alexnet", "1M_model", "mobilenet"]
-        cyclic = ["16_rand", "64k_rand", "256k_rand", "allen_v1"]
-        small = ["16k_model", "lenet", "16_rand", "64k_rand", "64k_model", "256k_rand"]
-        large = ["allen_v1", "256k_model", "vgg11", "alexnet", "1M_model", "mobilenet"]
+        layered = {"16k_model", "lenet", "64k_model", "256k_model", "vgg11", "alexnet", "1M_model", "mobilenet"}
+        cyclic = {"16k_rand", "64k_rand", "256k_rand", "allen_v1"}
+        small = {"16k_model", "lenet", "16k_rand", "64k_rand", "64k_model", "256k_rand"}
+        large = {"allen_v1", "256k_model", "vgg11", "alexnet", "1M_model", "mobilenet"}
 
         # Metrics to collect
         energy : dict[str, list[Optional[float]]] = defaultdict(list)
@@ -127,6 +132,8 @@ if __name__ == "__main__":
         init_latency : dict[str, list[Optional[float]]] = defaultdict(list)
         init_congestion : dict[str, list[Optional[float]]] = defaultdict(list)
 
+        # Optional: specify techniques to omit
+        omit_techniques = {"sequential-hilbert-ps", "sequential-spectral-ps", "hmetis-hilbert-ps", "hmetis-spectral-ps", "hehiding-hilbert-ps", "hehiding-spectral-ps"}
         # Must: decide x-axis SNNs sort order, options are "nodes", "connections"/"edges"
         x_axis_order = "connections"
 
@@ -143,6 +150,9 @@ if __name__ == "__main__":
 
             for entry in data:
                 name = entry["name"]
+                if name in omit_techniques:
+                    print(f"Omitting technique '{name}'...")
+                    continue
 
                 if "note" in entry:
                     print(f"Failed entry '{file}' -> '{name}', note content:\n\t{entry['note']}")
@@ -199,7 +209,23 @@ if __name__ == "__main__":
                     init_congestion[technique].append(None)
         
         # Optional: use this to override the average mechanism to have only layered or cyclic SNNs
-        #snns = layered
+        if False:
+            #snns = layered
+            keep = cyclic
+            assert all(snn in snns for snn in keep), "ERROR: invalid keep list!"
+            #snns = small
+            #snns = large
+            for technique in techniques:
+                energy[technique] = [energy[technique][i] for i, snn in enumerate(snns) if snn in keep]
+                latency[technique] = [latency[technique][i] for i, snn in enumerate(snns) if snn in keep]
+                congestion[technique] = [congestion[technique][i] for i, snn in enumerate(snns) if snn in keep]
+                times[technique] = [times[technique][i] for i, snn in enumerate(snns) if snn in keep]
+                connectivity[technique] = [connectivity[technique][i] for i, snn in enumerate(snns) if snn in keep]
+                part_times[technique] = [part_times[technique][i] for i, snn in enumerate(snns) if snn in keep]
+                init_energy[technique] = [init_energy[technique][i] for i, snn in enumerate(snns) if snn in keep]
+                init_latency[technique] = [init_latency[technique][i] for i, snn in enumerate(snns) if snn in keep]
+                init_congestion[technique] = [init_congestion[technique][i] for i, snn in enumerate(snns) if snn in keep]
+            snns = keep
         
         # compute energy-delay product
         energy_delay_product : dict[str, list[Optional[float]]] = {}
@@ -222,28 +248,14 @@ if __name__ == "__main__":
             init_congestion[technique] = list(map(lambda x : x if x != None else math.nan, init_congestion[technique]))
             init_energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, init_energy_delay_product[technique]))
         
-        # compute average metrics across SNNs
-        energy_avg, latency_avg, congestion_avg, connectivity_avg, energy_delay_product_avg = defaultdict(float), defaultdict(float), defaultdict(float), defaultdict(float), defaultdict(float)
-        for i, snn in enumerate(snns):
-            for tech in techniques:
-                energy_avg[tech] += energy[tech][i]
-                latency_avg[tech] += latency[tech][i]
-                congestion_avg[tech] += congestion[tech][i]
-                connectivity_avg[tech] += connectivity[tech][i]
-                energy_delay_product_avg[tech] += energy_delay_product[tech][i]
-        for tech in techniques:
-            energy_avg[tech] /= len(snns)
-            latency_avg[tech] /= len(snns)
-            energy_delay_product_avg[tech] /= len(snns)
-            congestion_avg[tech] /= len(snns)
-            connectivity_avg[tech] /= len(snns)
-        
         # normalize w.r.t. the best partitioning
         best_energy = [min([energy[technique][i] for technique in techniques if not math.isnan(energy[technique][i])], default = 0) for i in range(len(snns))]
         best_latency = [min([latency[technique][i] for technique in techniques if not math.isnan(latency[technique][i])], default = 0) for i in range(len(snns))]
         best_congestion = [min([congestion[technique][i] for technique in techniques if not math.isnan(congestion[technique][i])], default = 0) for i in range(len(snns))]
         best_connectivity = [min([connectivity[technique][i] for technique in techniques if not math.isnan(connectivity[technique][i])], default = 0) for i in range(len(snns))]
         best_energy_delay_product = [min([energy_delay_product[technique][i] for technique in techniques if not math.isnan(energy_delay_product[technique][i])], default = 0) for i in range(len(snns))]
+        best_part_time = [min([part_times[technique][i] for technique in techniques if not math.isnan(part_times[technique][i])], default = 0) for i in range(len(snns))]
+        best_time = [min([times[technique][i] for technique in techniques if not math.isnan(times[technique][i])], default = 0) for i in range(len(snns))]
         for technique in techniques:
             energy[technique] = list(map(lambda c : c[0] / c[1] if not math.isnan(c[0]) else math.nan, zip(energy[technique], best_energy)))
             latency[technique] = list(map(lambda c : c[0] / c[1] if not math.isnan(c[0]) else math.nan, zip(latency[technique], best_latency)))
@@ -255,22 +267,78 @@ if __name__ == "__main__":
             init_latency[technique] = list(map(lambda c : c[0] / c[1] if not math.isnan(c[0]) else math.nan, zip(init_latency[technique], best_latency)))
             init_congestion[technique] = list(map(lambda c : c[0] / c[1] if not math.isnan(c[0]) else math.nan, zip(init_congestion[technique], best_congestion)))
             init_energy_delay_product[technique] = list(map(lambda c : c[0] / c[1] if not math.isnan(c[0]) else math.nan, zip(init_energy_delay_product[technique], best_energy_delay_product)))
+            if options["relative"]:
+                part_times[technique] = list(map(lambda c : c[0] / c[1] if not math.isnan(c[0]) else math.nan, zip(part_times[technique], best_part_time)))
+                times[technique] = list(map(lambda c : c[0] / c[1] if not math.isnan(c[0]) else math.nan, zip(times[technique], best_time)))
+        
+        # NOTE: compute averages on the normalized metrics! Otherwise it makes no sense on the raw data!
+        # compute average metrics across SNNs
+        energy_avg = defaultdict(float)
+        latency_avg = defaultdict(float)
+        congestion_avg = defaultdict(float)
+        connectivity_avg = defaultdict(float)
+        energy_delay_product_avg = defaultdict(float)
+        init_energy_avg = defaultdict(float)
+        init_latency_avg = defaultdict(float)
+        init_congestion_avg = defaultdict(float)
+        init_energy_delay_product_avg = defaultdict(float)
+        part_times_avg = defaultdict(float)
+        times_avg = defaultdict(float)
+        for i, snn in enumerate(snns):
+            for tech in techniques:
+                energy_avg[tech] += energy[tech][i]
+                latency_avg[tech] += latency[tech][i]
+                congestion_avg[tech] += congestion[tech][i]
+                connectivity_avg[tech] += connectivity[tech][i]
+                energy_delay_product_avg[tech] += energy_delay_product[tech][i]
+                init_energy_avg[tech] += init_energy[tech][i]
+                init_latency_avg[tech] += init_latency[tech][i]
+                init_congestion_avg[tech] += init_congestion[tech][i]
+                init_energy_delay_product_avg[tech] += init_energy_delay_product[tech][i]
+                part_times_avg[tech] += part_times[tech][i]
+                times_avg[tech] += times[tech][i]
+        for tech in techniques:
+            energy_avg[tech] /= len(snns)
+            latency_avg[tech] /= len(snns)
+            congestion_avg[tech] /= len(snns)
+            connectivity_avg[tech] /= len(snns)
+            energy_delay_product_avg[tech] /= len(snns)
+            init_energy_avg[tech] /= len(snns)
+            init_latency_avg[tech] /= len(snns)
+            init_congestion_avg[tech] /= len(snns)
+            init_energy_delay_product_avg[tech] /= len(snns)
+            part_times_avg[tech] /= len(snns)
+            times_avg[tech] /= len(snns)
         # also normalize the averages
         best_avg_energy = min([energy_avg[technique] for technique in techniques if not math.isnan(energy_avg[technique])], default = 0)
         best_avg_latency = min([latency_avg[technique] for technique in techniques if not math.isnan(latency_avg[technique])], default = 0)
         best_avg_congestion = min([congestion_avg[technique] for technique in techniques if not math.isnan(congestion_avg[technique])], default = 0)
         best_avg_connectivity = min([connectivity_avg[technique] for technique in techniques if not math.isnan(connectivity_avg[technique])], default = 0)
         best_avg_energy_delay_product = min([energy_delay_product_avg[technique] for technique in techniques if not math.isnan(energy_delay_product_avg[technique])], default = 0)
+        best_avg_part_times = min([part_times_avg[technique] for technique in techniques if not math.isnan(part_times_avg[technique])], default = 0)
+        best_avg_times = min([times_avg[technique] for technique in techniques if not math.isnan(times_avg[technique])], default = 0)
         for tech in techniques:
             energy_avg[tech] /= best_avg_energy
             latency_avg[tech] /= best_avg_latency
             congestion_avg[tech] /= best_avg_congestion
             connectivity_avg[tech] /= best_avg_connectivity
             energy_delay_product_avg[tech] /= best_avg_energy_delay_product
+            init_energy_avg[tech] /= best_avg_energy
+            init_latency_avg[tech] /= best_avg_latency
+            init_congestion_avg[tech] /= best_avg_congestion
+            init_energy_delay_product_avg[tech] /= best_avg_energy_delay_product
+            part_times_avg[tech] /= best_avg_part_times
+            times_avg[tech] /= best_avg_times
 
         techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
 
         def formatter(f : float):
+            if options["relative"]:
+                if f == 1.0:
+                    return "-> 0.0% <-"
+                elif f < 100.0:
+                    return f"{100*(f - 1)/f:.1f}%"
+                return f"{(f):.3f}"
             if f == 1.0:
                 return "-> 1.0 <-"
             return f"{f:.3f}"
@@ -283,7 +351,7 @@ if __name__ == "__main__":
         # - per-technique average across large-target SNNs
         # - optional filter: keep best placement for each partitioning for each SNN
 
-        if False:
+        if True:
             print("PER-SNN ALL RESULTS:")
             for i, snn in enumerate(snns):
                 print("==>", snn)
@@ -303,7 +371,7 @@ if __name__ == "__main__":
         
         if True:
             print("\nACROSS SNNs AVERAGE RESULTS:")
-            table = PrettyTable(["part tech", "plac tech", "energy", "latency", "ELP", "congestion", "connectivity"])
+            table = PrettyTable(["part tech", "plac tech", "energy", "latency", "ELP", "congestion", "tot-time", "connectivity", "part-time"])
             for tech in techniques:
                 part, plac = tech.split('-', 1)
                 table.add_row([part, plac] + list(map(formatter, [
@@ -311,7 +379,30 @@ if __name__ == "__main__":
                     latency_avg[tech],
                     energy_delay_product_avg[tech],
                     congestion_avg[tech],
-                    connectivity_avg[tech]
+                    times_avg[tech] if options["relative"] else math.nan,
+                    connectivity_avg[tech],
+                    part_times_avg[tech] if options["relative"] else math.nan
+                ])))
+            print(table)
+        
+        if True:
+            print("\nINITIAL PLACEMENT REDUCTION ACROSS SNNs AVERAGE RESULTS:")
+            table = PrettyTable(["part tech", "plac tech", "in. energy", "energy", "energy red.", "in. latency", "latency", "latency red.", "in. ELP", "ELP", "ELP red.", "cong.", "in. cong.", "cong. red."])
+            for tech in techniques:
+                part, plac = tech.split('-', 1)
+                table.add_row([part, plac] + list(map(formatter, [
+                    init_energy_avg[tech],
+                    energy_avg[tech],
+                    energy_avg[tech]/init_energy_avg[tech],
+                    init_latency_avg[tech],
+                    latency_avg[tech],
+                    latency_avg[tech]/init_latency_avg[tech],
+                    init_energy_delay_product_avg[tech],
+                    energy_delay_product_avg[tech],
+                    energy_delay_product_avg[tech]/init_energy_delay_product_avg[tech],
+                    init_congestion_avg[tech],
+                    congestion_avg[tech],
+                    congestion_avg[tech]/init_congestion_avg[tech]
                 ])))
             print(table)
         

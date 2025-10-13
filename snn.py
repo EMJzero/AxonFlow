@@ -855,7 +855,7 @@ class HyperGraph(Iterable):
     """
     Save the present hypergraph to 'path'.
     """
-    def save(self, path: str) -> None:
+    def save(self, path : str) -> None:
         with open(path, 'wb') as f:
             f.write(struct.pack('<II', self.nodes, len(self.hyperedges)))
             for he in self.hyperedges:
@@ -871,7 +871,7 @@ class HyperGraph(Iterable):
     Load and return an hypergraph from 'path'.
     """
     @classmethod
-    def load(cls, path: str) -> Self:
+    def load(cls, path : str) -> Self:
         with open(path, 'rb') as f:
             nodes, num_edges = struct.unpack('<II', f.read(8))
             hyperedges = []

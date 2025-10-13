@@ -35,7 +35,7 @@ DPI = 300 #800
 SAVE_NOT_SHOW = True
 
 FONTSIZE = 15
-BAR_WIDTH = 0.2
+BAR_WIDTH = 0.4
 
 SAVE = False
 SAVE_PATH = "spike_frequency_manual_plot.png"
@@ -98,7 +98,8 @@ if __name__ == "__main__":
     ax1 : matplotlib.axes.Axes = None
     ax2 : matplotlib.axes.Axes = None
     #fig, ax1 = plt.subplots(1, 1, figsize = (16, 10), tight_layout = True)
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize = (16, 10), tight_layout = True)
+    #fig, (ax1, ax2) = plt.subplots(1, 2, figsize = (16, 10), tight_layout = True)
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize = (16, 7), tight_layout = True)
     
     # Decide the y-axis bounds by ignoring outliers (lower sigma is more brutal)
     def set_bounds(ax : matplotlib.axes.Axes, metric : str, shapes : Optional[list[matplotlib.patches.Patch]], sigma : float = 0.5, margin : float = 0.2):
@@ -173,7 +174,7 @@ if __name__ == "__main__":
     ax1.set_xticklabels(data.keys(), rotation = 45)
     ax1.set_xlabel("SNN (least → most nodes)")
     #ax1.set_ylabel("SNN Average Hyperedge Overlap and Path Length")
-    ax1.set_ylabel("SNN Average Path Length")
+    ax1.set_ylabel("Average Path Length")
     #ax1.legend()
     format_y_bars(ax1)
     set_bounds(ax1, "average_path_length", rects)
@@ -183,9 +184,10 @@ if __name__ == "__main__":
     ax2.set_xticks(x_indices)
     ax2.set_xticklabels(data.keys(), rotation = 45)
     ax2.set_xlabel("SNN (least → most nodes)")
-    ax2.set_ylabel("SNN Average Hyperedge Overlap (# common destinations)")
+    ax2.set_ylabel("Average Hyperedge Overlap\n(# common destinations)")
     #ax2.legend()
-    format_y_bars(ax2, which = [1.0, 2.0, 4.0, 6.0, 8.0])
+    #format_y_bars(ax2, which = [1.0, 2.0, 4.0, 6.0, 8.0])
+    format_y_bars(ax2, which = [2.0, 4.0, 6.0, 8.0])
     set_bounds(ax2, "average_path_length", rects)
     ax2.set_ylim(0.004, 8.0)
 

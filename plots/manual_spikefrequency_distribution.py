@@ -70,12 +70,17 @@ if __name__ == "__main__":
         ('#D6B656', '#FFF2CC'), #yellow
         ]
     
+    def rename_title(title : str) -> str:
+        if title == "lenet": return "LeNet"
+        else: return title
+    
     # Set the number of intervals/bins
     num_intervals = 100 #200
     
     plots_cols = math.ceil(math.sqrt(len(processed_snns_paths)))
     plots_rows = math.ceil(len(processed_snns_paths)/plots_cols)
-    fig, axs = plt.subplots(plots_rows, plots_cols, figsize = (16, 10), tight_layout = True)
+    #fig, axs = plt.subplots(plots_rows, plots_cols, figsize = (16, 10), tight_layout = True)
+    fig, axs = plt.subplots(plots_rows, plots_cols, figsize = (16, 7), tight_layout = True)
     lin_axs : list[matplotlib.axes.Axes] = axs.flatten()[:len(processed_snns_paths)]
 
     #patches = []
@@ -149,12 +154,12 @@ if __name__ == "__main__":
             lnorm.set_in_layout(False)
             
             # Add text inside the plot
-            x_pos = bin_centers[len(pdf_scaled)//2]
-            y_pos = pdf_scaled[len(pdf_scaled)//2]
+            x_pos = bin_centers[3*len(pdf_scaled)//10]*1.05
+            y_pos = pdf_scaled[3*len(pdf_scaled)//10]
             ax.text(
                 x_pos, y_pos,
                 f"Median = {scale:.2f}, Coeff. of Variation = {cv:.2f}",
-                fontsize = FONTSIZE - 5, color = "black",  # same color as curve
+                fontsize = FONTSIZE - 2, color = "black", # same color as curve
                 ha = "left", va = "bottom"
             )
 
@@ -175,7 +180,7 @@ if __name__ == "__main__":
         # Labels and title
         ax.set_xlabel("Spike Frequency") # [Hz]
         ax.set_ylabel("Neurons Count")
-        ax.set_title(f"SNN: {name}")
+        ax.set_title(f"SNN: {rename_title(name)}")
 
     # Global title
     fig.suptitle(f"Histograms of Spike Frequencies ({num_intervals} bins)", fontsize = FONTSIZE + 2)

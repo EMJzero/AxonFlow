@@ -77,6 +77,7 @@ def rename_label(label : str) -> str:
         if piece == "sequential": result += "ordered sequential"
         elif piece == "hmetis": result += "hierarchical"
         elif piece == "hehiding": result += "h-edge overlap"
+        elif piece == "unordered": result += "unordered sequential"
         elif piece == "hilbert": result += "hilbert"
         elif piece == "spectral": result += "spectral"
         elif piece == "truenorth": result += "minimum distance"
@@ -95,7 +96,7 @@ SUPPORTED_EXTENSIONS = ['.pdf', '.eps', '.svg', '.png']
 DPI = 300 #800
 SAVE_NOT_SHOW = True
 
-FONTSIZE = 13
+FONTSIZE = 15
 BAR_WIDTH = 0.11
 
 font = {'family' : 'sans-serif',
@@ -155,7 +156,7 @@ if __name__ == "__main__":
         init_congestion : dict[str, Optional[float]] = defaultdict(list)
 
         # Optional: specify techniques to omit
-        omit_techniques = {"unordered", "edgehiding", "hmetis-truenorth", "hmetis-hilbert-ps", "hmetis-spectral-ps", "hmetis-hilbert-fd", "hmetis-spectral-fd", "hehiding-hilbert-ps", "hehiding-spectral-ps", "sequential-hilbert-ps", "sequential-spectral-ps"}
+        omit_techniques = {"unordered-hilbert-ps", "unordered-spectral-ps", "unordered-truenorth", "edgehiding", "hmetis-truenorth", "hmetis-hilbert-ps", "hmetis-spectral-ps", "hmetis-hilbert-fd", "hmetis-spectral-fd", "hehiding-hilbert-ps", "hehiding-spectral-ps", "sequential-hilbert-ps", "sequential-spectral-ps"}
         # Optional: disable "shades" for initial layout
         no_initial_layout = True
         # Optional: divide the connections locality by the partitions count
@@ -299,15 +300,17 @@ if __name__ == "__main__":
         x_indices = [0]
         index = np.arange(len(x_labels))
         offset = (len(techniques) - 1)/2
-        techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+        #techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
+        techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), chr(255 - ord(s.split('-', 1)[1][2])))) # descending order on the word before the first '-', then stupid hack to get truenorth to be first, then hilbert, then spectral.
 
-        fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(1, 5, figsize = (16, 10), sharex = True, tight_layout = True)
+        #fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(1, 5, figsize = (16, 10), sharex = True, tight_layout = True, width_ratios = [2/9, 2/9, 2/9, 2/9, 1/9])
+        fig, (ax1, ax2, ax3, ax4, ax5) = plt.subplots(1, 5, figsize = (16, 7), sharex = True, tight_layout = True, width_ratios = [2/9, 2/9, 2/9, 2/9, 1/9])
 
         # Assign style to partitioning techniques
         possible_colors = [
                 "#6C8EBF", # BLUE
-                "#48617A", # DARK BLUE
                 "#336699", # DARKER BLUE
+                "#48617A", # DARK BLUE
                 #"#FFB700", # YELLOW # alts: D79B00
                 #"#B38000", # DARK YELLOW
                 #"#FF6978", # PINK
@@ -316,8 +319,8 @@ if __name__ == "__main__":
                 #"#169E1B", # DARK GREEN
                 #"#2F762F", # DARKER GREEN
                 "#EB6050", # RED # alts: cc3300, e63900, ec3c00, ff531a, ff3c2d, f03c2d, ea382a, ea3b2e, e7473a, e9493d, e94e3d, eb5847
-                "#8E2B25", # DARK RED
                 "#9F140D", # DARKER RED
+                "#8E2B25", # DARK RED
                 "#C2E812", # LIME
                 "#768E0B", # DARK LIME
             ]
@@ -493,13 +496,15 @@ if __name__ == "__main__":
                 ax.plot(x_indices, times[technique], label = technique, **line_style[technique])
                 line_style[technique].pop("marker")
                 ax.axhline(times[technique], label = None, **line_style[technique])
+            ax.axhline(3600, label = None, color = "black", linestyle = '-')
+            ax.text(x_indices[0], 3600, "1h", fontsize = 11, fontweight = "bold", color = "black", va = "bottom", ha = "center", zorder = 6)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_yscale('log', base = 10)
             ax.set_ylabel("Time [s]")
             ax.set_title("Total Time")
             #ax.legend()
-            ax.grid(True)
+            ax.grid(True, which = "both")
         
         energy_plot(ax1)
         latency_plot(ax2)
@@ -526,9 +531,17 @@ if __name__ == "__main__":
             ]
         combined_handles = list(zip(handles, handles_lines))
         ncols = math.ceil(len(labels) / max_legend_rows)
-        fig.legend(combined_handles, labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0) # handlelength = 4.0
+        final_combined_handles = []
+        final_labels = []
+        for c in range(ncols):
+            for r in range(max_legend_rows):
+                final_combined_handles.append(combined_handles[c + r*ncols])
+                final_labels.append(labels[c + r*ncols])
+        fig.legend(final_combined_handles, final_labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0, fontsize = FONTSIZE - 2) # handlelength = 4.0
+        # Common x-axis title
+        fig.supxlabel("Algorithms", fontsize = FONTSIZE, y = 0.115)
         
-        plt.tight_layout(rect = [0, 0.065, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
+        plt.tight_layout(rect = [0, 0.075, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
         # Show the plot
         if options["save"]:
             filename = options["save"]
