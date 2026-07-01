@@ -96,14 +96,26 @@ SUPPORTED_EXTENSIONS = ['.pdf', '.eps', '.svg', '.png']
 DPI = 300 #800
 SAVE_NOT_SHOW = True
 
-FONTSIZE = 15
+FONTSIZE = 16 # was 15
 BAR_WIDTH = 0.11
 
+# default font size
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
         'size'   : FONTSIZE}
 
 matplotlib.rc('font', **font)
+
+# specific element sizes
+# autoscalable options: xx-small (0.58x), x-small (0.69x), small (0.83x), medium (1.0x), large (1.2x), x-large (1.44x), xx-large (1.73x)
+plt.rcParams.update({
+    #'axes.titlesize': 18, # default: FONTSIZE*1.2
+    #'axes.labelsize': 15, # default: FONTSIZE*1
+    'xtick.labelsize': 15, # default: FONTSIZE*1
+    'ytick.labelsize': 15, # default: FONTSIZE*1
+    #'legend.fontsize': 15, # default: FONTSIZE*1
+    #'figure.titlesize': 18 # default: FONTSIZE*1.2
+})
 
 
 # MAIN:
@@ -383,7 +395,7 @@ if __name__ == "__main__":
                 ax.set_xlim(min_x - BAR_WIDTH, max_x + 2*BAR_WIDTH)
 
         # Sets the y-scale for bar plots to be in percentage
-        def format_y_bars(ax : matplotlib.axes.Axes):
+        def format_y_bars(ax : matplotlib.axes.Axes, enable_minor_labels : bool = False):
             ax.set_yscale("log", base = 10)
             ax.grid(axis = 'y', which = 'major')
             ax.grid(axis = 'y', which = 'minor', alpha = 0.5)
@@ -392,8 +404,10 @@ if __name__ == "__main__":
             #formatter = FuncFormatter(lambda v, _: f"{v*100:.0f}%" if v > 0 else "")
             formatter = FuncFormatter(lambda v, _: f"{v:.1f}" if v > 0 else "")
             ax.yaxis.set_major_formatter(formatter)
-            #ax.yaxis.set_minor_formatter(formatter)
-            ax.yaxis.set_minor_formatter(NullFormatter())
+            if enable_minor_labels:
+                ax.yaxis.set_minor_formatter(formatter)
+            else:
+                ax.yaxis.set_minor_formatter(NullFormatter())
 
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):
@@ -404,7 +418,8 @@ if __name__ == "__main__":
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             #ax.set_xlabel("Problem Size (nodes)")
-            ax.set_ylabel("Placement Energy (normalized w.r.t. lowest)")
+            #ax.set_ylabel("Placement Energy (normalized to lowest)")
+            ax.set_ylabel("Energy (normalized to lowest)")
             ax.set_title("Energy across SNNs")
             #ax.legend()
             format_y_bars(ax)
@@ -418,10 +433,10 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, latency[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_ylabel("Avg Latency (normalized w.r.t. lowest)")
+            ax.set_ylabel("Avg. Latency (normalized to lowest)")
             ax.set_title("Latency")
             #ax.legend()
-            format_y_bars(ax)
+            format_y_bars(ax, enable_minor_labels = True)
             set_bounds(ax, latency, rects, sigma = 2.0)
 
         # Congestion plot
@@ -432,7 +447,7 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, congestion[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_ylabel("Avg. congestion (normalized w.r.t. lowest)")
+            ax.set_ylabel("Avg. congestion (normalized to lowest)")
             ax.set_title("Congestion")
             #ax.legend()
             format_y_bars(ax)
@@ -447,7 +462,8 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy_delay_product[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_ylabel("Placement Energy x Latency (normalized w.r.t. lowest)")
+            #ax.set_ylabel("Placement Energy x Latency (normalized to lowest)")
+            ax.set_ylabel("Energy x Latency (normalized to lowest)")
             ax.set_title("Energy-Latency Product")
             #ax.legend()
             format_y_bars(ax)
@@ -460,7 +476,7 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, connectivity[technique], BAR_WIDTH, label = technique, **style[technique])
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_ylabel("Partitioning Connectivity (normalized w.r.t. lowest)")
+            ax.set_ylabel("Partitioning Connectivity (normalized to lowest)")
             ax.set_title("Connectivity")
             #ax.legend()
             format_y_bars(ax)
@@ -512,7 +528,7 @@ if __name__ == "__main__":
         edp_plot(ax4)
         tot_time_plot(ax5)
         
-        max_legend_rows = 2
+        max_legend_rows = 3
         # HP: all axis have the same entries!
         handles, labels = ax1.get_legend_handles_labels()
         # Rename labels
@@ -531,17 +547,20 @@ if __name__ == "__main__":
             ]
         combined_handles = list(zip(handles, handles_lines))
         ncols = math.ceil(len(labels) / max_legend_rows)
-        final_combined_handles = []
-        final_labels = []
-        for c in range(ncols):
-            for r in range(max_legend_rows):
-                final_combined_handles.append(combined_handles[c + r*ncols])
-                final_labels.append(labels[c + r*ncols])
-        fig.legend(final_combined_handles, final_labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0, fontsize = FONTSIZE - 2) # handlelength = 4.0
+        #final_combined_handles = []
+        #final_labels = []
+        #for c in range(ncols):
+        #    for r in range(max_legend_rows):
+        #        final_combined_handles.append(combined_handles[c + r*ncols])
+        #        final_labels.append(labels[c + r*ncols])
+        fig.legend(combined_handles, labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0)
+        #fig.legend(final_combined_handles, final_labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0, fontsize = FONTSIZE - 2) # handlelength = 4.0
         # Common x-axis title
-        fig.supxlabel("Algorithms", fontsize = FONTSIZE, y = 0.115)
+        #fig.supxlabel("Algorithms", fontsize = FONTSIZE, y = 0.115)
+        fig.supxlabel("Algorithms", fontsize = FONTSIZE, y = 0.17)
         
-        plt.tight_layout(rect = [0, 0.075, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
+        #plt.tight_layout(rect = [0, 0.075, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
+        plt.tight_layout(rect = [0, 0.12, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
         # Show the plot
         if options["save"]:
             filename = options["save"]

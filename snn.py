@@ -526,6 +526,8 @@ class HyperGraph(Iterable):
         if amount < 0:
             raise Exception("The amount of nodes to add must be positive.")
         self.nodes += amount
+        self._outbound.extend([] for _ in range(amount))
+        self._inbound.extend([] for _ in range(amount))
     
     """
     Adds an HyperEdge to the HyperGraph.
@@ -539,8 +541,8 @@ class HyperGraph(Iterable):
             raise Exception("Negative node index in the provided hyperedge.")
         if not add_missing_nodes and any(node >= self.nodes for node in hyperedge):
             raise Exception("Out of bounds node index in the provided hyperedge.")
-        else:
-            self.nodes = max(self.nodes, max(hyperedge))
+        elif add_missing_nodes and (missing_nodes := max(hyperedge) + 1 - self.nodes) > 0:
+            self.addNodes(missing_nodes)
         self.hyperedges.append(hyperedge)
         self._outbound[hyperedge.source()] += (hyperedge,)
         for node in hyperedge.destinations():
@@ -556,8 +558,8 @@ class HyperGraph(Iterable):
         for he in hyperedges:
             self.hyperedges.append(he)
             self._outbound[he.source()] += (he,)
-        for node in he.destinations():
-            self._inbound[node] += (he,)
+            for node in he.destinations():
+                self._inbound[node] += (he,)
     
     """
     Any pair of HyperEdges that share the same source and destinations are fused in

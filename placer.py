@@ -302,7 +302,7 @@ def forceDirectedRefinement(hg : HyperGraph, placement : list[Coord2D], model : 
                 forces[coords] = model.getForces(hg, new_placement.inv, new_placement[coords], directions)
 
         deduplicate = set()
-        for i in range(0, len(candidates), -1):
+        for i in range(len(candidates) - 1, -1, -1):
             _, coords, other_coords = candidates[i]
             tension = forces[coords][other_coords - coords] + forces[other_coords][coords - other_coords]
             if tension <= 0:
@@ -543,12 +543,12 @@ def trueNorthPlacement(hg : HyperGraph, model : HardwareModel, masked_edges : Op
             for coord, n in zip(coords, closest):
                 chip_coords = Coord2D(c_x * model.cores_per_chip_x, c_y * model.cores_per_chip_y)
                 placement[n] = chip_coords + coord
-                chips[chip_coords]
+                chips[chip_coords].add(n)
                 input.remove(n)
 
     for layer in nodes_layers:
         for node in layer:
-            inbound = inbound_sources[n]
+            inbound = inbound_sources[node]
             best_chip_coords, best_intersection = None, -1
             # select best chip based on intersection of stored nodes sets
             for chip_coords, nodes in chips.items():
@@ -568,6 +568,7 @@ def trueNorthPlacement(hg : HyperGraph, model : HardwareModel, masked_edges : Op
                 if distance < best_distance:
                     best_placement, best_distance = coord, distance
             placement[node] = best_placement
+            chips[best_chip_coords].add(node)
     
     return [placement[n] for n in range(hg.nodes)]
 

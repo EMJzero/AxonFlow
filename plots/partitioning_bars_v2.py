@@ -181,7 +181,7 @@ if __name__ == "__main__":
             for entry in data:
                 name = entry["name"]
                 technique = name.split("-", 1)[0]
-                if name in technique_entries:
+                if technique in technique_entries:
                     print(f"Already seen technique '{technique}', skipping '{name}'...")
                     continue
 
@@ -349,7 +349,7 @@ if __name__ == "__main__":
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_ylabel("Partitioning Connectivity (normalized to lowest)")
+            ax.set_ylabel("Partitioning Connectivity (ratio to best)")
             ax.set_title("Connectivity across SNNs Hypergraphs")
             #ax.legend()
             format_y_bars(ax)

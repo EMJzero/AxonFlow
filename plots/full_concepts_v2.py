@@ -102,7 +102,7 @@ SAVE_NOT_SHOW = True
 
 FONTSIZE = 14 # was 13
 BAR_WIDTH_PART = 0.15
-BAR_WIDTH_PLAC = 0.10
+BAR_WIDTH_PLAC = 0.09
 
 # default font size
 font = {'family' : 'sans-serif',
@@ -361,7 +361,13 @@ if __name__ == "__main__":
 
         # Plotting (note: 25.6 = 2560 pixel)
         #fig, ((ghost_ax1, ax1, ax2), (ghost_ax2, ax3, ax4)) = plt.subplots(2, 3, figsize = (25.6, 2*7*(1 - 0.075)), tight_layout = True, width_ratios = [1/3, 1/3, 1/3])
-        fig, ((ghost_ax1, ax1, ax2, ax_s1), (ghost_ax2, ax3, ax4, ax_s2)) = plt.subplots(2, 4, figsize = (25.6, 2*6*(1 - 0.075)), tight_layout = True, width_ratios = [3/12, 4/12, 4/12, 1/12])
+        #fig, ((ghost_ax1, ax1, ax2, ax_s1), (ghost_ax2, ax3, ax4, ax_s2)) = plt.subplots(2, 4, figsize = (25.6, 2*6*(1 - 0.075)), tight_layout = True, width_ratios = [3/12, 4/12, 4/12, 1/12])
+        fig, ((ghost_ax1, ax1, ax2, ax_s1), (ghost_ax2, ax3, ax4, ax_s2)) = plt.subplots(
+            2, 4,
+            figsize = (25.6, 2*6*(1 - 0.075)),
+            tight_layout = True,
+            gridspec_kw = {"width_ratios": [0.18, 0.41, 0.33, 0.08]}
+        )
         ghost_ax1.remove()
         ghost_ax2.remove()
 
@@ -590,7 +596,7 @@ if __name__ == "__main__":
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH_PLAC, connections_locality_mean[technique], BAR_WIDTH_PLAC, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH_PLAC, connections_locality_geomean[technique], BAR_WIDTH_PLAC, label = rename_label(technique), alpha = 1.0, **style[technique])
             ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
+            ax.set_xticklabels(x_labels, rotation = 25)
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
             ax.set_ylabel("Placement Connections Locality (lower is better)")
             #ax.set_ylabel("Placement Connections Locality\n(normalized on lowest geo. mean, lower is better)")
@@ -835,14 +841,14 @@ if __name__ == "__main__":
         labels2 = [h.get_label() for h in handles3]
         combined_handles_1 = list(zip(handles1, handles2))
         combined_handles_2 = list(zip(handles3, handles4))
-        fig.legend(combined_handles_1, labels1, ncol = 1, loc = "center", bbox_to_anchor = (3/24, 0.80), handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0)
-        fig.legend(combined_handles_2, labels2, ncol = 1, loc = "center", bbox_to_anchor = (3/24, 0.30), handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0)
+        fig.legend(combined_handles_1, labels1, ncol = 1, loc = "center", bbox_to_anchor = (2/24, 0.80), handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0)
+        fig.legend(combined_handles_2, labels2, ncol = 1, loc = "center", bbox_to_anchor = (2/24, 0.30), handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0)
         custom_handles = [
             matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, label = "full: geometric mean"),
             matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, alpha = 0.3, label = "shade: arithmetic mean")
         ]
         custom_labels = [h.get_label() for h in custom_handles]
-        fig.legend(custom_handles, custom_labels, ncol = 1, loc = "center", bbox_to_anchor = (3/24, 0.62))
+        fig.legend(custom_handles, custom_labels, ncol = 1, loc = "center", bbox_to_anchor = (2/24, 0.62))
         
         # Show the plot
         if options["save"]:

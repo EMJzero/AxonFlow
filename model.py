@@ -20,7 +20,7 @@ class HardwareModel:
     neurons_per_core : int
     # synapses are shared across all neurons in a core, each neuron can have a different
     # weight for a synapse, but the incoming axon is the same for all neurons.
-    # => this is the number of "max. inbound axons per core" of "max. synapses per neuron".
+    # => this is the number of "max. distinct inbound axons per core"
     synapses_per_core : int
     cores_per_chip_x : int
     cores_per_chip_y : int
@@ -200,30 +200,6 @@ class HardwareModel:
         )
         return {"ar_mean": reuse.mean(), "geo_mean": np.exp(np.log(reuse[reuse > 0]).sum()/partitions_count)}
     
-    #"""
-    #Like 'synapticReuse', but each connection is weighted by its spike frequency.
-    #"""
-    #def synapticReuseWeighted(self, snn : HyperGraph, partitions : list[int]) -> float:
-    #    partitions_count = max(partitions) + 1
-    #    synapses_count_per_partition = np.zeros(partitions_count, dtype = np.float32)
-    #    axons_count_per_partition = np.zeros(partitions_count, dtype = np.float32)
-    #    for he in snn.hyperedges:
-    #        already_seen = set()
-    #        for neuron in he.destinations():
-    #            partition = partitions[neuron]
-    #            if partition not in already_seen:
-    #                axons_count_per_partition[partition] += he.spike_frequency
-    #                already_seen.add(partition)
-    #            synapses_count_per_partition[partition] += he.spike_frequency
-    #    reuse = np.divide(
-    #        synapses_count_per_partition,
-    #        axons_count_per_partition,
-    #        out = np.zeros_like(synapses_count_per_partition, dtype = np.float32),
-    #        where = axons_count_per_partition != 0
-    #    )
-    #    # WARNING: the mean should not be "divide by instances", but should be "divide by total weight", do it manually!
-    #    return (reuse.mean(), np.exp(np.mean(np.log(reuse))), reuse.max(), reuse.min(), reuse)
-    
     """
     Given a placement for a partitioned SNN, quantify its connections locality.
     The metric is defined as the average number of core coordinates enclosed by
@@ -313,8 +289,8 @@ class HardwareModel:
                 transit_prob_matrix = self.expectedSpikeTransitProbability(src_core[0], src_core[1], dst_core[0], dst_core[1])
                 x_base = min(dst_core[0], src_core[0])
                 y_base = min(dst_core[1], src_core[1])
-                for x in range(abs(dst_core[0] - src_core[0])):
-                    for y in range(abs(dst_core[1] - src_core[1])):
+                for x in range(abs(dst_core[0] - src_core[0]) + 1):
+                    for y in range(abs(dst_core[1] - src_core[1]) + 1):
                         congestion_matrix[x_base + x][y_base + y] += he.spike_frequency*transit_prob_matrix[x][y]
         # TODO: upgrade this to also return the average congestion, since we are at it...
         return max(map(max, congestion_matrix))
@@ -413,9 +389,8 @@ class HardwareModel:
 
 # Library of existing neuromorphic systems:
 
-# TODO: replace "synapses_per_core" with "axons_per_core", and create the separate concept of "synapses_per_core"!!
-
 # Source: table 2 in "Loihi: A Neuromorphic Manycore Processor with On-Chip Learning", referring to data at 0.75V.
+# DEPRECATED
 loihi = HardwareModel(
     neurons_per_core = 1024,
     synapses_per_core = 4096,
@@ -428,6 +403,7 @@ loihi = HardwareModel(
     latency_per_routing = 2.1,
     latency_per_wire = 5.3
 )
+# REFERRED TO AS: "small" (just 'cause my variable names couldn't get even more confusing)
 loihi_large = HardwareModel(
     neurons_per_core = 1024,
     synapses_per_core = 4096,
@@ -456,6 +432,7 @@ loihi_reuse_test = HardwareModel(
 
 # Source: tables 2 and 3 in "Mapping Very Large Scale Spiking Neuron Network to Neuromorphic Hardware".
 # => It is essentially 4x w.r.t. base Loihi.
+# REFERRED TO AS: "large"
 loihi_jin_84 = HardwareModel(
     neurons_per_core = 4096,
     synapses_per_core = 1024*64,

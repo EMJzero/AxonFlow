@@ -11,7 +11,6 @@ import struct
 import heapq
 import math
 
-from datastructures import *
 from settings import *
 from prints import *
 

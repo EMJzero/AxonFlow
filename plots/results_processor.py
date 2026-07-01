@@ -334,11 +334,14 @@ if __name__ == "__main__":
 
         def formatter(f : float):
             if options["relative"]:
+                #if f == 1.0:
+                #    return "-> 0.0% <-"
+                #elif f < 1.0:
+                #    return f"{100*(f - 1)/f:.1f}%"
+                #return f"{(f):.3f}"
                 if f == 1.0:
-                    return "-> 0.0% <-"
-                elif f < 100.0:
-                    return f"{100*(f - 1)/f:.1f}%"
-                return f"{(f):.3f}"
+                    return "-> 1.0x <-"
+                return f"{(f):.3f}x"
             if f == 1.0:
                 return "-> 1.0 <-"
             return f"{f:.3f}"

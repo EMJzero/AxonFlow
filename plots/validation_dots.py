@@ -2,7 +2,7 @@ from typing import TypeVar, Any, Optional
 from types import FrameType
 
 import matplotlib.pyplot as plt
-from matplotlib.ticker import LogLocator, FuncFormatter, NullFormatter
+from matplotlib.ticker import FixedLocator, FuncFormatter, NullLocator
 import matplotlib.legend_handler
 import matplotlib.patches
 import matplotlib.axes
@@ -13,6 +13,7 @@ from functools import reduce
 from itertools import cycle
 import numpy as np
 import traceback
+import random
 import time
 import math
 import code
@@ -96,8 +97,17 @@ SUPPORTED_EXTENSIONS = ['.pdf', '.eps', '.svg', '.png']
 DPI = 300 #800
 SAVE_NOT_SHOW = True
 
-FONTSIZE = 14 # was 13
-BAR_WIDTH = 0.10
+FONTSIZE = 17 #14 # was 13
+BAR_WIDTH = 0.09
+GROUP_SPACING = 1.35
+GROUP_PADDING = 0.16
+DOT_SIZE_MODEL = 70
+DOT_SIZE_SIM = 45
+DOT_LINE_WIDTH = 1.0
+OVERFLOW_ARROW_FRACTION = 0.08
+OVERFLOW_ARROW_SIZE = 8
+
+random.seed(42)
 
 # default font size
 font = {'family' : 'sans-serif',
@@ -167,20 +177,34 @@ if __name__ == "__main__":
         # Metrics to collect
         energy : dict[str, list[Optional[float]]] = defaultdict(list)
         latency : dict[str, list[Optional[float]]] = defaultdict(list)
+        sim_energy : dict[str, list[Optional[float]]] = defaultdict(list)
+        sim_latency : dict[str, list[Optional[float]]] = defaultdict(list)
         congestion : dict[str, list[Optional[float]]] = defaultdict(list)
-        times : dict[str, list[Optional[float]]] = defaultdict(list)
-        connectivity : dict[str, list[Optional[float]]] = defaultdict(list)
-        part_times : dict[str, list[Optional[float]]] = defaultdict(list)
         init_energy : dict[str, list[Optional[float]]] = defaultdict(list)
         init_latency : dict[str, list[Optional[float]]] = defaultdict(list)
-        init_congestion : dict[str, list[Optional[float]]] = defaultdict(list)
 
         # Optional: specify techniques to omit
         #omit_techniques = {"sequential-hilbert-ps", "hmetis-truenorth", "hmetis-spectral-ps", "hehiding-spectral-ps", "hehiding-truenorth", "edgehiding", "unordered-sequential", "unordered"}
-        omit_techniques = {"sequential-hilbert-ps", "sequential-spectral-ps", "hmetis-hilbert-ps", "hmetis-spectral-ps", "hehiding-hilbert-ps", "hehiding-spectral-ps", "edgehiding", "unordered-sequential", "unordered"}
+        omit_techniques = {
+            "sequential-hilbert-ps",
+            "sequential-spectral-ps",
+            "sequential-spectral-fd",
+            "sequential-truenorth",
+            "hmetis-hilbert-ps",
+            "hmetis-spectral-ps",
+            "hmetis-spectral-fd",
+            "hmetis-truenorth",
+            "hehiding-hilbert-ps",
+            "hehiding-spectral-ps",
+            "hehiding-hilbert-fd",
+            "hehiding-truenorth",
+            "edgehiding",
+            "unordered-sequential",
+            "unordered"
+        }
         # Optional: specify techniques that must be kept
         #must_keep_techniques = {"sequential-truenorth", "hmetis-hilbert-ps"}
-        must_keep_techniques = {"sequential-truenorth"}
+        must_keep_techniques = set()
         # Optional: specify partitioning techniques to omit
         omit_part_techniques = {"setlist"}
         # Optional: disable "shades" for initial layout
@@ -241,123 +265,122 @@ if __name__ == "__main__":
                 if entry:
                     energy[technique].append(entry.get("plac_energy", None))
                     latency[technique].append(entry.get("plac_avg_lat", None))
+                    sim_energy[technique].append(entry.get("sim_energy", None))
+                    sim_latency[technique].append(entry.get("sim_latency", None))
                     congestion[technique].append(entry.get("plac_avg_cong", None))
-                    times[technique].append(entry.get("time", None))
-                    connectivity[technique].append(entry.get("part_cost", None))
-                    part_times[technique].append(entry.get("part_time", None))
                     init_energy[technique].append(entry.get("init_energy", None) if not no_initial_layout else None)
                     init_latency[technique].append(entry.get("init_avg_lat", None) if not no_initial_layout else None)
-                    init_congestion[technique].append(entry.get("init_avg_cong", None) if not no_initial_layout else None)
                 else:
                     energy[technique].append(None)
                     latency[technique].append(None)
+                    sim_energy[technique].append(None)
+                    sim_latency[technique].append(None)
                     congestion[technique].append(None)
-                    times[technique].append(None)
-                    connectivity[technique].append(None)
-                    part_times[technique].append(None)
                     init_energy[technique].append(None)
                     init_latency[technique].append(None)
-                    init_congestion[technique].append(None)
-        
-        # Optional: normalize w.r.t. the best partitioning
+
+        # Optional: compute EDP w.r.t. the best partitioning for techniques selection
         energy_delay_product : dict[str, list[Optional[float]]] = {}
         best_energy_delay_product = [min([energy[technique][i]*latency[technique][i] for technique in techniques if energy[technique][i] != None and latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        best_energy = [min([energy[technique][i] for technique in techniques if energy[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        best_latency = [min([latency[technique][i] for technique in techniques if latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        best_congestion = [min([congestion[technique][i] for technique in techniques if congestion[technique][i] != None], default = 0) for i in range(len(x_indices))]
-        best_connectivity = [min([connectivity[technique][i] for technique in techniques if connectivity[technique][i] != None], default = 0) for i in range(len(x_indices))]
         init_energy_delay_product : dict[str, list[Optional[float]]] = {}
         for technique in techniques:
-            energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None else None, zip(energy[technique], latency[technique], best_energy_delay_product)))
-            energy[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(energy[technique], best_energy)))
-            latency[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(latency[technique], best_latency)))
-            congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
-            connectivity[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(connectivity[technique], best_connectivity)))
-            # still normalize them w.r.t. the eventual best for their metric since they will be in the same plot
-            init_energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None else None, zip(init_energy[technique], init_latency[technique], best_energy_delay_product)))
-            init_energy[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_energy[technique], best_energy)))
-            init_latency[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_latency[technique], best_latency)))
-            init_congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(init_congestion[technique], best_congestion)))
+            energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None and c[2] != 0 else None, zip(energy[technique], latency[technique], best_energy_delay_product)))
+            init_energy_delay_product[technique] = list(map(lambda c : (c[0] * c[1]) / c[2] if c[0] != None and c[1] != None and c[2] != 0 else None, zip(init_energy[technique], init_latency[technique], best_energy_delay_product)))
 
         # Optional: keep only the best placement by EDP for each partitioning technique
-        best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
-        for technique in sorted(energy_delay_product.keys()):
-            edp = energy_delay_product[technique]
-            partitioning_technique = technique.split('-', 1)[0]
-            if partitioning_technique in omit_part_techniques or all(e is None for e in edp):
-                continue
-            # I am not None where someone else is or I am better than them at least once -> keep me!
-            if all(any(edp[i] is not None and (energy_delay_product[other_technique][i] is None or energy_delay_product[other_technique][i] > edp[i]) for i in range(len(file_data))) for other_technique in best_techniques[partitioning_technique]):
-                best_techniques[partitioning_technique].add(technique)
-            for other_technique in list(best_techniques[partitioning_technique]):
-                # Someone else is None when I am and never better than me when it is not None -> ditch the other guy!
-                if all(edp[i] is None and energy_delay_product[other_technique][i] is None or (edp[i] is not None and (energy_delay_product[other_technique][i] is None or energy_delay_product[other_technique][i] > edp[i])) for i in range(len(file_data))):
-                    best_techniques[partitioning_technique].remove(other_technique)
-            if not best_techniques[partitioning_technique]:
-                best_techniques[partitioning_technique].add(technique)
-        pareto_techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values()) | must_keep_techniques
-        print("Dominated (excluded) techniques:", ', '.join(techniques - pareto_techniques))
-        techniques = pareto_techniques
-        energy = {k : v for k, v in energy.items() if k in techniques}
-        latency = {k : v for k, v in latency.items() if k in techniques}
-        congestion = {k : v for k, v in congestion.items() if k in techniques}
-        times = {k : v for k, v in times.items() if k in techniques}
-        connectivity = {k : v for k, v in connectivity.items() if k in techniques}
-        part_times = {k : v for k, v in part_times.items() if k in techniques}
-        energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
+        #best_techniques = defaultdict(set) # best_technique[part_tech] -> set of techniques that are the best for at least one experiment size
+        #for technique in sorted(energy_delay_product.keys()):
+        #    edp = energy_delay_product[technique]
+        #    partitioning_technique = technique.split('-', 1)[0]
+        #    if partitioning_technique in omit_part_techniques or all(e is None for e in edp):
+        #        continue
+        #    # I am not None where someone else is or I am better than them at least once -> keep me!
+        #    if all(any(edp[i] is not None and (energy_delay_product[other_technique][i] is None or energy_delay_product[other_technique][i] > edp[i]) for i in range(len(file_data))) for other_technique in best_techniques[partitioning_technique]):
+        #        best_techniques[partitioning_technique].add(technique)
+        #    for other_technique in list(best_techniques[partitioning_technique]):
+        #        # Someone else is None when I am and never better than me when it is not None -> ditch the other guy!
+        #        if all(edp[i] is None and energy_delay_product[other_technique][i] is None or (edp[i] is not None and (energy_delay_product[other_technique][i] is None or energy_delay_product[other_technique][i] > edp[i])) for i in range(len(file_data))):
+        #            best_techniques[partitioning_technique].remove(other_technique)
+        #    if not best_techniques[partitioning_technique]:
+        #        best_techniques[partitioning_technique].add(technique)
+        #pareto_techniques = reduce(lambda s1, s2 : s1 | s2, best_techniques.values()) | must_keep_techniques
+        #print("Dominated (excluded) techniques:", ', '.join(techniques - pareto_techniques))
+        #techniques = pareto_techniques
+        #energy = {k : v for k, v in energy.items() if k in techniques}
+        #latency = {k : v for k, v in latency.items() if k in techniques}
+        #sim_energy = {k : v for k, v in sim_energy.items() if k in techniques}
+        #sim_latency = {k : v for k, v in sim_latency.items() if k in techniques}
+        #energy_delay_product = {k : v for k, v in energy_delay_product.items() if k in techniques}
+        #init_energy = {k : v for k, v in init_energy.items() if k in techniques}
+        #init_latency = {k : v for k, v in init_latency.items() if k in techniques}
+        #init_energy_delay_product = {k : v for k, v in init_energy_delay_product.items() if k in techniques}
+
+        # Keep raw data for validation statistics
+        raw_energy = {k : list(v) for k, v in energy.items()}
+        raw_latency = {k : list(v) for k, v in latency.items()}
+        raw_sim_energy = {k : list(v) for k, v in sim_energy.items()}
+        raw_sim_latency = {k : list(v) for k, v in sim_latency.items()}
+
+        # Normalize w.r.t. the best simulated result for each SNN
+        best_sim_energy = [min([sim_energy[technique][i] for technique in techniques if sim_energy[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_sim_latency = [min([sim_latency[technique][i] for technique in techniques if sim_latency[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        best_congestion = [min([congestion[technique][i] for technique in techniques if congestion[technique][i] != None], default = 0) for i in range(len(x_indices))]
+        for technique in techniques:
+            energy[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None and c[1] != 0 else None, zip(energy[technique], best_sim_energy)))
+            latency[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None and c[1] != 0 else None, zip(latency[technique], best_sim_latency)))
+            sim_energy[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None and c[1] != 0 else None, zip(sim_energy[technique], best_sim_energy)))
+            sim_latency[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None and c[1] != 0 else None, zip(sim_latency[technique], best_sim_latency)))
+            congestion[technique] = list(map(lambda c : c[0] / c[1] if c[0] != None else None, zip(congestion[technique], best_congestion)))
 
         # Replace 'None' with zero
         for technique in techniques:
             energy[technique] = list(map(lambda x : x if x != None else math.nan, energy[technique]))
             latency[technique] = list(map(lambda x : x if x != None else math.nan, latency[technique]))
+            #sim_energy[technique] = list(map(lambda x : x if x != None else math.nan, sim_energy[technique]))
+            #sim_latency[technique] = list(map(lambda x : x if x != None else math.nan, sim_latency[technique]))
             congestion[technique] = list(map(lambda x : x if x != None else math.nan, congestion[technique]))
-            times[technique] = list(map(lambda x : x if x != None else math.nan, times[technique]))
-            connectivity[technique] = list(map(lambda x : x if x != None else math.nan, connectivity[technique]))
-            part_times[technique] = list(map(lambda x : x if x != None else math.nan, part_times[technique]))
             energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, energy_delay_product[technique]))
             init_energy[technique] = list(map(lambda x : x if x != None else math.nan, init_energy[technique]))
             init_latency[technique] = list(map(lambda x : x if x != None else math.nan, init_latency[technique]))
-            init_congestion[technique] = list(map(lambda x : x if x != None else math.nan, init_congestion[technique]))
             init_energy_delay_product[technique] = list(map(lambda x : x if x != None else math.nan, init_energy_delay_product[technique]))
 
-        # Prepare for bar-plot
-        index = np.arange(len(x_labels))
+        # Prepare for dot-plot
+        index = np.arange(len(x_labels)) * GROUP_SPACING
         offset = (len(techniques) - 1)/2
         #techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), s.split('-', 1)[1])) # descending order on the word before the first '-', then ascending order as a tiebreak.
         techniques = sorted(techniques, key = lambda s : (''.join(chr(255 - ord(c)) for c in s.split('-', 1)[0]), chr(255 - ord(s.split('-', 1)[1][2])))) # descending order on the word before the first '-', then stupid hack to get truenorth to be first, then hilbert, then spectral.
 
         # Plotting (note: 25.6 = 2560 pixel)
-        #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
-        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize = (25.6, 12), sharex = True, tight_layout = True)
+        fig, (ax1, ax2) = plt.subplots(
+            1, 2,
+            figsize = (16, 7.5), #(18, 7) #(18, 6)
+            sharex = True,
+            tight_layout = True
+        )
 
         # Assign style to partitioning techniques
         possible_colors = [
-                "#6C8EBF", # BLUE
+                #"#6C8EBF", # BLUE
                 "#336699", # DARKER BLUE
-                "#48617A", # DARK BLUE
+                #"#48617A", # DARK BLUE
                 #"#FFB700", # YELLOW # alts: D79B00
                 #"#B38000", # DARK YELLOW
                 #"#FF6978", # PINK
                 #"#A8516E", # DARK PINK
-                "#82B366", # GREEN
+                #"#82B366", # GREEN
                 "#169E1B", # DARK GREEN
-                "#2F762F", # DARKER GREEN
-                "#EB6050", # RED # alts: cc3300, e63900, ec3c00, ff531a, ff3c2d, f03c2d, ea382a, ea3b2e, e7473a, e9493d, e94e3d, eb5847
-                "#CD0A00", # DARKER RED
+                #"#2F762F", # DARKER GREEN
+                #"#EB6050", # RED # alts: cc3300, e63900, ec3c00, ff531a, ff3c2d, f03c2d, ea382a, ea3b2e, e7473a, e9493d, e94e3d, eb5847
+                #"#CD0A00", # DARKER RED
                 "#8E2B25", # DARK RED
                 "#C2E812", # LIME
                 "#768E0B", # DARK LIME
             ]
-        #possible_hatches = cycle(['', '/', '\\', 'x', '.']) #['', '/', '\\', '|', '-', '+', 'x', 'o', 'O', '.', '*']
-        #possible_markers = cycle(['o', 'v', '^', 's', 'p', '*', 'D', 'X', 'p'])
-        possible_markers = cycle(['o', 'v', '^', 's', 'p', 'H', 'D', 'P', 'X'])
-        possible_linestyles = cycle(['-', ':', '--', '-.'])
         #part_techniques_to_hatch = defaultdict(lambda : '', hehiding = '/')
         part_techniques_to_hatch = defaultdict(lambda : '')#, spectral = '/')
         style = {}
-        line_style = {}
-        #prev_part_technique, ongoing_color, ongoing_hatch, ongoing_linestyle = None, cycle(possible_colors), next(possible_hatches), next(possible_linestyles)
-        prev_part_technique, ongoing_color, ongoing_hatch, ongoing_linestyle = None, cycle(possible_colors), '', next(possible_linestyles)
+        #prev_part_technique, ongoing_color, ongoing_hatch = None, cycle(possible_colors), next(possible_hatches)
+        prev_part_technique, ongoing_color, ongoing_hatch = None, cycle(possible_colors), ''
         for technique in techniques:
             part_technique, plac_technique = technique.split('-', 1)
             init_plac_technique, plac_ref_technique = plac_technique.split('-', 1) if '-' in plac_technique else ('', plac_technique)
@@ -365,22 +388,22 @@ if __name__ == "__main__":
                 prev_part_technique = part_technique
                 #ongoing_color = cycle(possible_colors)
                 #ongoing_hatch = next(possible_hatches)
-                ongoing_linestyle = next(possible_linestyles)
             color = next(ongoing_color)
             #style[technique] = {"color": color, "hatch": part_techniques_to_hatch[part_technique], "edgecolor": "white"}
             style[technique] = {"color": color, "hatch": part_techniques_to_hatch[init_plac_technique], "edgecolor": "white"}
-            line_style[technique] = {"color": color, "marker" : next(possible_markers), "linestyle" : ongoing_linestyle, "markersize" : 8}
         shadow_bars_alpha = 0.3
 
         # Decide the y-axis bounds by ignoring outliers (lower sigma is more brutal)
-        def set_bounds(ax : matplotlib.axes.Axes, data : Optional[dict[str, float]], shapes : Optional[list[matplotlib.patches.Patch]], sigma : float = 0.5, margin : float = 0.2):
+        def set_bounds(ax : matplotlib.axes.Axes, data : Optional[dict[str, float] | list[dict[str, float]]], shapes : Optional[list[matplotlib.patches.Patch]], sigma : float = 0.5, margin : float = 0.2):
             if data:
+                data = data if isinstance(data, list) else [data]
                 data_by_x = defaultdict(list)
-                for technique in techniques:
-                    for xi, value in zip(x_labels, data[technique]):
-                        if value is None or np.isnan(value):
-                            continue
-                        data_by_x[xi].append(value)
+                for data_item in data:
+                    for technique in techniques:
+                        for xi, value in zip(x_labels, data_item[technique]):
+                            if value is None or np.isnan(value):
+                                continue
+                            data_by_x[xi].append(value)
 
                 valid_y = []
                 for xi, values in data_by_x.items():
@@ -403,8 +426,10 @@ if __name__ == "__main__":
                         ymin -= margin * yrange
                         ymax += margin * yrange
                     if ax.get_yscale() == "log":
-                        ymin = 1.0 - margin / 2 #max(ymin, np.min(valid_y[valid_y > 0]) * 0.9)
-                        ymax = max(ymax, ymin * 1.1)
+                        valid_y = valid_y[valid_y > 0]
+                        if len(valid_y) > 0:
+                            ymin = max(0.001, min(ymin, valid_y.min() * (1.0 - margin / 2)))
+                            ymax = max(ymax, 1.0 + margin / 2)
                     ax.set_ylim(ymin, ymax)
             
             if shapes:
@@ -413,171 +438,163 @@ if __name__ == "__main__":
                     min_x = min(min_x, shape.get_x())
                     max_x = max(max_x, shape.get_x())
                 ax.set_xlim(min_x - BAR_WIDTH, max_x + 2*BAR_WIDTH)
+            else:
+                half_group_width = offset * BAR_WIDTH + GROUP_PADDING
+                ax.set_xlim(index[0] - half_group_width, index[-1] + half_group_width)
 
-        # Sets the y-scale for bar plots to be in percentage
-        def format_y_bars(ax : matplotlib.axes.Axes):
+        # Sets the y-scale for dot plots to be in ratio to best simulated
+        def format_y_bars(ax : matplotlib.axes.Axes, ymin : float, ymax : float):
             ax.set_yscale("log", base = 10)
+            ax.set_ylim(ymin, ymax)
             ax.grid(axis = 'y', which = 'major')
-            ax.grid(axis = 'y', which = 'minor', alpha = 0.5)
-            ax.yaxis.set_major_locator(LogLocator(base = 10.0, subs = np.arange(1.0, 10.0, 1.0), numticks = 10))
-            ax.yaxis.set_minor_locator(LogLocator(base = 10.0, subs = np.arange(1.0, 9.0, 0.1), numticks = 10))
+            ax.yaxis.set_major_locator(FixedLocator(np.arange(math.ceil(ymin * 10), math.floor(ymax * 10) + 1) / 10))
+            ax.yaxis.set_minor_locator(NullLocator())
             #formatter = FuncFormatter(lambda v, _: f"{v*100:.0f}%" if v > 0 else "")
             formatter = FuncFormatter(lambda v, _: f"{v:.1f}" if v > 0 else "")
             ax.yaxis.set_major_formatter(formatter)
-            #ax.yaxis.set_minor_formatter(formatter)
-            ax.yaxis.set_minor_formatter(NullFormatter())
+
+        def add_snn_lanes(ax : matplotlib.axes.Axes):
+            half_group_width = offset * BAR_WIDTH + GROUP_PADDING
+            for i, xi in enumerate(index):
+                #if i % 2 == 0:
+                ax.axvspan(
+                    xi - half_group_width,
+                    xi + half_group_width,
+                    color = "black",
+                    alpha = 0.07, #0.035
+                    linewidth = 0,
+                    zorder = 0
+                )
+                ax.axvline(
+                    xi,
+                    color = "black",
+                    alpha = 0.08,
+                    linewidth = 0.8,
+                    zorder = 0
+                )
+            for left, right in zip(index[:-1], index[1:]):
+                ax.axvline(
+                    (left + right) / 2,
+                    color = "black",
+                    alpha = 0.18,
+                    linewidth = 0.9,
+                    zorder = 0
+                )
+
+        def draw_overflow_arrows(ax : matplotlib.axes.Axes, model : dict[str, list[float]], sim : dict[str, list[float]]):
+            ymin, ymax = ax.get_ylim()
+            if ax.get_yscale() == "log":
+                arrow_start = 10 ** (math.log10(ymax) - OVERFLOW_ARROW_FRACTION * (math.log10(ymax) - math.log10(ymin)))
+            else:
+                arrow_start = ymax - OVERFLOW_ARROW_FRACTION * (ymax - ymin)
+
+            for j, technique in enumerate(techniques):
+                color = style[technique]["color"]
+                x = index + (j - offset) * BAR_WIDTH
+                for xi, model_value, sim_value in zip(x, model[technique], sim[technique]):
+                    if not np.isnan(model_value) and not np.isnan(sim_value) and model_value > ymax and sim_value > ymax:
+                        ax.annotate(
+                            "",
+                            xy = (xi, ymax),
+                            xytext = (xi, arrow_start),
+                            arrowprops = {
+                                "arrowstyle": "-|>",
+                                "color": color,
+                                "linewidth": 1.0,
+                                "mutation_scale": OVERFLOW_ARROW_SIZE,
+                                "shrinkA": 0,
+                                "shrinkB": 0,
+                            },
+                            annotation_clip = False,
+                            zorder = 5
+                        )
 
         # Energy plot
         def energy_plot(ax : matplotlib.axes.Axes):
-            rects = []
+            y_lim = 2.5
+            add_snn_lanes(ax)
             for j, technique in enumerate(techniques):
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_energy[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy[technique], BAR_WIDTH, label = technique, **style[technique])
-            ax.set_xticks(x_indices)
+                color = style[technique]["color"]
+                x = index + (j - offset) * BAR_WIDTH
+                for xi, model_value, sim_value in zip(x, energy[technique], sim_energy[technique]):
+                    if not np.isnan(model_value) and not np.isnan(sim_value):
+                        ax.plot([xi, xi], [model_value, sim_value], color = color, alpha = 0.6, linewidth = DOT_LINE_WIDTH, zorder = 1)
+                ax.scatter(x, energy[technique], s = DOT_SIZE_MODEL, marker = 'o', facecolors = 'white', edgecolors = color, linewidths = 1.4, label = technique, zorder = 3)
+                ax.scatter(x, sim_energy[technique], s = DOT_SIZE_SIM, marker = 'o', facecolors = color, edgecolors = color, linewidths = 0.8, zorder = 4)
+            ax.axhline(y = 1, color = 'black', alpha = 0.45, linestyle='--', linewidth = 1.0)
+            ax.set_xticks(index)
             ax.set_xticklabels(x_labels, rotation = 45)
-            #ax.set_xlabel("Problem Size (nodes)")
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            #ax.set_ylabel("Placement Energy (normalized to lowest)")
-            ax.set_ylabel("Energy (normalized to lowest)")
-            ax.set_title("Energy across SNNs")
+            ax.set_ylabel("Energy (ratio to best simulated)")
+            ax.set_title("Simulated and Estimated Energy across SNNs")
             #ax.legend()
-            format_y_bars(ax)
-            set_bounds(ax, energy, rects)
+            format_y_bars(ax, 0.9, y_lim)
+            #set_bounds(ax, [energy, sim_energy], None, sigma = 1.0)
+            draw_overflow_arrows(ax, energy, sim_energy)
 
         # Latency plot
         def latency_plot(ax : matplotlib.axes.Axes):
-            rects = []
+            y_lim = 1.6
+            add_snn_lanes(ax)
             for j, technique in enumerate(techniques):
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_latency[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, latency[technique], BAR_WIDTH, label = technique, **style[technique])
-            ax.set_xticks(x_indices)
+                color = style[technique]["color"]
+                x = index + (j - offset) * BAR_WIDTH
+                for xi, model_value, sim_value in zip(x, latency[technique], sim_latency[technique]):
+                    if not np.isnan(model_value) and not np.isnan(sim_value):
+                        ax.plot([xi, xi], [model_value, sim_value], color = color, alpha = 0.6, linewidth = DOT_LINE_WIDTH, zorder = 1)
+                ax.scatter(x, latency[technique], s = DOT_SIZE_MODEL, marker = 'o', facecolors = 'white', edgecolors = color, linewidths = 1.4, label = technique, zorder = 3)
+                ax.scatter(x, sim_latency[technique], s = DOT_SIZE_SIM, marker = 'o', facecolors = color, edgecolors = color, linewidths = 0.8, zorder = 4)
+            ax.axhline(y = 1, color = 'black', alpha = 0.45, linestyle='--', linewidth = 1.0)
+            ax.set_xticks(index)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_ylabel("Avg. Latency (normalized to lowest)")
-            ax.set_title("Latency across SNNs")
+            ax.set_ylabel("Avg. Latency (ratio to best simulated)")
+            ax.set_title("Simulated and Estimated Latency across SNNs")
             #ax.legend()
-            format_y_bars(ax)
-            set_bounds(ax, latency, rects, sigma = 1.0)
+            format_y_bars(ax, 0.7, y_lim)
+            #set_bounds(ax, [latency, sim_latency], None, sigma = 1.0)
+            draw_overflow_arrows(ax, latency, sim_latency)
 
-        # Congestion plot
-        def congestion_plot(ax : matplotlib.axes.Axes):
-            rects = []
-            for j, technique in enumerate(techniques):
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_congestion[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, congestion[technique], BAR_WIDTH, label = technique, **style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_ylabel("Avg. congestion (normalized to lowest)")
-            ax.set_title("Congestion across SNNs")
-            #ax.legend()
-            format_y_bars(ax)
-            set_bounds(ax, congestion, rects, sigma = 0.8)
-
-        # TODO: does it even make sense to look at this? It is not like, the longer you run, the more you consume here...
-        # Energy x Delay Product plot
-        def edp_plot(ax : matplotlib.axes.Axes):
-            rects = []
-            for j, technique in enumerate(techniques):
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_energy_delay_product[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy_delay_product[technique], BAR_WIDTH, label = technique, **style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            #ax.set_ylabel("Placement Energy x Latency (normalized to lowest)")
-            ax.set_ylabel("Energy x Latency (normalized to lowest)")
-            ax.set_title("Energy-Latency Product across SNNs")
-            #ax.legend()
-            format_y_bars(ax)
-            set_bounds(ax, energy_delay_product, rects)
-
-        # Partitioned Hypergraph Connectivity plot
-        def conn_plot(ax : matplotlib.axes.Axes):
-            rects = []
-            for j, technique in enumerate(techniques):
-                rects += ax.bar(index + (j - offset) * BAR_WIDTH, connectivity[technique], BAR_WIDTH, label = technique, **style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_ylabel("Partitioning Connectivity (normalized to lowest)")
-            ax.set_title("Connectivity across SNNs")
-            #ax.legend()
-            format_y_bars(ax)
-            set_bounds(ax, connectivity, rects)
-
-        # Partitioning Time plot
-        def part_time_plot(ax : matplotlib.axes.Axes):
-            for technique in techniques:
-                ax.plot(x_indices, part_times[technique], label = technique, **line_style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_yscale('log', base = 10)
-            ax.set_ylabel("Time [s]")
-            ax.set_title("Partitioning Time across SNNs")
-            #ax.legend()
-            ax.grid(True)
-
-        # Placement Time plot
-        def plac_time_plot(ax : matplotlib.axes.Axes):
-            for technique in techniques:
-                ax.plot(x_indices, list(map(lambda t : t[0] - t[1], zip(times[technique], part_times[technique]))), label = technique, **line_style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_yscale('log', base = 10)
-            ax.set_ylabel("Time [s]")
-            ax.set_title("Placement Time across SNNs")
-            #ax.legend()
-            ax.grid(True)
-
-        # Total Time plot
-        def tot_time_plot(ax : matplotlib.axes.Axes):
-            for technique in techniques:
-                ax.plot(x_indices, times[technique], label = technique, **line_style[technique])
-            ax.set_xticks(x_indices)
-            ax.set_xticklabels(x_labels, rotation = 45)
-            ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_yscale('log', base = 10)
-            ax.set_ylabel("Time [s]")
-            ax.set_title("Total Time across SNNs")
-            #ax.legend()
-            ax.grid(True)
-        
         energy_plot(ax1)
         latency_plot(ax2)
-        plac_time_plot(ax3)
-        #conn_plot(ax3)
-        congestion_plot(ax4)
-        edp_plot(ax5)
-        tot_time_plot(ax6)
-        
-        #conn_plot(ax1)
-        #part_time_plot_lines(ax2)
-        
+
         max_legend_rows = 3
         # HP: all axis have the same entries!
         handles, labels = ax1.get_legend_handles_labels()
+        handles = [
+            (
+                ax1.scatter([], [], s = DOT_SIZE_MODEL, marker = 'o', facecolors = 'white', edgecolors = style[label]["color"], linewidths = 1.4),
+                ax1.scatter([], [], s = DOT_SIZE_SIM, marker = 'o', facecolors = style[label]["color"], edgecolors = style[label]["color"], linewidths = 0.8)
+            )
+            for label in labels
+        ]
         # Rename labels
         labels = list(map(rename_label, labels))
-        # UNLESS: you use lines for time, instead of bars
-        handles_lines, _ = ax6.get_legend_handles_labels()
-        if not no_initial_layout:
-            handles += [
-                matplotlib.patches.Rectangle((0, 0,), 0, 0, facecolor = "gray", edgecolor = "white", alpha = 0.0),
-                matplotlib.patches.Rectangle((0, 0,), 0, 0, facecolor = "gray", edgecolor = "white", alpha = 0.0)
-            ]
-            labels += ["full: refined placement", "shade: initial placement"]
-            handles_lines += [
-                matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10),
-                matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, alpha = 0.3)
-            ]
-        combined_handles = list(zip(handles, handles_lines))
+        handles += [
+            ax1.scatter([], [], s = DOT_SIZE_MODEL, marker = 'o', facecolors = 'white', edgecolors = 'black', linewidths = 1.4),
+            ax1.scatter([], [], s = DOT_SIZE_SIM, marker = 'o', facecolors = 'black', edgecolors = 'black', linewidths = 0.8)
+        ]
+        labels += ["empty: analytical model", "full: simulated"]
         ncols = math.ceil(len(labels) / max_legend_rows)
-        fig.legend(combined_handles, labels, loc = 'lower center', ncol = ncols, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}, handlelength = 5.0) # handlelength = 4.0
+        fig.legend(handles, labels, loc = 'lower center', ncol = ncols, handlelength = 3.0, handler_map = {tuple: matplotlib.legend_handler.HandlerTuple(ndivide = None)}) # handlelength = 4.0
+
+        for metric_name, model_raw, sim_raw in [("energy", raw_energy, raw_sim_energy), ("latency", raw_latency, raw_sim_latency)]:
+            errors = []
+            same_best = 0
+            total_best = 0
+            for i, label in enumerate(x_labels):
+                available = [technique for technique in techniques if model_raw[technique][i] != None and sim_raw[technique][i] != None]
+                if available:
+                    total_best += 1
+                    if min(available, key = lambda t : model_raw[t][i]) == min(available, key = lambda t : sim_raw[t][i]):
+                        same_best += 1
+                for technique in available:
+                    if sim_raw[technique][i] != 0:
+                        errors.append(abs(model_raw[technique][i] - sim_raw[technique][i]) / sim_raw[technique][i] * 100)
+            print(f"{metric_name} validation: median error = {np.median(errors):.2f}%, mean error = {np.mean(errors):.2f}%, max error = {np.max(errors):.2f}%, min error = {np.min(errors):.2f}%, same best = {same_best}/{total_best}" if errors else f"{metric_name} validation: no valid simulated data found")
         
         # Show the plot
-        plt.tight_layout(rect = [0, 0.075, 1, 1]) # TODO: comment me or use "gridspec" for a better scaling of plots!
+        plt.tight_layout(rect = [0, 0.15, 1, 1]) #[0, 0.125, 1, 1] #[0, 0.075, 1, 1]
         if options["save"]:
             filename = options["save"]
             if not any(filename.endswith(ext) for ext in SUPPORTED_EXTENSIONS):

@@ -328,7 +328,7 @@ def loadSNNh5(nodes_path : str, edges_path : str, spikes_path : str, allow_nodes
     if all(i == n for i, n in enumerate(nodes_file["nodes"][nodes_key]["node_id"])): # if nodes are numbered progressively from 0, use a range for a compact representation
         nodes = range(len(nodes_file["nodes"][nodes_key]["node_id"]))
     elif not allow_nodes_renaming:
-        Exception("Nodes are not numbered progressively from 0, this would be too slow to parse...\nIf you still want to parse this, set 'allow_nodes_renaming' to True...")
+        raise Exception("Nodes are not numbered progressively from 0, this would be too slow to parse...\nIf you still want to parse this, set 'allow_nodes_renaming' to True...")
     else:
         nodes = {n : i for i, n in enumerate(nodes_file["nodes"][nodes_key]["node_id"])} # old node id -> new node id
     print(f"Found {len(nodes)} nodes...")

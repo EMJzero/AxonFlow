@@ -97,7 +97,7 @@ DPI = 300 #800
 SAVE_NOT_SHOW = True
 
 FONTSIZE = 14 # was 13
-BAR_WIDTH = 0.10
+BAR_WIDTH = 0.09
 
 # default font size
 font = {'family' : 'sans-serif',
@@ -328,7 +328,13 @@ if __name__ == "__main__":
 
         # Plotting (note: 25.6 = 2560 pixel)
         #fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize = (18, 6), sharex = True, tight_layout = True)
-        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(2, 3, figsize = (25.6, 12), sharex = True, tight_layout = True)
+        fig, ((ax1, ax2, ax3), (ax4, ax5, ax6)) = plt.subplots(
+            2, 3,
+            figsize = (25.6, 12),
+            sharex = True,
+            tight_layout = True,
+            gridspec_kw = {"width_ratios": [0.37, 0.37, 0.26]} #{"width_ratios": [0.36, 0.36, 0.28]}
+        )
 
         # Assign style to partitioning techniques
         possible_colors = [
@@ -433,12 +439,13 @@ if __name__ == "__main__":
             for j, technique in enumerate(techniques):
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_energy[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy[technique], BAR_WIDTH, label = technique, **style[technique])
+            ax.axhline(y = 1, color = 'black', alpha = 0.45, linestyle='--', linewidth = 1.0)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             #ax.set_xlabel("Problem Size (nodes)")
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            #ax.set_ylabel("Placement Energy (normalized to lowest)")
-            ax.set_ylabel("Energy (normalized to lowest)")
+            #ax.set_ylabel("Placement Energy (ratio to best)")
+            ax.set_ylabel("Energy (ratio to best)")
             ax.set_title("Energy across SNNs")
             #ax.legend()
             format_y_bars(ax)
@@ -450,10 +457,11 @@ if __name__ == "__main__":
             for j, technique in enumerate(techniques):
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_latency[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, latency[technique], BAR_WIDTH, label = technique, **style[technique])
+            ax.axhline(y = 1, color = 'black', alpha = 0.45, linestyle='--', linewidth = 1.0)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_ylabel("Avg. Latency (normalized to lowest)")
+            ax.set_ylabel("Avg. Latency (ratio to best)")
             ax.set_title("Latency across SNNs")
             #ax.legend()
             format_y_bars(ax)
@@ -465,10 +473,11 @@ if __name__ == "__main__":
             for j, technique in enumerate(techniques):
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_congestion[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, congestion[technique], BAR_WIDTH, label = technique, **style[technique])
+            ax.axhline(y = 1, color = 'black', alpha = 0.45, linestyle='--', linewidth = 1.0)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_ylabel("Avg. congestion (normalized to lowest)")
+            ax.set_ylabel("Avg. Congestion (ratio to best)")
             ax.set_title("Congestion across SNNs")
             #ax.legend()
             format_y_bars(ax)
@@ -481,11 +490,12 @@ if __name__ == "__main__":
             for j, technique in enumerate(techniques):
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, init_energy_delay_product[technique], BAR_WIDTH, label = None, alpha = shadow_bars_alpha, **style[technique])
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, energy_delay_product[technique], BAR_WIDTH, label = technique, **style[technique])
+            ax.axhline(y = 1, color = 'black', alpha = 0.45, linestyle='--', linewidth = 1.0)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            #ax.set_ylabel("Placement Energy x Latency (normalized to lowest)")
-            ax.set_ylabel("Energy x Latency (normalized to lowest)")
+            #ax.set_ylabel("Placement Energy x Latency (ratio to best)")
+            ax.set_ylabel("Energy x Latency (ratio to best)")
             ax.set_title("Energy-Latency Product across SNNs")
             #ax.legend()
             format_y_bars(ax)
@@ -496,10 +506,11 @@ if __name__ == "__main__":
             rects = []
             for j, technique in enumerate(techniques):
                 rects += ax.bar(index + (j - offset) * BAR_WIDTH, connectivity[technique], BAR_WIDTH, label = technique, **style[technique])
+            ax.axhline(y = 1, color = 'black', alpha = 0.45, linestyle='--', linewidth = 1.0)
             ax.set_xticks(x_indices)
             ax.set_xticklabels(x_labels, rotation = 45)
             ax.set_xlabel(f"SNN (least → most {x_axis_order})")
-            ax.set_ylabel("Partitioning Connectivity (normalized to lowest)")
+            ax.set_ylabel("Partitioning Connectivity (ratio to best)")
             ax.set_title("Connectivity across SNNs")
             #ax.legend()
             format_y_bars(ax)

@@ -30,9 +30,9 @@ from snn import *
 
 SUPPORTED_EXTENSIONS = ['.pdf', '.eps', '.svg', '.png']
 DPI = 300 #800
-SAVE_NOT_SHOW = True
 
-FONTSIZE = 15
+FONTSIZE = 17 # was 15
+IN_PLOT_TEXT_FONTSIZE = 13
 
 SAVE = False
 SAVE_PATH = "spike_frequency_manual_plot.png"
@@ -41,18 +41,30 @@ LOG_SPACE_X = False
 LOG_SPACE_Y = True
 FIT_LOGNORM = True
 
+# default font size
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
         'size'   : FONTSIZE}
 
 matplotlib.rc('font', **font)
 
+# specific element sizes
+# autoscalable options: xx-small (0.58x), x-small (0.69x), small (0.83x), medium (1.0x), large (1.2x), x-large (1.44x), xx-large (1.73x)
+plt.rcParams.update({
+    #'axes.titlesize': 18, # default: FONTSIZE*1.2
+    #'axes.labelsize': 15, # default: FONTSIZE*1
+    'xtick.labelsize': 15, # default: FONTSIZE*1
+    'ytick.labelsize': 15, # default: FONTSIZE*1
+    #'legend.fontsize': 15, # default: FONTSIZE*1
+    #'figure.titlesize': 18 # default: FONTSIZE*1.2
+})
+
 
 # MAIN:
 
 if __name__ == "__main__":
     processed_snns_paths = {
-        "8k model": "snn_models/8k_model_processed",
+        "16k model": "snn_models/8k_model_processed",
         "64k model": "snn_models/64k_model_ordered_processed",
         "lenet": "snn_models/lenet_cifar_ordered_processed",
         #"alexnet": "snn_models/alexnet_cifar_ordered_processed",
@@ -159,7 +171,7 @@ if __name__ == "__main__":
             ax.text(
                 x_pos, y_pos,
                 f"Median = {scale:.2f}, Coeff. of Variation = {cv:.2f}",
-                fontsize = FONTSIZE - 2, color = "black", # same color as curve
+                fontsize = IN_PLOT_TEXT_FONTSIZE, color = "black", # same color as curve
                 ha = "left", va = "bottom"
             )
 

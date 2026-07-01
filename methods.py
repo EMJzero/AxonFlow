@@ -133,6 +133,7 @@ class Result:
 # FULL METHODS:
 
 # NOTE: partitioning is repeated each time to have multiple execution time measurements...
+#       ( I fully acknowledge this is awful code design on my end - sorry >.< )
 
 def run_sequential_topo_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, save : Optional[str]) -> Result:
     res = Result(name)
@@ -270,7 +271,7 @@ def run_hehiding_hilbert_fd(name : str, hg : HyperGraph, hw : HardwareModel, see
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.startTime()
-    part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
     if save: save_list(part, os.path.join(save, name + PART_EXT))
@@ -290,7 +291,7 @@ def run_hehiding_hilbert_ps(name : str, hg : HyperGraph, hw : HardwareModel, see
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.startTime()
-    part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
     if save: save_list(part, os.path.join(save, name + PART_EXT))
@@ -310,7 +311,7 @@ def run_hehiding_spectral_fd(name : str, hg : HyperGraph, hw : HardwareModel, se
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.startTime()
-    part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
     if save: save_list(part, os.path.join(save, name + PART_EXT))
@@ -329,7 +330,7 @@ def run_hehiding_spectral_ps(name : str, hg : HyperGraph, hw : HardwareModel, se
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.startTime()
-    part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
     if save: save_list(part, os.path.join(save, name + PART_EXT))
@@ -348,7 +349,7 @@ def run_hehiding_truenorth(name : str, hg : HyperGraph, hw : HardwareModel, seed
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.startTime()
-    part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part, squish_hyperedges = True)
     res.partTime()
     if save: save_list(part, os.path.join(save, name + PART_EXT))
@@ -653,7 +654,7 @@ def run_hehiding(name : str, hg : HyperGraph, hw : HardwareModel, seed : int, sa
     res.setGraph(hg.nodes, hg.totalConnections(), hg.totalSpikeFrequency())
     res.setHw(hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     res.startTime()
-    part = partitionHyperedgeHidingOnlyInbound(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
+    part = partitionHyperedgeHiding(hg, hw.neurons_per_core, hw.synapses_per_core, hw.coresCount())
     part_snn = hg.getPartitionsHypergraph(part)
     res.endTime()
     if save: save_list(part, os.path.join(save, name + PART_EXT))

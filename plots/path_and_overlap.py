@@ -32,9 +32,8 @@ from snn import *
 
 SUPPORTED_EXTENSIONS = ['.pdf', '.eps', '.svg', '.png']
 DPI = 300 #800
-SAVE_NOT_SHOW = True
 
-FONTSIZE = 15
+FONTSIZE = 17 # was 15
 BAR_WIDTH = 0.4
 
 SAVE = False
@@ -44,11 +43,23 @@ LOG_SPACE_X = False
 LOG_SPACE_Y = True
 FIT_LOGNORM = True
 
+# default font size
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
         'size'   : FONTSIZE}
 
 matplotlib.rc('font', **font)
+
+# specific element sizes
+# autoscalable options: xx-small (0.58x), x-small (0.69x), small (0.83x), medium (1.0x), large (1.2x), x-large (1.44x), xx-large (1.73x)
+plt.rcParams.update({
+    #'axes.titlesize': 18, # default: FONTSIZE*1.2
+    #'axes.labelsize': 15, # default: FONTSIZE*1
+    'xtick.labelsize': 15, # default: FONTSIZE*1
+    'ytick.labelsize': 15, # default: FONTSIZE*1
+    #'legend.fontsize': 15, # default: FONTSIZE*1
+    #'figure.titlesize': 18 # default: FONTSIZE*1.2
+})
 
 
 # MAIN:
@@ -192,7 +203,7 @@ if __name__ == "__main__":
     ax2.set_ylim(0.004, 8.0)
 
     # Show the plot
-    fig.suptitle("Additinal SNN Properties")
+    fig.suptitle("Additional SNN Hypergraph Properties")
     #plt.tight_layout()
     if SAVE:
         filename = SAVE_PATH

@@ -98,15 +98,27 @@ SUPPORTED_EXTENSIONS = ['.pdf', '.eps', '.svg', '.png']
 DPI = 300 #800
 SAVE_NOT_SHOW = True
 
-FONTSIZE = 13
+FONTSIZE = 15 # was 13
 BAR_WIDTH_PART = 0.15
 BAR_WIDTH_PLAC = 0.10
 
+# default font size
 font = {'family' : 'sans-serif',
         'weight' : 'normal',
         'size'   : FONTSIZE}
 
 matplotlib.rc('font', **font)
+
+# specific element sizes
+# autoscalable options: xx-small (0.58x), x-small (0.69x), small (0.83x), medium (1.0x), large (1.2x), x-large (1.44x), xx-large (1.73x)
+plt.rcParams.update({
+    #'axes.titlesize': 15.6, # default: FONTSIZE*1.2
+    #'axes.labelsize': 13, # default: FONTSIZE*1
+    'xtick.labelsize': 13, # default: FONTSIZE*1
+    'ytick.labelsize': 13, # default: FONTSIZE*1
+    #'legend.fontsize': 13, # default: FONTSIZE*1
+    #'figure.titlesize': 15.6 # default: FONTSIZE*1.2
+})
 
 
 # MAIN:
@@ -531,7 +543,7 @@ if __name__ == "__main__":
             #matplotlib.patches.Rectangle((0, 0,), 0, 0, color = "black", edgecolor = "white", label = "full: geometric mean"),
             #matplotlib.patches.Rectangle((0, 0,), 0, 0, color = "black", edgecolor = "white", label = "shade: average mean", alpha = 0.3)
             matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, label = "full: geometric mean"),
-            matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, alpha = 0.3, label = "shade: average mean")
+            matplotlib.lines.Line2D([0], [0], marker = "s", color = "gray", linestyle = "", markersize = 10, alpha = 0.3, label = "shade: arithmetic mean")
         ]
         handles1, labels1 = ax1.get_legend_handles_labels()
         handles1 = custom_handles + handles1
