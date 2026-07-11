@@ -18,18 +18,22 @@ class HardwareModel:
     # CONSTRAINTS:
     # how many neurons a core can store and process.
     neurons_per_core : int
-    # synapses are shared across all neurons in a core, each neuron can have a different
+    # axons are shared across all neurons in a core, each neuron can have a different
     # weight for a synapse, but the incoming axon is the same for all neurons.
     # => this is the number of "max. distinct inbound axons per core"
+    axons_per_core : int
+    # how many synapses a core can store, that is, the total number of inbound connections
+    # (hyperedge pins) across all neurons in the core, each neuron counting all its inbound
+    # hyperedges, regardless of other neurons in the core receiving the same ones.
+    # => 'neurons_per_core*axons_per_core' makes this constraint never binding (e.g. TrueNorth's crossbar).
     synapses_per_core : int
     cores_per_chip_x : int
     cores_per_chip_y : int
     chips_per_system_x : int
     chips_per_system_y: int
-    # TODO: two hardware constraints are missing, that Loihi has:
-    # 1) maximum number of outbound hyperedge branches per core (counting each hyperedge once per destination core)
-    # 2) maximum number of true synapses per core (in TrueNorth, this is just neurons*axons, so no need, but in Loihi it is less, 2**14)
-    
+    # TODO: a hardware constraint is missing, that Loihi has:
+    # - maximum number of outbound hyperedge branches per core (counting each hyperedge once per destination core)
+
     # COSTS:
     # energy required for a core's router to route a spike [pJ]
     energy_per_routing : float
@@ -41,6 +45,7 @@ class HardwareModel:
     latency_per_wire : float
     
     def __init__(self, neurons_per_core : int,
+                 axons_per_core : int,
                  synapses_per_core : int,
                  cores_per_chip_x : int,
                  cores_per_chip_y : int,
@@ -50,10 +55,11 @@ class HardwareModel:
                  energy_per_wire : float,
                  latency_per_routing : float,
                  latency_per_wire : float):
-        assert neurons_per_core > 0 and synapses_per_core > 0 and cores_per_chip_x > 0 and cores_per_chip_y > 0 and chips_per_system_x > 0 and chips_per_system_y > 0, "All hardware specifications must be > 0."
+        assert neurons_per_core > 0 and axons_per_core > 0 and synapses_per_core > 0 and cores_per_chip_x > 0 and cores_per_chip_y > 0 and chips_per_system_x > 0 and chips_per_system_y > 0, "All hardware specifications must be > 0."
         assert energy_per_routing >= 0 and energy_per_wire >= 0 and latency_per_routing >= 0 and latency_per_wire >= 0, "All hardware costs must be >= 0."
         assert chips_per_system_x == 1 and chips_per_system_y == 1, "Functionality not yet implemented, ensure that 'chips_per_system_x' and 'chips_per_system_y' are 1."
         self.neurons_per_core = neurons_per_core
+        self.axons_per_core = axons_per_core
         self.synapses_per_core = synapses_per_core
         self.cores_per_chip_x = cores_per_chip_x
         self.cores_per_chip_y = cores_per_chip_y
@@ -81,8 +87,8 @@ class HardwareModel:
     
     """
     Empirically verifies if a given SNN could theoretically fit on the hardware w.r.t.
-    two constraints: the space available for nodes, and that for edges.
-    
+    three constraints: the space available for nodes, that for axons, and that for synapses.
+
     Can give false negatives. Never gives false positives.
     """
     def checkSnnFit(self, snn : HyperGraph, already_partitioned : bool = False, verbose : bool = False) -> bool:
@@ -91,24 +97,33 @@ class HardwareModel:
                 if verbose:
                     print("SNN CAN'T FIT ON THE HW: more neuron clusters than the HW cores")
                 return False
-            if any(len(snn.getInboundHyperedges(n)) > self.synapses_per_core for n in range(snn.nodes)):
+            if any(len(snn.getInboundHyperedges(n)) > self.axons_per_core for n in range(snn.nodes)):
                 if verbose:
-                    print("SNN CAN'T FIT ON THE HW: more inbound synapses on a neuron cluster than the HW can handle")
+                    print("SNN CAN'T FIT ON THE HW: more inbound axons on a neuron cluster than the HW can handle")
                 return False
+            # NOTE: the synapses of a neuron cluster can't be recovered from the partitioned hypergraph, so they are not checked here
             return True
         if snn.nodes > self.coresCount()*self.neurons_per_core:
             if verbose:
                 print("SNN CAN'T FIT ON THE HW: more neurons than the HW can house")
             return False # more neurons than the HW can house
+        if any(len(snn.getInboundHyperedges(n)) > self.axons_per_core for n in range(snn.nodes)):
+            if verbose:
+                print("SNN CAN'T FIT ON THE HW: more inbound axons on a single neuron than the HW can handle")
+            return False # more inbound axons on a single neuron than the HW can handle
+        if sum(len(snn.getInboundHyperedges(n)) for n in range(snn.nodes)) > self.coresCount()*self.synapses_per_core:
+            if verbose:
+                print("SNN CAN'T FIT ON THE HW: more synapses than the HW can house")
+            return False # more synapses than the HW can house
         if any(len(snn.getInboundHyperedges(n)) > self.synapses_per_core for n in range(snn.nodes)):
             if verbose:
                 print("SNN CAN'T FIT ON THE HW: more inbound synapses on a single neuron than the HW can handle")
             return False # more inbound synapses on a single neuron than the HW can handle
-        #if not can_distribute_sets_heuristic([{he.source() for he in snn.getInboundHyperedges(n)} for n in range(snn.nodes)], self.coresCount(), self.synapses_per_core, self.neurons_per_core):
+        #if not can_distribute_sets_heuristic([{he.source() for he in snn.getInboundHyperedges(n)} for n in range(snn.nodes)], self.coresCount(), self.axons_per_core, self.neurons_per_core):
         #    print("no valid way to split neurons (and their synapses) among cores")
         #    return False # no valid way to split neurons (and their synapses) among cores
         try:
-            partitionSequential(snn, self.neurons_per_core, self.synapses_per_core, self.coresCount())
+            partitionSequential(snn, self.neurons_per_core, self.axons_per_core, self.synapses_per_core, self.coresCount())
         except:
             if verbose:
                 print("SNN WON'T LIKELY FIT ON THE HW: no valid way to split neurons (and their synapses) among cores")
@@ -137,7 +152,7 @@ class HardwareModel:
                 print("INVALID PARTITIONING: more neurons per partition than a core can store")
             return False # more neurons per partition than a core can store
         
-        synapses_per_partition = [0 for _ in range(partitions_count)]
+        axons_per_partition = [0 for _ in range(partitions_count)]
         if any(i not in partitions for i in range(0, partitions_count)):
             raise Exception("Partitions must be incrementally indexed from 0 onward.")
         for he in snn.hyperedges:
@@ -145,8 +160,16 @@ class HardwareModel:
             for neuron in he.destinations():
                 partition = partitions[neuron]
                 if partition not in already_seen:
-                    synapses_per_partition[partition] += 1
+                    axons_per_partition[partition] += 1
                     already_seen.add(partition)
+        if any(app > self.axons_per_core for app in axons_per_partition):
+            if verbose:
+                print("INVALID PARTITIONING: more inbound axons per partition than a core can handle", axons_per_partition)
+            return False # more inbound axons per partition than a core can handle
+
+        synapses_per_partition = [0 for _ in range(partitions_count)]
+        for neuron, partition in enumerate(partitions):
+            synapses_per_partition[partition] += len(snn.getInboundHyperedges(neuron)) # each neuron has its own synapse for every inbound hyperedge
         if any(spp > self.synapses_per_core for spp in synapses_per_partition):
             if verbose:
                 print("INVALID PARTITIONING: more inbound synapses per partition than a core can handle", synapses_per_partition)
@@ -393,7 +416,8 @@ class HardwareModel:
 # DEPRECATED
 loihi = HardwareModel(
     neurons_per_core = 1024,
-    synapses_per_core = 4096,
+    axons_per_core = 4096,
+    synapses_per_core = 2**18,
     cores_per_chip_x = 16,
     cores_per_chip_y = 8,
     chips_per_system_x = 1,
@@ -406,7 +430,8 @@ loihi = HardwareModel(
 # REFERRED TO AS: "small" (just 'cause my variable names couldn't get even more confusing)
 loihi_large = HardwareModel(
     neurons_per_core = 1024,
-    synapses_per_core = 4096,
+    axons_per_core = 4096,
+    synapses_per_core = 2**18,
     cores_per_chip_x = 64,
     cores_per_chip_y = 64,
     chips_per_system_x = 1,
@@ -419,7 +444,8 @@ loihi_large = HardwareModel(
 # Test configuration to see if the mapper can handle well synaptic reuse.
 loihi_reuse_test = HardwareModel(
     neurons_per_core = 1024*1024,
-    synapses_per_core = 4096,
+    axons_per_core = 4096,
+    synapses_per_core = 2**18,
     cores_per_chip_x = 64,
     cores_per_chip_y = 64,
     chips_per_system_x = 1,
@@ -435,7 +461,8 @@ loihi_reuse_test = HardwareModel(
 # REFERRED TO AS: "large"
 loihi_jin_84 = HardwareModel(
     neurons_per_core = 4096,
-    synapses_per_core = 1024*64,
+    axons_per_core = 1024*64,
+    synapses_per_core = 2**20,
     cores_per_chip_x = 84,
     cores_per_chip_y = 84,
     chips_per_system_x = 1,
@@ -445,9 +472,23 @@ loihi_jin_84 = HardwareModel(
     latency_per_routing = 1.0,
     latency_per_wire = 0.01
 )
+loihi_jin_84_real = HardwareModel(
+    neurons_per_core = 4096,
+    axons_per_core = 1024*64,
+    synapses_per_core = 2**20,
+    cores_per_chip_x = 84,
+    cores_per_chip_y = 84,
+    chips_per_system_x = 1,
+    chips_per_system_y = 1,
+    energy_per_routing = 1.7,
+    energy_per_wire = 3.5,
+    latency_per_routing = 2.1,
+    latency_per_wire = 5.3
+)
 loihi_jin_1024 = HardwareModel(
     neurons_per_core = 4096,
-    synapses_per_core = 1024*64,
+    axons_per_core = 1024*64,
+    synapses_per_core = 2**20,
     cores_per_chip_x = 1024,
     cores_per_chip_y = 1024,
     chips_per_system_x = 1,
@@ -461,7 +502,8 @@ loihi_jin_1024 = HardwareModel(
 # Source: section V.A in "TrueNorth: Design and Tool Flow of a 65 mW 1 Million Neuron Programmable Neurosynaptic Chip".
 truenorth = HardwareModel(
     neurons_per_core = 256,
-    synapses_per_core = 256,
+    axons_per_core = 256,
+    synapses_per_core = 256*256, # full crossbar, never binding
     cores_per_chip_x = 64,
     cores_per_chip_y = 64,
     chips_per_system_x = 1,

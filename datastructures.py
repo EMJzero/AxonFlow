@@ -265,10 +265,11 @@ class DisjointSet(Generic[T]):
 Struct for one entry in an LSH data structure.
 """
 class LSHEntry:
-    def __init__(self, weighted_set : dict[T, float], signature : tuple[bytes], merge_count : int = 1):
+    def __init__(self, weighted_set : dict[T, float], signature : tuple[bytes], merge_count : int = 1, pins_count : int = 0):
         self.weighted_set = weighted_set
         self.signature = signature
         self.merge_count = merge_count
+        self.pins_count = pins_count
 
 """
 Weighted MinHash LSH (locality sensitive hanshing)-based indexing infrastructure.
@@ -352,13 +353,13 @@ class WeightedMinHashLSH(Generic[T]):
     If no 'set_id' is provided, an internal counter is used.
     The final 'set_id' is returned.
     """
-    def insert(self, weighted_set : dict[T, float], set_id : Optional[int] = None, merge_count : int = 1) -> int:
+    def insert(self, weighted_set : dict[T, float], set_id : Optional[int] = None, merge_count : int = 1, pins_count : int = 0) -> int:
         if set_id is None:
             set_id = self.id_counter
             self.id_counter += 1
 
         signature = self._weighted_minhash_signature(weighted_set)
-        self.data[set_id] = LSHEntry(weighted_set, signature, merge_count)
+        self.data[set_id] = LSHEntry(weighted_set, signature, merge_count, pins_count)
 
         for i in range(self.num_bands):
             band = tuple(signature[i*self.band_size:(i + 1)*self.band_size])
@@ -391,17 +392,19 @@ class WeightedMinHashLSH(Generic[T]):
     def merge(self, set_ids : list[int], merged_set_id : int = None) -> int:
         merged = {}
         mcount = 0
+        pcount = 0
         for sid in set_ids:
             if sid not in self.data:
                 raise Exception(f"The provided set ID {sid} does not exist.")
             wset = self.data[sid].weighted_set
             mcount += self.data[sid].merge_count
+            pcount += self.data[sid].pins_count
             for k, v in wset.items():
                 # WARNING: maybe you should not add weights if the entry was generated from the same hyperedge...
                 merged[k] = merged.get(k, 0) + v
         for sid in set_ids:
             self.delete(sid)
-        return self.insert(merged, merge_count = mcount, set_id = merged_set_id)
+        return self.insert(merged, merge_count = mcount, pins_count = pcount, set_id = merged_set_id)
 
     """
     Query similar sets.
@@ -556,13 +559,13 @@ class WeightedMinHashLSHForest(Generic[T]):
     with a binary search and a cost of 'log n' instead of a constant. Otherwise, a full
     sort will be done upon the first query being requested.
     """
-    def insert(self, weighted_set : dict[T, float], set_id : Optional[int] = None, merge_count : int = 1, immediate_sort : bool = False) -> int:
+    def insert(self, weighted_set : dict[T, float], set_id : Optional[int] = None, merge_count : int = 1, pins_count : int = 0, immediate_sort : bool = False) -> int:
         if set_id is None:
             set_id = self.id_counter
             self.id_counter += 1
 
         signature = self._weighted_minhash_signature(weighted_set)
-        self.data[set_id] = LSHEntry(weighted_set, signature, merge_count)
+        self.data[set_id] = LSHEntry(weighted_set, signature, merge_count, pins_count)
 
         for t, prefix, table, sorted_table in zip(range(self.tree_count), signature, self.tables, self.sorted_tables):
             table[prefix].append(set_id)
@@ -606,11 +609,13 @@ class WeightedMinHashLSHForest(Generic[T]):
     def merge(self, set_ids : list[int], merged_set_id : int = None) -> int:
         merged = {}
         mcount = 0
+        pcount = 0
         for sid in set_ids:
             if sid not in self.data:
                 raise Exception(f"The provided set ID {sid} does not exist.")
             wset = self.data[sid].weighted_set
             mcount += self.data[sid].merge_count
+            pcount += self.data[sid].pins_count
             for k, v in wset.items():
                 # WARNING, options are:
                 # 1) adding weights: unfair if the set entry was generated from the same hyperedge, as it would count twice;
@@ -619,7 +624,7 @@ class WeightedMinHashLSHForest(Generic[T]):
                 merged[k] = max(merged.get(k, 0), v)
         for sid in set_ids:
             self.delete(sid)
-        return self.insert(merged, merge_count = mcount, set_id = merged_set_id, immediate_sort = True)
+        return self.insert(merged, merge_count = mcount, pins_count = pcount, set_id = merged_set_id, immediate_sort = True)
 
     """
     Sort the prefix trees (lists).
@@ -840,13 +845,13 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
     with a binary search and a cost of 'log n' instead of a constant. Otherwise, a full
     sort will be done upon the first query being requested.
     """
-    def insert(self, weighted_set : dict[T, float], set_id : Optional[int] = None, merge_count : int = 1) -> int:
+    def insert(self, weighted_set : dict[T, float], set_id : Optional[int] = None, merge_count : int = 1, pins_count : int = 0) -> int:
         if set_id is None:
             set_id = self.id_counter
             self.id_counter += 1
 
         signature = self._weighted_minhash_signature(weighted_set)
-        self.data[set_id] = LSHEntry(weighted_set, signature, merge_count)
+        self.data[set_id] = LSHEntry(weighted_set, signature, merge_count, pins_count)
 
         for prefix, table, sorted_table in zip(signature, self.tables, self.sorted_tables):
             table[prefix].append(set_id)
@@ -896,11 +901,13 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
     def merge(self, set_ids : list[int], merged_set_id : int = None) -> int:
         merged = {}
         mcount = 0
+        pcount = 0
         for sid in set_ids:
             if sid not in self.data:
                 raise Exception(f"The provided set ID {sid} does not exist.")
             wset = self.data[sid].weighted_set
             mcount += self.data[sid].merge_count
+            pcount += self.data[sid].pins_count
             for k, v in wset.items():
                 # WARNING, options are:
                 # 1) adding weights: unfair if the set entry was generated from the same hyperedge, as it would count twice;
@@ -909,7 +916,7 @@ class WeightedMinHashLSHSortedForest(Generic[T]):
                 merged[k] = max(merged.get(k, 0), v)
         for sid in set_ids:
             self.delete(sid)
-        return self.insert(merged, merge_count = mcount, set_id = merged_set_id)
+        return self.insert(merged, merge_count = mcount, pins_count = pcount, set_id = merged_set_id)
 
     """
     Support method for 'query'.

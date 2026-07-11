@@ -168,7 +168,8 @@ if __name__ == "__main__":
         print("\n------- hardware model -------")
         #hardware = HardwareModel(
         #    neurons_per_core = 32, #8
-        #    synapses_per_core = 128, #32
+        #    axons_per_core = 128, #32
+        #    synapses_per_core = 32*128,
         #    cores_per_chip_x = 64,
         #    cores_per_chip_y = 64,
         #    chips_per_system_x = 1,
@@ -178,8 +179,11 @@ if __name__ == "__main__":
         #    latency_per_routing = 1.0,
         #    latency_per_wire = 0.1
         #)
-        hardware = loihi_jin_84
-        print((f"Neurons per core: {hardware.neurons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
+        #hardware = loihi
+        hardware = loihi_large
+        #hardware = loihi_jin_84
+        #hardware = loihi_jin_84_real
+        print((f"Neurons per core: {hardware.neurons_per_core}\tAxons per core: {hardware.axons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
                f"Cores along x: {hardware.cores_per_chip_x}\tCores along y: {hardware.cores_per_chip_y}\n"
                f"Chips along x: {hardware.chips_per_system_x}\tChips along y: {hardware.chips_per_system_y}\n"
                f"Routing energy: {hardware.energy_per_routing}\tWire energy: {hardware.energy_per_wire}\n"
@@ -229,7 +233,7 @@ if __name__ == "__main__":
         }
         print("Methods to test:")
         prettyPrintIterable(methods.keys(), 3, left_aligned = True)
-        
+
         print("\n---- checking feasibility ----")
         if not hardware.checkSnnFit(snn, already_partitioned = options["placement"], verbose = True):
             print("WARNING: the generated SNN may not fit on the given HW, change either's configuration or the seed.")

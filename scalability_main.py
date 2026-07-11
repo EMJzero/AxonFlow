@@ -129,76 +129,79 @@ if __name__ == "__main__":
             # - nodes_per_edge_variation: +1, +1, +2, +2, +4, +4, ...
             # - neurons_per_core: +16, +16, +16, +32, +32, +64, +64, ...
             # - ALTERNATIVE neurons_per_core: +16, +16, +16, +32, +32, +32, +64, +64, +64, ...
-            # - synapses_per_core: +128, +128, +256, +256, +512, +512 ...
+            # - axons_per_core: +128, +128, +256, +256, +512, +512 ...
             "256":
                {"nodes_count": 256, "nodes_per_edge_mean": 4, "nodes_per_edge_variation": 2,
-               "neurons_per_core": 16, "synapses_per_core" : 256, "cores_per_chip_1d": 64},
+               "neurons_per_core": 16, "axons_per_core" : 256, "cores_per_chip_1d": 64},
             "512":
                 {"nodes_count": 512, "nodes_per_edge_mean": 6, "nodes_per_edge_variation": 3,
-                "neurons_per_core": 24, "synapses_per_core" : 384, "cores_per_chip_1d": 64},
+                "neurons_per_core": 24, "axons_per_core" : 384, "cores_per_chip_1d": 64},
             "1024":
                 {"nodes_count": 1024, "nodes_per_edge_mean": 8, "nodes_per_edge_variation": 4,
-                "neurons_per_core": 32, "synapses_per_core" : 512, "cores_per_chip_1d": 64},
+                "neurons_per_core": 32, "axons_per_core" : 512, "cores_per_chip_1d": 64},
             f"{1024*2}":
                 {"nodes_count": 1024*2, "nodes_per_edge_mean": 12, "nodes_per_edge_variation": 6,
-                "neurons_per_core": 64, "synapses_per_core" : 768, "cores_per_chip_1d": 64},
+                "neurons_per_core": 64, "axons_per_core" : 768, "cores_per_chip_1d": 64},
             f"{1024*4}":
                 {"nodes_count": 1024*4, "nodes_per_edge_mean": 16, "nodes_per_edge_variation": 8,
-                "neurons_per_core": 96, "synapses_per_core" : 1024, "cores_per_chip_1d": 64},
+                "neurons_per_core": 96, "axons_per_core" : 1024, "cores_per_chip_1d": 64},
             f"{1024*8}":
                 {"nodes_count": 1024*8, "nodes_per_edge_mean": 24, "nodes_per_edge_variation": 12,
-                "neurons_per_core": 128, "synapses_per_core" : 1536, "cores_per_chip_1d": 64},
+                "neurons_per_core": 128, "axons_per_core" : 1536, "cores_per_chip_1d": 64},
             f"{1024*16}":
                 {"nodes_count": 1024*16, "nodes_per_edge_mean": 32, "nodes_per_edge_variation": 16,
-                "neurons_per_core": 192, "synapses_per_core" : 2048, "cores_per_chip_1d": 64},
+                "neurons_per_core": 192, "axons_per_core" : 2048, "cores_per_chip_1d": 64},
             f"{1024*32}":
                 {"nodes_count": 1024*32, "nodes_per_edge_mean": 48, "nodes_per_edge_variation": 24,
-                "neurons_per_core": 256, "synapses_per_core" : 3072, "cores_per_chip_1d": 64},
+                "neurons_per_core": 256, "axons_per_core" : 3072, "cores_per_chip_1d": 64},
             f"{1024*64}":
                 {"nodes_count": 1024*64, "nodes_per_edge_mean": 64, "nodes_per_edge_variation": 32,
-                "neurons_per_core": 384, "synapses_per_core" : 4096, "cores_per_chip_1d": 64},
+                "neurons_per_core": 384, "axons_per_core" : 4096, "cores_per_chip_1d": 64},
             f"{1024*128}":
                 {"nodes_count": 1024*128, "nodes_per_edge_mean": 96, "nodes_per_edge_variation": 48,
-                "neurons_per_core": 512, "synapses_per_core" : 6144, "cores_per_chip_1d": 64},
+                "neurons_per_core": 512, "axons_per_core" : 6144, "cores_per_chip_1d": 64},
             f"{1024*256}":
                 {"nodes_count": 1024*256, "nodes_per_edge_mean": 128, "nodes_per_edge_variation": 64,
-                "neurons_per_core": 768, "synapses_per_core" : 8192, "cores_per_chip_1d": 96},
+                "neurons_per_core": 768, "axons_per_core" : 8192, "cores_per_chip_1d": 96},
             f"{1024*512}":
                 {"nodes_count": 1024*512, "nodes_per_edge_mean": 192, "nodes_per_edge_variation": 96,
-                "neurons_per_core": 1024, "synapses_per_core" : 12288, "cores_per_chip_1d": 96},
+                "neurons_per_core": 1024, "axons_per_core" : 12288, "cores_per_chip_1d": 96},
             f"{1024**2}":
                 {"nodes_count": 1024**2, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 128,
-                "neurons_per_core": 1536, "synapses_per_core" : 16384, "cores_per_chip_1d": 128},
+                "neurons_per_core": 1536, "axons_per_core" : 16384, "cores_per_chip_1d": 128},
             f"{1024*16}L":
                 {"nodes_count": 1024*16, "nodes_per_edge_mean": 128, "nodes_per_edge_variation": 16,
-                "neurons_per_core": 32, "synapses_per_core" : 4096, "cores_per_chip_1d": 64},
+                "neurons_per_core": 32, "axons_per_core" : 4096, "cores_per_chip_1d": 64},
             #f"{1024*32}M":
             #    {"nodes_count": 1024*32, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 24,
-            #    "neurons_per_core": 64, "synapses_per_core" : 8192, "cores_per_chip_1d": 64},
+            #    "neurons_per_core": 64, "axons_per_core" : 8192, "cores_per_chip_1d": 64},
             #f"{1024*64}M":
             #    {"nodes_count": 1024*64, "nodes_per_edge_mean": 512, "nodes_per_edge_variation": 32,
-            #    "neurons_per_core": 128, "synapses_per_core" : 16384, "cores_per_chip_1d": 64},
+            #    "neurons_per_core": 128, "axons_per_core" : 16384, "cores_per_chip_1d": 64},
             f"{1024*64}L":
                 {"nodes_count": 1024*64, "nodes_per_edge_mean": 192, "nodes_per_edge_variation": 24,
-                "neurons_per_core": 64, "synapses_per_core" : 6144, "cores_per_chip_1d": 64},
+                "neurons_per_core": 64, "axons_per_core" : 6144, "cores_per_chip_1d": 64},
             f"{1024*192}L":
                 {"nodes_count": 1024*192, "nodes_per_edge_mean": 288, "nodes_per_edge_variation": 32,
-                "neurons_per_core": 96, "synapses_per_core" : 7168, "cores_per_chip_1d": 64},
+                "neurons_per_core": 96, "axons_per_core" : 7168, "cores_per_chip_1d": 64},
             f"{1024*256}L":
                 {"nodes_count": 1024*256, "nodes_per_edge_mean": 256, "nodes_per_edge_variation": 32,
-                "neurons_per_core": 128, "synapses_per_core" : 8192, "cores_per_chip_1d": 64}
+                "neurons_per_core": 128, "axons_per_core" : 8192, "cores_per_chip_1d": 64}
         }
         methods : dict[str, Callable[[str, HyperGraph, HardwareModel, int], Result]] = {
             #"sequential-topo-hilbert-fd": run_sequential_topo_hilbert_fd,
+            "unordered-hilbert-fd": run_unordered_sequential_hilbert_fd,
+            "unordered-spectral-fd": run_unordered_sequential_spectral_fd,
+            "unordered-truenorth": run_unordered_sequential_truenorth,
             "sequential-hilbert-fd": run_sequential_hilbert_fd,
-            "sequential-hilbert-ps": run_sequential_hilbert_ps,
+            #"sequential-hilbert-ps": run_sequential_hilbert_ps,
             "sequential-spectral-fd": run_sequential_spectral_fd,
-            "sequential-spectral-ps": run_sequential_spectral_ps,
+            #"sequential-spectral-ps": run_sequential_spectral_ps,
             "sequential-truenorth": run_sequential_truenorth,
             "hehiding-hilbert-fd": run_hehiding_hilbert_fd,
-            "hehiding-hilbert-ps": run_hehiding_hilbert_ps,
+            #"hehiding-hilbert-ps": run_hehiding_hilbert_ps,
             "hehiding-spectral-fd": run_hehiding_spectral_fd,
-            "hehiding-spectral-ps": run_hehiding_spectral_ps,
+            #"hehiding-spectral-ps": run_hehiding_spectral_ps,
             "hehiding-truenorth": run_hehiding_truenorth,
             ##"swap-particleswarm": run_swap_particleswarm,
             ##"multistart-truenorth": run_multistart_truenorth,
@@ -208,20 +211,20 @@ if __name__ == "__main__":
             #"setlist-spectral-fd": run_setlist_spectral_fd,
             #"setlist-spectral-ps": run_setlist_spectral_ps,
             #"setlist-truenorth": run_setlist_truenorth,
-            "hmetis-hilbert-fd": run_hmetis_hilbert_fd,
-            "hmetis-hilbert-ps": run_hmetis_hilbert_ps,
-            "hmetis-spectral-fd": run_hmetis_spectral_fd,
-            "hmetis-spectral-ps": run_hmetis_spectral_ps,
-            "hmetis-truenorth": run_hmetis_truenorth
+            #"hmetis-hilbert-fd": run_hmetis_hilbert_fd,
+            #"hmetis-hilbert-ps": run_hmetis_hilbert_ps,
+            #"hmetis-spectral-fd": run_hmetis_spectral_fd,
+            #"hmetis-spectral-ps": run_hmetis_spectral_ps,
+            #"hmetis-truenorth": run_hmetis_truenorth
         } if not (options["partitioning"] or options["placement"]) else {
-            #"unordered-sequential": run_unordered_sequential,
-            "sequential": run_sequential,
-            #"edgehiding": run_edgehiding,
-            "hehiding": run_hehiding,
+            "unordered-sequential": run_unordered_sequential,
+            #"sequential": run_sequential,
+            "edgehiding": run_edgehiding,
+            #"hehiding": run_hehiding,
             #"swap": run_swap,
             #"multistart": run_multistart,
             #"setlist": run_setlist,
-            "hmetis": run_hmetis,
+            #"hmetis": run_hmetis,
         } if options["partitioning"] else {
             "hilbert-fd": run_hilbert_fd,
             "hilbert-ps": run_hilbert_ps,
@@ -239,14 +242,14 @@ if __name__ == "__main__":
         if options["fix-hardware"]:
             hardware = loihi_large
             print("\n---- fixed hardware model ----")
-            print((f"Neurons per core: {hardware.neurons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
+            print((f"Neurons per core: {hardware.neurons_per_core}\tAxons per core: {hardware.axons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
                f"Cores along x: {hardware.cores_per_chip_x}\tCores along y: {hardware.cores_per_chip_y}\n"
                f"Chips along x: {hardware.chips_per_system_x}\tChips along y: {hardware.chips_per_system_y}\n"
                f"Routing energy: {hardware.energy_per_routing}\tWire energy: {hardware.energy_per_wire}\n"
                f"Routing latency: {hardware.latency_per_routing}\tWire latency: {hardware.latency_per_wire}"))
             for _, size in sizes.items():
                 size.pop("neurons_per_core")
-                size.pop("synapses_per_core")
+                size.pop("axons_per_core")
                 size.pop("cores_per_chip_1d")
         
         for experiment, size in sizes.items():
@@ -256,7 +259,8 @@ if __name__ == "__main__":
             if not options["fix-hardware"]:
                 hardware = HardwareModel(
                     neurons_per_core = size["neurons_per_core"],
-                    synapses_per_core = size["synapses_per_core"],
+                    axons_per_core = size["axons_per_core"],
+                    synapses_per_core = size["neurons_per_core"]*size["axons_per_core"], # never binding
                     cores_per_chip_x = size["cores_per_chip_1d"],
                     cores_per_chip_y = size["cores_per_chip_1d"],
                     chips_per_system_x = 1,
@@ -279,6 +283,8 @@ if __name__ == "__main__":
                 hypergraph_stats["average_path_length"] = hypergraph.averagePathLengthApprox(seed = seed)
             print("Hypergraph statistics:")
             prettyPrintDict(hypergraph_stats, 1, formatter = lambda v : f"{v:.3f}")
+            #hypergraph.save(f"snn_models/{experiment}_rand_reservoir")
+            #continue
             if not hardware.checkSnnFit(hypergraph, already_partitioned = options["placement"], verbose = True):
                 print(f"WARNING: the generated SNN of experiment '{experiment}' may not fit on the given HW, change either's configuration or the seed.")
             

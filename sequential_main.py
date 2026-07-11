@@ -111,7 +111,8 @@ if __name__ == "__main__":
         print("\n------- hardware model -------")
         hardware = HardwareModel(
             neurons_per_core = 32, #8
-            synapses_per_core = 128, #32
+            axons_per_core = 128, #32
+            synapses_per_core = 32*128,
             cores_per_chip_x = 64,
             cores_per_chip_y = 64,
             chips_per_system_x = 1,
@@ -121,7 +122,7 @@ if __name__ == "__main__":
             latency_per_routing = 1.0,
             latency_per_wire = 0.1
         )
-        print((f"Neurons per core: {hardware.neurons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
+        print((f"Neurons per core: {hardware.neurons_per_core}\tAxons per core: {hardware.axons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
                f"Cores along x: {hardware.cores_per_chip_x}\tCores along y: {hardware.cores_per_chip_y}\n"
                f"Chips along x: {hardware.chips_per_system_x}\tChips along y: {hardware.chips_per_system_y}\n"
                f"Routing energy: {hardware.energy_per_routing}\tWire energy: {hardware.energy_per_wire}\n"
@@ -133,14 +134,14 @@ if __name__ == "__main__":
         else:
             print("Passed!")
         print("\n-------- partitioning --------")
-        partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
+        partitioning_multilevel_multistart_refined = partitionGreedyMultilevelRefinedMultistart(snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
         #DEBUG: print(partitioning_multilevel_multistart_refined, max(partitioning_multilevel_multistart_refined), Counter(partitioning_multilevel_multistart_refined))
-        partitioning_setlist = partitionSetlistMiniHashWeightsForest(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
+        partitioning_setlist = partitionSetlistMiniHashWeightsForest(snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
         #DEBUG: print(partitioning_setlist, max(partitioning_setlist), Counter(partitioning_setlist))
-        partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
-        partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
-        #partitioning_swap = swapPartitioner(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
-        partitioning_hmetis = partitionHMETIS(snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # Ouwen Jin's paper.
+        partitioning_greedy = partitionGreedy(snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
+        partitioning_sequential = partitionSequential(snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
+        #partitioning_swap = swapPartitioner(snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
+        partitioning_hmetis = partitionHMETIS(snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # Ouwen Jin's paper.
         part_snn_mmr = snn.getPartitionsHypergraph(partitioning_multilevel_multistart_refined, keep_self_cycles = True)
         part_snn_setlist = snn.getPartitionsHypergraph(partitioning_setlist, keep_self_cycles = True)
         part_snn_greedy = snn.getPartitionsHypergraph(partitioning_greedy, keep_self_cycles = True)

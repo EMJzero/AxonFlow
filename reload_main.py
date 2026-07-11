@@ -235,7 +235,7 @@ if __name__ == "__main__":
         for name in methods:
             part_name, plac_name = name.split('-', 1)
             res = Result(name)
-            res.setHw(hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount())
+            res.setHw(hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount())
             res.setGraph(snn.nodes, snn.totalConnections(), snn.totalSpikeFrequency())
             part_path = os.path.join(options["reload-map"], name + ".part")
             if not os.path.isfile(part_path):

@@ -1,7 +1,6 @@
 from typing import Optional
 
 from collections import defaultdict, Counter
-from datasketch import MinHash, MinHashLSH
 from itertools import combinations
 import numpy as np
 import random
@@ -40,6 +39,8 @@ is paid once every time the hyperedge is cut, multiple cuts on the same one pay 
 Constraints:
 - each partition cannot exceed a maximum number N of nodes;
 - each partition cannot exceed a number M of distinct inbound hyperedges;
+- each partition cannot exceed a number P of inbound hyperedge pins, that is, the sum over its
+  nodes of each node's inbound hyperedges count (a hyperedge counts once per node it reaches);
 - the number of partitions is not known in advance, but a maximum number K of partitions
   cannot be exceeded, while any lower amount that minimizes the objective is acceptable.
 
@@ -47,8 +48,8 @@ Partitions are numbered from 0, the result is a list of one partition index per 
 the hypergraph, assigning it to its partition.
 """
 @core
-def partitionGreedy(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
-    partitions = []  # each partition is a dict: {'nodes': set, 'in_edges': set}
+def partitionGreedy(hg: HyperGraph, N: int, M: int, P: int, K: int) -> list[int]:
+    partitions = []  # each partition is a dict: {'nodes': set, 'in_edges': set, 'in_pins': int}
     node_to_partition = [-1] * hg.nodes  # partitions assignment
 
     for node in range(hg.nodes):
@@ -61,6 +62,9 @@ def partitionGreedy(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
                 continue
 
             if len(p['in_edges']) + sum(1 for he in hg.getInboundHyperedges(node) if he not in p['in_edges']) > M:
+                continue
+
+            if p['in_pins'] + len(hg.getInboundHyperedges(node)) > P:
                 continue
 
             cut_cost = 0
@@ -82,10 +86,11 @@ def partitionGreedy(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
             if len(partitions) >= K:
                 raise Exception("Exceeded maximum number of partitions K.")
             best_partition = len(partitions)
-            partitions.append({'nodes': set(), 'in_edges': set()})
+            partitions.append({'nodes': set(), 'in_edges': set(), 'in_pins': 0})
 
         p = partitions[best_partition]
         p['nodes'].add(node)
+        p['in_pins'] += len(hg.getInboundHyperedges(node))
         for he in candidate_edges:
             if node in he.destinations():
                 p['in_edges'].add(he)
@@ -96,11 +101,12 @@ def partitionGreedy(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
 """
 Merges original nodes by heavy-edge matching until coarse nodes count <= target_coarse_nodes or no valid merges remain.
 Returns (coarse_graph, coarse_groups), where 'coarse_groups[i]' lists original nodes merged into coarse node 'i'.
-Constraints are given by 'max_nodes' and 'max_inbound_edges'.
+Constraints are given by 'max_nodes', 'max_inbound_edges', and 'max_inbound_pins'.
 """
-def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int) -> tuple[HyperGraph, list[list[int]]]:
+def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int, max_inbound_pins: int) -> tuple[HyperGraph, list[list[int]]]:
     parent = list(range(hg.nodes))
     groups = {i: [i] for i in range(hg.nodes)}
+    groups_pins = {i: len(hg.getInboundHyperedges(i)) for i in range(hg.nodes)}
 
     def find(u: int) -> int:
         while parent[u] != u:
@@ -132,10 +138,16 @@ def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int
         if len(inbound) > max_inbound_edges:
             continue
 
+        # constrain the number of inbound pins of all nodes in merged_set
+        if groups_pins[ru] + groups_pins[rv] > max_inbound_pins:
+            continue
+
         # commit merge
         parent[rv] = ru
         groups[ru].extend(groups[rv])
+        groups_pins[ru] += groups_pins[rv]
         del groups[rv]
+        del groups_pins[rv]
 
         if len(groups) <= target_coarse_nodes:
             break
@@ -163,10 +175,11 @@ FM-style (Fiduccia-Mattheyses) refinement on the full hypergraph. Let 'hg' be th
 Starts from 'coarse_assignment' (partition of the coarsened hypergraph) and 'coarse_groups' (uncoarsened
 hypergraph nodes per-coarsened group), returns a refined list of length 'hypergraph.nodes'.
 """
-def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_groups: list[list[int]], max_nodes: int, max_inbound_edges: int) -> list[int]:
+def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_groups: list[list[int]], max_nodes: int, max_inbound_edges: int, max_inbound_pins: int) -> list[int]:
     node_to_part = [-1] * hg.nodes
     parts = defaultdict(set)
     in_edges = defaultdict(set)
+    in_pins = defaultdict(int)
 
     # initialize from coarse assignment
     for ci, grp in enumerate(coarse_groups):
@@ -174,6 +187,7 @@ def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_gro
         for u in grp:
             node_to_part[u] = pid
             parts[pid].add(u)
+            in_pins[pid] += len(hg.getInboundHyperedges(u))
 
     # initial inbound-edge sets: any hyperedge with at least one destination in the partition
     for he in hg:
@@ -204,6 +218,8 @@ def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_gro
         cur = node_to_part[u]
         if cur == tgt or len(parts[tgt]) + 1 > max_nodes:
             continue
+        if in_pins[tgt] + len(hg.getInboundHyperedges(u)) > max_inbound_pins:
+            continue
 
         # simulate new inbound edges for target
         new_in = set(in_edges[tgt])
@@ -218,6 +234,8 @@ def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_gro
         parts[tgt].add(u)
         node_to_part[u] = tgt
         moved.add(u)
+        in_pins[cur] -= len(hg.getInboundHyperedges(u))
+        in_pins[tgt] += len(hg.getInboundHyperedges(u))
 
         # recompute inbound edges for both affected partitions
         for pid in (cur, tgt):
@@ -233,7 +251,7 @@ def refine_partition_FM(hg: HyperGraph, coarse_assignment: list[int], coarse_gro
 """
 Ensures that the final partition respects constraints, moving nodes if needed.
 """
-def enforce_partition_constraints(hg: HyperGraph, partition: list[int], max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+def enforce_partition_constraints(hg: HyperGraph, partition: list[int], max_nodes: int, max_inbound_edges: int, max_inbound_pins: int, max_partitions: int) -> list[int]:
     from collections import defaultdict
 
     node_to_edges = defaultdict(list)
@@ -243,15 +261,17 @@ def enforce_partition_constraints(hg: HyperGraph, partition: list[int], max_node
 
     part_to_nodes = defaultdict(set)
     part_to_edges = defaultdict(set)
+    part_to_pins = defaultdict(int)
 
     for node, pid in enumerate(partition):
         part_to_nodes[pid].add(node)
+        part_to_pins[pid] += len(hg.getInboundHyperedges(node))
         for eid in node_to_edges[node]:
             if node in hg.hyperedges[eid].destinations():
                 part_to_edges[pid].add(eid)
 
     for pid in list(part_to_nodes):
-        while len(part_to_nodes[pid]) > max_nodes or len(part_to_edges[pid]) > max_inbound_edges:
+        while len(part_to_nodes[pid]) > max_nodes or len(part_to_edges[pid]) > max_inbound_edges or part_to_pins[pid] > max_inbound_pins:
             # Identify node whose removal reduces inbound edges the most
             best_node, best_delta = None, -1
             for node in part_to_nodes[pid]:
@@ -275,6 +295,8 @@ def enforce_partition_constraints(hg: HyperGraph, partition: list[int], max_node
                     continue
                 if cand in part_to_nodes and len(part_to_nodes[cand]) >= max_nodes:
                     continue
+                if cand in part_to_pins and part_to_pins[cand] + len(hg.getInboundHyperedges(best_node)) > max_inbound_pins:
+                    continue
 
                 simulated_edges = set(part_to_edges[cand]) if cand in part_to_edges else set()
                 for eid in node_to_edges[best_node]:
@@ -291,11 +313,14 @@ def enforce_partition_constraints(hg: HyperGraph, partition: list[int], max_node
                         raise Exception("Exceeded maximum number of partitions during constraint enforcement.")
                     part_to_nodes[cand] = set()
                     part_to_edges[cand] = set()
+                    part_to_pins[cand] = 0
 
                 # Move node
                 part_to_nodes[pid].remove(best_node)
                 part_to_nodes[cand].add(best_node)
                 partition[best_node] = cand
+                part_to_pins[pid] -= len(hg.getInboundHyperedges(best_node))
+                part_to_pins[cand] += len(hg.getInboundHyperedges(best_node))
 
                 # Recompute inbound edges only for pid and cand
                 for tgt in (pid, cand):
@@ -325,42 +350,29 @@ Arguments:
 - hg: hypergraph to partition.
 - max_nodes: maximum number of nodes that each partition can be assigned.
 - max_inbound_edges: maximum number of hyperedges that can be inbound to any partition.
+- max_inbound_pins: maximum number of hyperedge pins that can be inbound to any partition (each node counts all its inbound hyperedges).
 - max_partitions: maximum number of allowed partitions.
 
 Returns:
 A list with an entry per hypergraph node, that is the node's assigned partition's index.
+
+Multistart: the coarsening and greedy steps are repeated with different random node orders, keeping the lowest-cut result.
 """
 @core
-def partitionGreedyMultilevelRefined(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
-    # Step 1: Coarsen
-    coarse_hg, groupings = coarsen_hypergraph(hg, min(max_partitions * max_nodes // 2, hg.nodes // 10), max_nodes, max_inbound_edges)
-    # Step 2: Initial Partitioning
-    coarse_partition = partitionGreedy(coarse_hg, max_nodes, max_inbound_edges, max_partitions)
-    # Step 3: Refinement
-    refined_partition  = refine_partition_FM(hg, coarse_partition, groupings, max_nodes, max_inbound_edges)
-     # Step 4: Post-processing to strictly enforce constraints
-    final_partition = enforce_partition_constraints(hg, refined_partition, max_nodes, max_inbound_edges, max_partitions)
-
-    return final_partition
-
-"""
-Multistart version of the 'partitionGreedyMultilevelRefined' partitioning algorithm.
-"""
-@core
-def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int, multistarts: int = 3, seed : Optional[int] = None) -> list[int]:
+def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_inbound_pins: int, max_partitions: int, multistarts: int = 3, seed : Optional[int] = None) -> list[int]:
     rng = random.Random(seed)
     best_assign, best_cut = [], float('inf')
 
     for ms in range(multistarts):
         print("Multistart count:", ms)
         # 1) Coarsen
-        coarse_hg, coarse_groups = coarsen_hypergraph(hg, min(max_partitions, hg.nodes // max_nodes), max_nodes, max_inbound_edges)
+        coarse_hg, coarse_groups = coarsen_hypergraph(hg, min(max_partitions, hg.nodes // max_nodes), max_nodes, max_inbound_edges, max_inbound_pins)
 
         # 2) Greedy assign on coarse graph
         indices = list(range(coarse_hg.nodes))
         rng.shuffle(indices)
         coarse_assignment = [-1] * coarse_hg.nodes
-        part_weight, part_inbound = [], []
+        part_weight, part_inbound, part_pins = [], [], []
 
         # Precompute coarse node -> edges
         cnode_to_edges = defaultdict(list)
@@ -370,9 +382,12 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
 
         for u in indices:
             w = len(coarse_groups[u])
+            w_pins = sum(len(hg.getInboundHyperedges(n)) for n in coarse_groups[u])
             best_pid, best_cost = -1, float('inf')
             for pid, total_w in enumerate(part_weight):
                 if total_w + w > max_nodes:
+                    continue
+                if part_pins[pid] + w_pins > max_inbound_pins:
                     continue
                 in_u = {eid for eid in cnode_to_edges[u] if u in coarse_hg.hyperedges[eid].destinations()}
                 if len(part_inbound[pid] | in_u) > max_inbound_edges:
@@ -388,17 +403,19 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
                 best_pid = len(part_weight)
                 part_weight.append(0)
                 part_inbound.append(set())
+                part_pins.append(0)
 
             part_weight[best_pid] += w
+            part_pins[best_pid] += w_pins
             in_u = {eid for eid in cnode_to_edges[u]
                     if u in coarse_hg.hyperedges[eid].destinations()}
             part_inbound[best_pid].update(in_u)
             coarse_assignment[u] = best_pid
 
         # 3) FM refinement on full graph
-        refined_assign = refine_partition_FM(hg, coarse_assignment, coarse_groups, max_nodes, max_inbound_edges)
+        refined_assign = refine_partition_FM(hg, coarse_assignment, coarse_groups, max_nodes, max_inbound_edges, max_inbound_pins)
         # 4) Post-processing to strictly enforce constraints
-        final_assign = enforce_partition_constraints(hg, refined_assign, max_nodes, max_inbound_edges, max_partitions)
+        final_assign = enforce_partition_constraints(hg, refined_assign, max_nodes, max_inbound_edges, max_inbound_pins, max_partitions)
 
         # 4) Evaluate cut
         cut_value = sum(e.spike_frequency for e in hg.hyperedges if len({final_assign[v] for v in e}) > 1)
@@ -412,19 +429,22 @@ def partitionGreedyMultilevelRefinedMultistart(hg: HyperGraph, max_nodes: int, m
 True hierarchical partitioning as in hMETIS.
 """
 @core
-def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int, multistarts: int = 3, seed : Optional[int] = None) -> list[int]:
+def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_inbound_pins: int, max_partitions: int, multistarts: int = 3, seed : Optional[int] = None) -> list[int]:
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
 
     """
     Source: "Multilevel Hypergraph Partitioning: Applications in VLSI Domain" by George Karypis
     => "Edge Coarsening (EC)" technique!
     """
-    def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int, seed : Optional[int] = None) -> tuple[list[tuple[HyperGraph, list[list[int]]]], list[list[int]], list[Counter[int]]]:
+    def coarsen_hypergraph(hg: HyperGraph, target_coarse_nodes: int, max_nodes : int, max_inbound_edges: int, max_inbound_pins: int, seed : Optional[int] = None) -> tuple[list[tuple[HyperGraph, list[list[int]]]], list[list[int]], list[list[int]], list[Counter[int]], list[np.ndarray]]:
         current_hg = hg
         partition_sizes = [1 for _ in range(hg.nodes)] # size of each partition (node) in current_hg
+        partition_pins = [len(hg.getInboundHyperedges(n)) for n in range(hg.nodes)] # inbound pins of each partition (node) in current_hg
         inbound_he_ids = [Counter(hash(he) for he in hg.getInboundHyperedges(n)) for n in range(hg.nodes)] # inbound hyperedges IDs for each partition (node) in current_hg
 
         nodes_in_node : list[list[int]]  = [] # tracks at each level of coarsening, how many original nodes ended up inside each present node, in other words, tracks 'partition_sizes'
+        pins_in_node : list[list[int]]  = [] # tracks at each level of coarsening, how many inbound pins the original nodes inside each present node have, in other words, tracks 'partition_pins'
+        level_maps : list[np.ndarray] = [] # tracks at each level of coarsening, the coarser node each node of the previous level ended up in
         result : list[tuple[HyperGraph, list[list[int]]]] = [] # tracks successively coarser hypergraphs and the pair of nodes that were coarsened together
 
         coarsened = True
@@ -433,6 +453,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
             coarsenings = []
             # TODO: remove those and update the originals in place by making them dictionaries.
             next_partition_sizes = []
+            next_partition_pins = []
             next_inbound_he_ids = []
             
             # visit verticies in random order, for each iterate all yet unmatched connected nodes
@@ -451,9 +472,10 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
                     # TODO: inefficient max retrieval -> use a heap? Apparently it got worse, so no.
                     while candidates:
                         best = max(candidates, key = candidates.get)
-                        if (new_size := partition_sizes[n] + partition_sizes[best]) < max_nodes and len(new_ids_set := inbound_he_ids[n] + inbound_he_ids[best]) < max_inbound_edges:
+                        if (new_size := partition_sizes[n] + partition_sizes[best]) <= max_nodes and (new_pins := partition_pins[n] + partition_pins[best]) <= max_inbound_pins and len(new_ids_set := inbound_he_ids[n] + inbound_he_ids[best]) <= max_inbound_edges:
                             coarsenings.append((n, best))
                             next_partition_sizes.append(new_size)
+                            next_partition_pins.append(new_pins)
                             next_inbound_he_ids.append(new_ids_set)
                             coarsened = True
                             unused.remove(n)
@@ -470,24 +492,43 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
                 partitions[u] = next_part_idx
                 coarsenings.append((u,))
                 next_partition_sizes.append(partition_sizes[u])
+                next_partition_pins.append(partition_pins[u])
                 next_inbound_he_ids.append(inbound_he_ids[u])
                 next_part_idx += 1
             
             current_hg = current_hg.getPartitionsHypergraph(partitions, keep_self_cycles = True, squish_hyperedges = True)
             partition_sizes = next_partition_sizes
+            partition_pins = next_partition_pins
             inbound_he_ids = next_inbound_he_ids
 
             nodes_in_node.append(partition_sizes)
+            pins_in_node.append(partition_pins)
+            level_maps.append(np.asarray(partitions, dtype = np.int64))
             result.append((current_hg, coarsenings))
             timerPrint(f"Coarsening: {current_hg.nodes} > {target_coarse_nodes} remaining nodes...")
-        
-        return result, nodes_in_node, inbound_he_ids
+
+        return result, nodes_in_node, pins_in_node, inbound_he_ids, level_maps
+
+    """
+    Returns, for each node of the coarsening level 'level', the inbound hyperedges IDs of all the original
+    nodes merged into it. Must use the IDs of the original hyperedges, as those of the coarser hypergraphs
+    are new hyperedges and would never match the IDs tracked per-partition.
+    """
+    def inbound_he_ids_at_level(hg : HyperGraph, level_maps : list[np.ndarray], level : int, level_nodes : int) -> list[Counter[int]]:
+        original_to_level = np.arange(hg.nodes)
+        for level_map in level_maps[:level + 1]:
+            original_to_level = level_map[original_to_level]
+        result = [Counter() for _ in range(level_nodes)]
+        for n in range(hg.nodes):
+            result[original_to_level[n]].update(map(hash, hg.getInboundHyperedges(n)))
+        return result
 
     """
     Source: "Multilevel k-way Hypergraph Partitioning" by George Karypis
     Updates the candidate 'partitioning' in place!
+    Let 'nodes_inbound_he_ids' return, for a node of 'hg', the inbound hyperedges IDs (w.r.t. the original hypergraph) of the original nodes in it.
     """
-    def greedy_FM_refinement(hg: HyperGraph, partitioning: list[int], partition_sizes : list[int], nodes_in_node : list[int], inbound_he_ids : list[Counter[int]], max_nodes: int, max_inbound_edges: int, seed : Optional[int] = None) -> None:
+    def greedy_FM_refinement(hg: HyperGraph, partitioning: list[int], partition_sizes : list[int], nodes_in_node : list[int], partition_pins : list[int], pins_in_node : list[int], inbound_he_ids : list[Counter[int]], nodes_inbound_he_ids : Callable[[int], Counter[int]], max_nodes: int, max_inbound_edges: int, max_inbound_pins: int, seed : Optional[int] = None) -> None:
         rng = np.random.default_rng(seed)
         nodes = np.arange(hg.nodes)
         rng.shuffle(nodes)
@@ -509,10 +550,12 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
                 best_partition = max(connectivity_w_partitions, key = connectivity_w_partitions.get)
                 if connectivity_w_partitions[best_partition] - loss < 0:
                     break
-                elif partition_sizes[best_partition] + nodes_in_node[n] <= max_nodes and len(best_inbound := inbound_he_ids[best_partition] + (my_inbound := Counter(map(hash, hg.getInboundHyperedges(n))))) <= max_inbound_edges:
+                elif partition_sizes[best_partition] + nodes_in_node[n] <= max_nodes and partition_pins[best_partition] + pins_in_node[n] <= max_inbound_pins and len(best_inbound := inbound_he_ids[best_partition] + (my_inbound := nodes_inbound_he_ids(n))) <= max_inbound_edges:
                     partitioning[n] = best_partition
                     partition_sizes[best_partition] += nodes_in_node[n]
                     partition_sizes[my_partition] -= nodes_in_node[n]
+                    partition_pins[best_partition] += pins_in_node[n]
+                    partition_pins[my_partition] -= pins_in_node[n]
                     inbound_he_ids[best_partition] = best_inbound
                     inbound_he_ids[my_partition] -= my_inbound
                     for he in hg.getTouchingHyperedges(n):
@@ -526,7 +569,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
     # =>=> Extract a random seed for each start by using the initial seed!
     
     # hierarchically coarsened hypergraphs, from less to most coarsened
-    coarsening_levels, nodes_in_node, inbound_he_ids = coarsen_hypergraph(hg, min(max_partitions, hg.nodes // max_nodes), max_nodes, max_inbound_edges, seed)
+    coarsening_levels, nodes_in_node, pins_in_node, inbound_he_ids, level_maps = coarsen_hypergraph(hg, min(max_partitions, hg.nodes // max_nodes), max_nodes, max_inbound_edges, max_inbound_pins, seed)
     if len(coarsening_levels) == 0:
         if hg.nodes > max_partitions:
             raise Exception("Cannot coarsen the hypergraph.")
@@ -535,14 +578,19 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
             return [i for i in range(hg.nodes)]
     # NOTE: partitioning = initialPartitionig( ... )
     # => no need since we coarsen up to the point of having the right number of partitions
-    partition_sizes = nodes_in_node[-1]
+    partition_sizes = list(nodes_in_node[-1]) # copy, as it is updated in place during refinement, while 'nodes_in_node[-1]' is needed per-node
+    partition_pins = list(pins_in_node[-1]) # copy, as it is updated in place during refinement, while 'pins_in_node[-1]' is needed per-node
+    # copy, as the per-partition counters are updated in place during refinement
+    inbound_he_ids = [Counter(ids) for ids in inbound_he_ids]
     partitions_count = coarsening_levels[-1][0].nodes
     if partitions_count > max_partitions:
         raise Exception("Cannot coarsen up until reaching a sufficiently low number of partitions.")
     partitioning = [i for i in range(coarsening_levels[-1][0].nodes)]
     for i in range(len(coarsening_levels) - 1, -1, -1):
         cl_hg, cl_coarsenings = coarsening_levels[i]
-        greedy_FM_refinement(cl_hg, partitioning, partition_sizes, nodes_in_node[i], inbound_he_ids, max_nodes, max_inbound_edges, seed)
+        level_inbound_he_ids = inbound_he_ids_at_level(hg, level_maps, i, cl_hg.nodes)
+        greedy_FM_refinement(cl_hg, partitioning, partition_sizes, nodes_in_node[i], partition_pins, pins_in_node[i], inbound_he_ids, level_inbound_he_ids.__getitem__, max_nodes, max_inbound_edges, max_inbound_pins, seed)
+        del level_inbound_he_ids
         # undo the coarsening
         new_partitioning = [-1 for _ in range(coarsening_levels[i - 1][0].nodes if i > 0 else hg.nodes)]
         for p, c in zip(partitioning, cl_coarsenings):
@@ -550,7 +598,7 @@ def partitionHMETIS(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_
                 new_partitioning[n] = p
         partitioning = new_partitioning
         timerPrint(f"Refining: {i + 1}/{len(coarsening_levels)} levels left...")
-    greedy_FM_refinement(hg, partitioning, partition_sizes, [1 for _ in range(hg.nodes)], inbound_he_ids, max_nodes, max_inbound_edges, seed)
+    greedy_FM_refinement(hg, partitioning, partition_sizes, [1 for _ in range(hg.nodes)], partition_pins, [len(hg.getInboundHyperedges(n)) for n in range(hg.nodes)], inbound_he_ids, lambda n : Counter(map(hash, hg.getInboundHyperedges(n))), max_nodes, max_inbound_edges, max_inbound_pins, seed)
     force_array_of_contigous_integers(partitioning)
     return partitioning
 
@@ -559,104 +607,31 @@ Run the following map operation on the nodes of the hypergraph:
 node -> inbound edges -> inbound edges sources set
 
 Now we have a list of length containing sets. Each set contains integers. This routine fuses some of those sets to reduce their number, starting
-from those that are the most similar, where similarity is defined by the number of elements in common between sets. The process has three constraints:
+from those that are the most similar, where similarity is defined by the number of elements in common between sets. The process has four constraints:
 - Each final set can result from the union of at most N sets. In other words, you can't unite more than N original sets in the same final set.
 - Each final set can't contain more than M elements.
+- The original sets united in each final set can't have more than P elements in total (counting repeated elements once per original set).
 - In the end you must have <= K sets. If this can't be satisfied, erroring out is acceptable.
 This works to partition the hypergraph because the similarity above mirrors the number of hyperedges that would get combined (thus with less cuts)
 when two nodes share the same partition.
 
 Arguments:
 - hg: hypergraph to partition
-- M: max elements per final set
 - N: max original sets per final set
+- M: max elements per final set
+- P: max total elements of the original sets in a final set
 - K: maximum number of final clusters
-- num_perm: number of MinHash permutations (128 is fast, 256 is good)
 - threshold: similarity fraction (0.0, 1.0) required for a merge
+- top_k: number of most similar candidates retrieved by each LSH query
 
 NOTE: currently the performed map considers only the first hyperedges hop between nodes, by recursively adding to the sets also the sources of edges
       inbound to the nodes already in the sets (where second, third, etc. order nodes added to the sets get a lower weight), one could get better
       similarity metric, leading to better results at the price of O((|nodes|*|hyperedges|)^x) complexity during the map with x = 2, 3, 4, ...
+
+Variant: with weights, through an LSH forest. Here we don't start with zero clusters, but with each node initially being its own cluster.
 """
 @core
-def partitionSetlistMiniHash(hg: HyperGraph, N: int, M: int, K: int, num_perm : int = 256, threshold : float = 0.0) -> list[int]:
-    #inbound_edges_sources = map(lambda n : map(lambda he : he[0], hg.getInboundHyperedges(n)), range(hg.nodes))
-    # 0) Build the inbound edges's sources sets list
-    sets = [{he.source() for he in hg.getInboundHyperedges(n)} for n in range(hg.nodes)]
-
-    # 1) Build an empty MinHashLSH index over clusters:
-    lsh = MinHashLSH(threshold = threshold, num_perm = num_perm)
-
-    clusters = {} # cid -> { 'union_set', 'count', 'minhash' }
-    assignments = [] # will hold cid for each input set
-    next_cid = 0
-
-    for S in sets:
-        # 2a) Create MinHash sketch of S
-        mh = MinHash(num_perm = num_perm)
-        for x in S:
-            mh.update(str(x).encode('utf8'))
-
-        # 2b) Get candidate cluster IDs whose sketch ≥ threshold
-        cand_ids = lsh.query(mh)
-
-        # 2c) Among candidates, pick the best mergeable cluster
-        best_cid, best_jacc = None, 0.0
-        for cid in cand_ids:
-            cl = clusters[cid]
-            if cl['count'] >= N:
-                continue
-
-            # Estimate Jaccard via sketch
-            j = mh.jaccard(cl['minhash'])
-            if j <= best_jacc:
-                continue
-
-            # Exact union‐size check via intersection count
-            inter = len(cl['union_set'].intersection(S))
-            if (len(cl['union_set']) + len(S) - inter) <= M:
-                best_cid, best_jacc = cid, j
-
-        # 2d) If no existing cluster fits, start a new one
-        if best_cid is None:
-            cid = next_cid
-            next_cid += 1
-            clusters[cid] = {'union_set': set(S), 'count': 1, 'minhash': mh.copy()}
-            lsh.insert(cid, mh)
-        else:
-            # 2e) Merge into the chosen cluster
-            cid = best_cid
-            cl  = clusters[cid]
-            cl['union_set'].update(S)
-            cl['count'] += 1
-            # update cluster’s MinHash: pointwise min of hashvalues
-            for i in range(num_perm):
-                cl['minhash'].hashvalues[i] = min(cl['minhash'].hashvalues[i], mh.hashvalues[i])
-            # re‐index so its buckets reflect the updated sketch
-            lsh.remove(cid)
-            lsh.insert(cid, cl['minhash'])
-
-        # record which cluster this set went into
-        assignments.append(cid)
-
-    # 3) Enforce the ≤ K clusters requirement
-    unique_cids = sorted(clusters.keys())
-    if len(unique_cids) > K:
-        raise Exception(f"Partitioning could only form {len(unique_cids)} > {K} clusters under the provided N and M constraints.")
-
-    # 4) Remap arbitrary cid values into 0..C–1
-    cid_map = {old: new for new, old in enumerate(unique_cids)}
-    labels  = [cid_map[c] for c in assignments]
-    return labels
-
-"""
-Experimental version of 'partitionSetlistMiniHash' with weights.
-The LSH implementation is still flawed, but its purpose is to show if using weights can improve the result.
-
-Variant: here we don't start with zero clusters, but with each node initially being its own cluster.
-"""
-@core
-def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int, threshold : float = 0.0, top_k : int = 16) -> list[int]:
+def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, P: int, K: int, threshold : float = 0.0, top_k : int = 16) -> list[int]:
     # TODO: tune my arguments!
     # 16, 4 is fast and works decently
     # 32, 8 takes double the time, but is akin to a round of FM
@@ -693,7 +668,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
             # default hyperedge for who has no inbound connections -> helps merge nodes that receive outside input
             # NOTE: node ids must be positive...
             d[-1 & 0xFFFFFFFF] = 1
-        lhs.insert(d, set_id = n)
+        lhs.insert(d, set_id = n, pins_count = len(inbound))
         timerPrint(f"Building LSH forest: {n}/{hg.nodes}...")
 
     queue = list(lhs.ids())
@@ -704,8 +679,9 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
     def valid(other_cluster : LSHEntry):
         # Checks:
         # 1) Total count of merged original nodes
-        # 2) Exact inbound hyperedges union‐size check via intersection count
-        return other_cluster.merge_count + cluster.merge_count <= N and len(other_cluster.weighted_set.keys() | cluster.weighted_set.keys()) <= M
+        # 2) Total count of inbound pins of merged original nodes
+        # 3) Exact inbound hyperedges union‐size check via intersection count
+        return other_cluster.merge_count + cluster.merge_count <= N and other_cluster.pins_count + cluster.pins_count <= P and len(other_cluster.weighted_set.keys() | cluster.weighted_set.keys()) <= M
 
     while merged:
         skip = set()
@@ -750,7 +726,7 @@ def partitionSetlistMiniHashWeightsForest(hg: HyperGraph, N: int, M: int, K: int
 
     # enforce the <= K clusters requirement
     if len(assignments) > K:
-        raise Exception(f"Partitioning could only form {len(assignments)} > {K} clusters under the provided N and M constraints.")
+        raise Exception(f"Partitioning could only form {len(assignments)} > {K} clusters under the provided N, M, and P constraints.")
     
     result = [-1 for _ in range(hg.nodes)]
     for i, part in enumerate(assignments):
@@ -765,17 +741,20 @@ would be violated, then creates and starts filling the next partition.
 Used by the Jin et al. paper.
 """
 @core
-def partitionSequential(hg: HyperGraph, N: int, M: int, K: int) -> list[int]:
+def partitionSequential(hg: HyperGraph, N: int, M: int, P: int, K: int) -> list[int]:
     partitioning = []
     inbound_edges = set()
     assigned_nodes = 0
+    assigned_pins = 0
     current_partition = 0
     for node in range(hg.nodes):
         assigned_nodes += 1
         current_inbound = hg.getInboundHyperedges(node)
+        assigned_pins += len(current_inbound)
         inbound_edges.update(current_inbound)
-        if assigned_nodes > N or len(inbound_edges) > M:
+        if assigned_nodes > N or len(inbound_edges) > M or assigned_pins > P:
             assigned_nodes = 1
+            assigned_pins = len(current_inbound)
             inbound_edges.clear()
             inbound_edges.update(current_inbound)
             current_partition += 1
@@ -791,33 +770,40 @@ Implementation of the Kernighan-Lin heuristic.
 Used by DFSynthesizer.
 
 Arguments:
-- hg, N, M, K as in 'partitionGreedy'.
+- hg, N, M, P, K as in 'partitionGreedy'.
 - min_delta: minimum improvement on the total cost that justifies a move and another round.
+- multistarts: number of random initial partitionings to try, keeping the best result.
+- seed: seed for the random initial partitionings.
 """
 @core
-def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 0.1, multistarts : int = 1) -> list[int]:
+def swapPartitioner(hg: HyperGraph, N: int, M: int, P: int, K: int, min_delta : float = 0.1, multistarts : int = 1, seed : Optional[int] = None) -> list[int]:
+    rng = random.Random(seed)
     best_partitioning = None
     best_cost = math.inf
-    
+
     for _ in range(multistarts):
         partitioning = [0 for _ in range(hg.nodes)]
         inbound_edges = [Counter()]
         assigned_nodes = [0]
+        assigned_pins = [0]
         current_partition = 0
         nodes = list(range(hg.nodes))
-        random.shuffle(nodes)
+        rng.shuffle(nodes)
         # initial partitioning: same logic as 'partitionSequential', but the order of nodes is randomized
         for node in nodes:
             current_inbound = hg.getInboundHyperedges(node)
             inbound_edges[-1].update(current_inbound)
-            if assigned_nodes[-1] + 1 > N or len(inbound_edges[-1]) > M:
+            if assigned_nodes[-1] + 1 > N or len(inbound_edges[-1]) > M or assigned_pins[-1] + len(current_inbound) > P:
                 assigned_nodes.append(0)
-                inbound_edges[-1].subtract(current_inbound)
+                assigned_pins.append(0)
+                # NOTE: not using 'subtract', as it leaves zero-count keys, that would still count towards 'len'
+                inbound_edges[-1] -= Counter(current_inbound)
                 inbound_edges.append(Counter(current_inbound))
                 current_partition += 1
                 if current_partition >= K:
                     raise Exception("Exceeded maximum number of partitions K.")
             assigned_nodes[-1] += 1
+            assigned_pins[-1] += len(current_inbound)
             partitioning[node] = current_partition
         
         cnt = 0
@@ -840,8 +826,9 @@ def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 
                     part_n, part_m = partitioning[n], partitioning[m]
                     edges_m = Counter(hg.getInboundHyperedges(m))
                     if part_n != part_m:
-                        # it's a swap, assigned nodes will always be fine
-                        if len(in_n := (inbound_edges[part_n] - edges_n + edges_m)) <= M and len(in_m := (inbound_edges[part_m] - edges_m + edges_n)) <= M:
+                        # it's a swap, assigned nodes will always be fine, while assigned pins must be checked
+                        pins_n, pins_m = assigned_pins[part_n] - len(hg.getInboundHyperedges(n)) + len(hg.getInboundHyperedges(m)), assigned_pins[part_m] - len(hg.getInboundHyperedges(m)) + len(hg.getInboundHyperedges(n))
+                        if pins_n <= P and pins_m <= P and len(in_n := (inbound_edges[part_n] - edges_n + edges_m)) <= M and len(in_m := (inbound_edges[part_m] - edges_m + edges_n)) <= M:
                             partitioning[n], partitioning[m] = partitioning[m], partitioning[n]
                             new_cost = current_cost
                             # differential cost update
@@ -873,13 +860,15 @@ def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 
                                         new_cost -= he.spike_frequency
                             
                             if new_cost >= current_cost:
+                                # undo the swap, inbound edges stay unchanged
                                 partitioning[n], partitioning[m] = partitioning[m], partitioning[n]
                             else:
-                                delta = current_cost - new_cost
+                                delta += current_cost - new_cost
                                 current_cost = new_cost
-                            
-                            inbound_edges[part_n] = in_n
-                            inbound_edges[part_m] = in_m
+                                inbound_edges[part_n] = in_n
+                                inbound_edges[part_m] = in_m
+                                assigned_pins[part_n] = pins_n
+                                assigned_pins[part_m] = pins_m
         
         if current_cost < best_cost:
             best_partitioning = partitioning
@@ -892,10 +881,11 @@ def swapPartitioner(hg: HyperGraph, N: int, M: int, K: int, min_delta : float = 
 Algorithm from "EdgeMap: An Optimized Mapping Toolchain for Spiking Neural Network in Edge Computing" by Jianwei Xue.
 """
 @core
-def partitionEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+def partitionEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_inbound_pins: int, max_partitions: int) -> list[int]:
     initial_partitions_count = math.ceil(hg.nodes/max_nodes)
     partitions : list[set[int]] = [set() for _ in range(initial_partitions_count)] # usage: partitions[partition_idx] -> set of nodes in partition
     partitions_inbound_sets : list[set[HyperEdge]] = [set() for _ in range(initial_partitions_count)] # usage: partitions_inbound_sets[partition_idx] -> set of hyperedge inbound to that partition
+    partitions_inbound_pins : list[int] = [0 for _ in range(initial_partitions_count)] # usage: partitions_inbound_pins[partition_idx] -> inbound pins of that partition
 
     timerPrint = getTimerPrinter(Settings.PRINT_INTERVAL)
 
@@ -916,10 +906,10 @@ def partitionEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, 
         best_delta = -math.inf
         node_inbound_set = hg.getInboundHyperedges(node)
         node_outbound_set = hg.getOutboundHyperedges(node)
-        for part_idx, (part, part_inbount_set) in enumerate(zip(partitions, partitions_inbound_sets)):
+        for part_idx, (part, part_inbount_set, part_inbound_pins) in enumerate(zip(partitions, partitions_inbound_sets, partitions_inbound_pins)):
             # constraints check
             #if len(part) < max_nodes and len(part_inbount_set | node_inbound_set) < max_inbound_edges:
-            if len(part) == 0 or len(part) < max_nodes and len(part_inbount_set) + len(node_inbound_set) - sum(1 for he in node_inbound_set if he in part_inbount_set) < max_inbound_edges:
+            if len(part) == 0 or len(part) < max_nodes and part_inbound_pins + len(node_inbound_set) <= max_inbound_pins and len(part_inbount_set) + len(node_inbound_set) - sum(1 for he in node_inbound_set if he in part_inbount_set) <= max_inbound_edges:
                 # how many connections would get "hidden" inside a single partition by this move?
                 # in other words: total spike frequency of the transmission that would have src and dst within this core.
                 # NOTE: this does NOT actively consider synaptic reuse, but enforce spike resolution within a core, that shall contain both src and dst neuron!
@@ -937,9 +927,11 @@ def partitionEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, 
         if best_part_idx < 0:
             partitions.append({node})
             partitions_inbound_sets.append(set(node_inbound_set))
+            partitions_inbound_pins.append(len(node_inbound_set))
         else:
             partitions[best_part_idx].add(node)
             partitions_inbound_sets[best_part_idx].update(node_inbound_set)
+            partitions_inbound_pins[best_part_idx] += len(node_inbound_set)
     # enforce max_partitions constraint
     if len(partitions) > max_partitions:
         raise Exception(f"Partitioning could only form {len(partitions)} > {max_partitions} clusters under the provided constraints.")
@@ -951,7 +943,7 @@ def partitionEdgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, 
     return result
 
 """
-Novel idea derived from 'greedyEdgeHiding'.
+Novel idea derived from 'partitionEdgeHiding'.
 We bundle together hyperedges based on them being connected to the same nodes.
 
 General idea:
@@ -966,7 +958,7 @@ General idea:
 Complexity bound: O(e*d*h)
 """
 @core
-def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_partitions: int) -> list[int]:
+def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: int, max_inbound_pins: int, max_partitions: int) -> list[int]:
     partitions : list[int] = [-1 for _ in range(hg.nodes)]
     # ordering by either only-length or only-spike-frequency seems to work better than to do so by their product...
     #sorted_hes = sorted(hg.hyperedges, key = lambda he : (he.spike_frequency + 0.000001)*len(he), reverse = True)
@@ -987,6 +979,7 @@ def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: 
     #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : cnt*he.spike_frequency, int) # strictly highest (weighted) overlap
     #ranking : AddressableMaxPQ[HyperEdge, int] = AddressableMaxPQ(lambda he, cnt : he.spike_frequency*(1 + cnt/hes_length[he])**2, int) # in between highest overlap and overlap ratio
     nodes_count = 0 # tracks nodes involved in the present partition
+    pins_count = 0 # tracks the inbound pins of the nodes involved in the present partition
     inbound_set = set() # tracks the inbound hyperedges to the present partition
     while True:
         if len(ranking) != 0:
@@ -1020,16 +1013,20 @@ def partitionHyperedgeHiding(hg: HyperGraph, max_nodes: int, max_inbound_edges: 
                 ## among nodes that fit, pick the one with the most overlapping hyperedges
                 #best_node, inbound = max(nodes.items(), key = lambda item : ((new := len(item[1] - inbound_set)) <= max_inbound_edges, len(item[1]) - new, -new))
             inbound_set.update(inbound)
-            if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges:
+            # NOTE: unlike for inbound hyperedges, if the chosen node exceeds the pins, a different one could still fit, but we start a new partition anyway
+            best_node_pins = len(hg.getInboundHyperedges(best_node))
+            if nodes_count == max_nodes or len(inbound_set) > max_inbound_edges or pins_count + best_node_pins > max_inbound_pins:
                 if nodes_count == 0:
-                    raise Exception(f"Node {best_node} has more inbound hyperedges than the hardware can handle per-core: {len(inbound_set)} > {max_inbound_edges}.")
+                    raise Exception(f"Node {best_node} has more inbound hyperedges (or pins) than the hardware can handle per-core: {len(inbound_set)} > {max_inbound_edges} (or {best_node_pins} > {max_inbound_pins}).")
                 ranking.clear()
                 inbound_set.clear()
                 nodes_count = 0
+                pins_count = 0
                 next_partition_idx += 1
                 continue
             nodes.pop(best_node)
             nodes_count += 1
+            pins_count += best_node_pins
             partitions[best_node] = next_partition_idx
             for other_he in hg.getTouchingHyperedges(best_node):
                 if other_he not in seen_hes:

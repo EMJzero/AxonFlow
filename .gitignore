@@ -1,3 +1,17 @@
 __pycache__
 .vscode/
 tmp*
+
+*.json
+*.plac
+*.part
+*.snn
+*.png
+*.txt
+*.gz
+*.npz
+
+*part
+*processed
+*reservoir
+*ffo

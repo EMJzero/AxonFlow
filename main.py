@@ -141,7 +141,8 @@ if __name__ == "__main__":
         print("\n------- hardware model -------")
         hardware = HardwareModel(
             neurons_per_core = 256,
-            synapses_per_core = 1024,
+            axons_per_core = 1024,
+            synapses_per_core = 256*1024,
             cores_per_chip_x = 64,
             cores_per_chip_y = 64,
             chips_per_system_x = 1,
@@ -151,7 +152,7 @@ if __name__ == "__main__":
             latency_per_routing = 1.0,
             latency_per_wire = 0.1
         )
-        print((f"Neurons per core: {hardware.neurons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
+        print((f"Neurons per core: {hardware.neurons_per_core}\tAxons per core: {hardware.axons_per_core}\tSynapses per core: {hardware.synapses_per_core}\n"
                f"Cores along x: {hardware.cores_per_chip_x}\tCores along y: {hardware.cores_per_chip_y}\n"
                f"Chips along x: {hardware.chips_per_system_x}\tChips along y: {hardware.chips_per_system_y}\n"
                f"Routing energy: {hardware.energy_per_routing}\tWire energy: {hardware.energy_per_wire}\n"
@@ -177,12 +178,12 @@ if __name__ == "__main__":
                 prettyPrintDict({"ignored count": f"{removed_connections}/{total_connections}",
                                  "ignored total spike frequency": f"{removed_spike_frequency:.3f}/{total_spike_frequency:.3f} ({100*removed_spike_frequency/total_spike_frequency:.3g}%)"}, 1)
             # > partition
-            partitioning_multilevel_multistart_refined = Worker(partitionGreedyMultilevelRefinedMultistart, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
-            partitioning_setlist = Worker(partitionSetlistMiniHashWeightsForest, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
-            partitioning_greedy = Worker(partitionGreedy, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
-            partitioning_sequential = Worker(partitionSequential, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
-            #partitioning_swap = Worker(swapPartitioner, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
-            partitioning_hmetis = Worker(partitionHMETIS, snn, hardware.neurons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # Ouwen Jin's paper.
+            partitioning_multilevel_multistart_refined = Worker(partitionGreedyMultilevelRefinedMultistart, snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # NEW IDEA!
+            partitioning_setlist = Worker(partitionSetlistMiniHashWeightsForest, snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount()) # NEW IDEA!
+            partitioning_greedy = Worker(partitionGreedy, snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount()) # A piece of a new idea.
+            partitioning_sequential = Worker(partitionSequential, snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount()) # Ouwen Jin's paper.
+            #partitioning_swap = Worker(swapPartitioner, snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount()) # DFSynthesizer's paper.
+            partitioning_hmetis = Worker(partitionHMETIS, snn, hardware.neurons_per_core, hardware.axons_per_core, hardware.synapses_per_core, hardware.coresCount(), seed = seed) # Ouwen Jin's paper.
             partitioning_multilevel_multistart_refined = partitioning_multilevel_multistart_refined.get()
             partitioning_setlist = partitioning_setlist.get()
             partitioning_greedy = partitioning_greedy.get()
