@@ -1,0 +1,79 @@
+diff --git a/src/Main.cpp b/src/Main.cpp
+index e1f3082..b7a4e6c 100644
+--- a/src/Main.cpp
++++ b/src/Main.cpp
+@@ -15,7 +15,10 @@
+ #include "GlobalParams.h"
+ #include "Logger.h"
+ 
++#include <chrono>
+ #include <csignal>
++#include <cstdlib>
++#include <iomanip>
+ #include <set>
+ #include <sstream>
+ 
+@@ -84,6 +87,54 @@ bool traceScopeEnabled(const set<string> &scopes, const string &scope)
+     return scopes.count("all") != 0 || scopes.count(scope) != 0;
+ }
+ 
++int getProgressIntervalCycles()
++{
++    const char *value = getenv("NOXIM_PROGRESS_INTERVAL_CYCLES");
++    if (value == NULL || value[0] == '\0')
++        return 0;
++
++    char *end = NULL;
++    long interval = strtol(value, &end, 10);
++    if (end == value || interval <= 0)
++        return 0;
++
++    return (int) interval;
++}
++
++void runSimulationWithProgress(int total_cycles)
++{
++    int progress_interval = getProgressIntervalCycles();
++    if (progress_interval <= 0 || progress_interval >= total_cycles) {
++        sc_start(sc_time((double)total_cycles * GlobalParams::clock_period_ps, SC_PS));
++        return;
++    }
++
++    using clock_type = chrono::steady_clock;
++    const clock_type::time_point start = clock_type::now();
++    int simulated = 0;
++
++    while (simulated < total_cycles) {
++        const int chunk = min(progress_interval, total_cycles - simulated);
++        sc_start(sc_time((double)chunk * GlobalParams::clock_period_ps, SC_PS));
++        simulated += chunk;
++
++        const double fraction = simulated / (double)total_cycles;
++        const chrono::duration<double> elapsed = clock_type::now() - start;
++        const double elapsed_seconds = elapsed.count();
++        const double eta_seconds =
++            fraction > 0.0 ? elapsed_seconds * (1.0 - fraction) / fraction : 0.0;
++
++        ostringstream progress;
++        progress << fixed << setprecision(1);
++        progress << "[progress] "
++                 << simulated << "/" << total_cycles << " cycles ("
++                 << (fraction * 100.0) << "%), "
++                 << "elapsed " << elapsed_seconds << "s, "
++                 << "eta " << eta_seconds << "s";
++        cout << progress.str() << endl;
++    }
++}
++
+ template <typename T>
+ void traceNamed(sc_trace_file *tf, const sc_signal<T> &signal, const string &name)
+ {
+@@ -338,7 +389,7 @@ int sc_main(int arg_num, char *arg_vet[])
+     cout << " Now running for " << GlobalParams:: simulation_time << " cycles..." << endl;
+     // fix clock periods different from 1ns
+     //sc_start(GlobalParams::simulation_time, SC_NS);
+-    sc_start(sc_time((double)GlobalParams::simulation_time * GlobalParams::clock_period_ps, SC_PS));
++    runSimulationWithProgress(GlobalParams::simulation_time);
+ 
+ 
+     // Close the simulation

@@ -1,0 +1,38 @@
+Energy:
+  Buffer:
+    - [4, 32, 0.0, 0.0, 0.0, 0.0]
+
+  LinkBitLine:
+    - [1.0, 0.0, 5.46875e-14]
+
+  Router:
+    crossbar:
+      - [5, 32, 0.0, 0.0]
+
+    network_interface:
+      - [32, 0.0, 0.0]
+
+    routing:
+      default: [0.0, 1.7e-12]
+      XY: [0.0, 1.7e-12]
+      DYAD: [0.0, 1.7e-12]
+      NEGATIVE_FIRST: [0.0, 1.7e-12]
+      NORTH_LAST: [0.0, 1.7e-12]
+      DELTA: [0.0, 1.7e-12]
+      WEST_FIRST: [0.0, 1.7e-12]
+      ODD_EVEN: [0.0, 1.7e-12]
+      TABLE_BASED: [0.0, 1.7e-12]
+
+    selection:
+      default: [0.0, 0.0]
+      RANDOM: [0.0, 0.0]
+      BUFFER_LEVEL: [0.0, 0.0]
+      NOP: [0.0, 0.0]
+
+  Hub:
+    transceiver_leakage: [0.0, 0.0]
+    transceiver_biasing: [0.0, 0.0]
+    rx_dynamic: 0.0
+    rx_snooping: 0.0
+    default_tx_energy: 0.0
+    tx_attenuation_map: []
